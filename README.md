@@ -110,3 +110,16 @@ python -m PyInstaller --clean .\STO_CRM.spec
 python -m py_compile .\sto_crm.py .\tests\test_sto_crm.py
 python -m unittest discover -v
 ```
+
+## Публикация обновления
+
+1. Зафиксируйте изменения в `main` и убедитесь, что CI проходит.
+2. Увеличьте `APP_VERSION` в `sto_crm.py`.
+3. Создайте тег версии и отправьте его в GitHub:
+
+```powershell
+git tag v1.17.0
+git push origin main --tags
+```
+
+Workflow `Build release` соберет `release\STO_CRM.exe`, приложит SHA-256 checksum и создаст GitHub Release. Именно этот Release видит раздел `Обновления` в CRM.
