@@ -53,7 +53,10 @@ GITHUB_UPDATES_CONFIG_ENV = "STO_CRM_UPDATE_REPOSITORY"
 GITHUB_TOKEN_ENV = "STO_CRM_GITHUB_TOKEN"
 GITHUB_UPDATE_TIMEOUT = 15
 GITHUB_UPDATE_MAX_ASSET_BYTES = 250 * 1024 * 1024
+GITHUB_RELEASE_MANIFEST_NAME = "latest.json"
+GITHUB_RELEASE_NOTES_NAME = "README.md"
 EXE_ASSET_RE = re.compile(r"(?:^|[-_.])STO[-_]?CRM(?:[-_.]|$).*\.exe$|^STO_CRM\.exe$", re.IGNORECASE)
+MANIFEST_ASSET_RE = re.compile(r"(?:^|[-_.])latest(?:[-_.]|$).*\.json$|^latest\.json$", re.IGNORECASE)
 VIN_RE = re.compile(r"^[A-HJ-NPR-Z0-9]{17}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 SENSITIVE_QUERY_RE = re.compile(r"([?&](?:token|csrf|csrf_token)=)([^&\s]+)", re.IGNORECASE)
@@ -3134,13 +3137,24 @@ def release_asset_score(asset: dict[str, Any]) -> int:
     return score
 
 
-def select_release_asset(release: dict[str, Any]) -> dict[str, Any] | None:
+def manifest_asset_score(asset: dict[str, Any]) -> int:
+    name = str(asset.get("name") or "")
+    lowered = name.lower()
+    if name == GITHUB_RELEASE_MANIFEST_NAME:
+        return 100
+    if MANIFEST_ASSET_RE.search(name):
+        return 80
+    return 10 if lowered.endswith(".json") and "manifest" in lowered else 0
+
+
+def select_release_asset(release: dict[str, Any], *, kind: str = "exe") -> dict[str, Any] | None:
     assets = [asset for asset in release.get("assets", []) if isinstance(asset, dict)]
     candidates = [asset for asset in assets if str(asset.get("browser_download_url") or "")]
-    candidates = [asset for asset in candidates if release_asset_score(asset) > 0]
+    scorer = manifest_asset_score if kind == "manifest" else release_asset_score
+    candidates = [asset for asset in candidates if scorer(asset) > 0]
     if not candidates:
         return None
-    return max(candidates, key=release_asset_score)
+    return max(candidates, key=scorer)
 
 
 def github_headers(accept: str = "application/vnd.github+json") -> dict[str, str]:
@@ -3155,8 +3169,8 @@ def github_headers(accept: str = "application/vnd.github+json") -> dict[str, str
     return headers
 
 
-def fetch_json(url: str, timeout: int = GITHUB_UPDATE_TIMEOUT) -> dict[str, Any]:
-    request = urllib.request.Request(url, headers=github_headers())
+def fetch_json(url: str, timeout: int = GITHUB_UPDATE_TIMEOUT, headers: dict[str, str] | None = None) -> dict[str, Any]:
+    request = urllib.request.Request(url, headers=headers or github_headers())
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             charset = response.headers.get_content_charset() or "utf-8"
@@ -3166,17 +3180,64 @@ def fetch_json(url: str, timeout: int = GITHUB_UPDATE_TIMEOUT) -> dict[str, Any]
             return payload
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
-            raise RuntimeError("Релиз GitHub не найден. Создайте GitHub Release с файлом STO_CRM.exe.") from exc
+            raise RuntimeError("Релиз GitHub не найден. Опубликуйте release-only билд STO_CRM.exe и latest.json.") from exc
         if exc.code in {401, 403}:
-            raise RuntimeError(f"GitHub отклонил запрос ({exc.code}). Для приватного репозитория задайте {GITHUB_TOKEN_ENV}.") from exc
+            raise RuntimeError(f"GitHub отклонил запрос ({exc.code}). Для приватного release-only репозитория задайте {GITHUB_TOKEN_ENV}.") from exc
         raise RuntimeError(f"GitHub недоступен: HTTP {exc.code}.") from exc
     except (OSError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
         raise RuntimeError(f"Не удалось получить информацию об обновлении: {exc}") from exc
 
 
+def fetch_asset_json(asset: dict[str, Any]) -> dict[str, Any]:
+    url = clean_text(asset.get("browser_download_url") or asset.get("download_url"), 1000)
+    if not url:
+        raise RuntimeError("В release-only билде нет ссылки на manifest latest.json.")
+    return fetch_json(url, headers=github_headers("application/octet-stream"))
+
+
+def normalize_release_asset(asset: dict[str, Any] | None, manifest_asset: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    if not asset:
+        return None
+    name = clean_text(asset.get("name") or (manifest_asset or {}).get("name") or "STO_CRM.exe", 180)
+    download_url = clean_text(asset.get("download_url") or asset.get("browser_download_url") or (manifest_asset or {}).get("browser_download_url"), 1000)
+    return {
+        "name": name,
+        "size": parse_int(asset.get("size") or (manifest_asset or {}).get("size")),
+        "sha256": clean_text(asset.get("sha256") or asset.get("hash") or "", 80).lower(),
+        "download_url": download_url,
+    }
+
+
+def release_info_from_manifest(release: dict[str, Any], manifest: dict[str, Any], manifest_asset: dict[str, Any]) -> dict[str, Any]:
+    repository = normalize_github_repository()
+    asset = normalize_release_asset(manifest.get("asset") if isinstance(manifest.get("asset"), dict) else None)
+    version = clean_text(manifest.get("version") or manifest.get("tag") or release.get("tag_name") or "", 80).lstrip("vV")
+    return {
+        "repository": repository,
+        "repository_url": github_repository_url(repository),
+        "release_url": clean_text(manifest.get("release_url") or release.get("html_url") or github_latest_release_url(repository), 500),
+        "tag": clean_text(manifest.get("tag") or release.get("tag_name") or "", 80),
+        "name": clean_text(manifest.get("name") or release.get("name") or "", 120),
+        "version": version,
+        "published_at": clean_text(manifest.get("published_at") or release.get("published_at") or "", 40),
+        "body": clean_multiline(manifest.get("notes") or release.get("body") or "", 3000),
+        "prerelease": bool(release.get("prerelease")),
+        "draft": bool(release.get("draft")),
+        "manifest": {
+            "name": clean_text(manifest_asset.get("name") or GITHUB_RELEASE_MANIFEST_NAME, 180),
+            "size": parse_int(manifest_asset.get("size")),
+        },
+        "asset": asset,
+    }
+
+
 def latest_release_info() -> dict[str, Any]:
     repository = normalize_github_repository()
     release = fetch_json(github_latest_release_api_url(repository))
+    manifest_asset = select_release_asset(release, kind="manifest")
+    if manifest_asset:
+        manifest = fetch_asset_json(manifest_asset)
+        return release_info_from_manifest(release, manifest, manifest_asset)
     version = clean_text(release.get("tag_name") or release.get("name") or "", 80).lstrip("vV")
     asset = select_release_asset(release)
     return {
@@ -3190,11 +3251,8 @@ def latest_release_info() -> dict[str, Any]:
         "body": clean_multiline(release.get("body") or "", 3000),
         "prerelease": bool(release.get("prerelease")),
         "draft": bool(release.get("draft")),
-        "asset": {
-            "name": clean_text(asset.get("name"), 180),
-            "size": parse_int(asset.get("size")),
-            "download_url": clean_text(asset.get("browser_download_url"), 800),
-        } if asset else None,
+        "manifest": None,
+        "asset": normalize_release_asset(asset),
     }
 
 
@@ -3270,7 +3328,11 @@ def download_release_asset(asset: dict[str, Any], target: Path) -> dict[str, Any
         raise RuntimeError("Размер скачанного обновления не совпадает с размером в GitHub Release.")
     if total <= 0:
         raise RuntimeError("GitHub вернул пустой файл обновления.")
-    return {"size": total, "sha256": sha256.hexdigest()}
+    digest = sha256.hexdigest()
+    expected_sha = clean_text(asset.get("sha256"), 80).lower()
+    if expected_sha and expected_sha != digest:
+        raise RuntimeError("SHA-256 скачанного обновления не совпадает с release-only manifest.")
+    return {"size": total, "sha256": digest}
 
 
 def ensure_downloaded_executable(path: Path) -> None:
@@ -5800,7 +5862,7 @@ function renderUpdates() {
                     <button class="btn primary" type="button" data-action="install-update" title="${esc(installTitle)}" ${installDisabled ? "disabled" : ""}>${state.updateInstalling ? "Устанавливаем..." : "Установить"}</button>
                 </div>
             </div>
-            <p>CRM проверяет последний GitHub Release репозитория, выбирает готовый файл <strong>STO_CRM.exe</strong>, скачивает его с контролем размера и SHA-256, делает резервную копию текущего exe и перезапускает приложение.</p>
+            <p>CRM проверяет release-only репозиторий: в GitHub хранится только готовый <strong>STO_CRM.exe</strong>, checksum и <strong>latest.json</strong>. Исходный код туда не загружается. Обновление скачивается с контролем размера и SHA-256, делает резерв текущего exe и перезапускает приложение.</p>
             <div class="update-meta">
                 <span class="count-pill">Текущая версия: ${esc(app.version)}</span>
                 <a class="count-pill" href="${esc(app.repository_url)}" target="_blank" rel="noreferrer">${esc(app.repository)}</a>

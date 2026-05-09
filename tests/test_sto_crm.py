@@ -1536,13 +1536,31 @@ class StoCrmTests(unittest.TestCase):
         release = {
             "assets": [
                 {"name": "checksums.sha256", "browser_download_url": "https://example.test/checksums", "size": 100},
+                {"name": "latest.json", "browser_download_url": "https://example.test/latest.json", "size": 321},
                 {"name": "STO_CRM.exe", "browser_download_url": "https://example.test/STO_CRM.exe", "size": 123},
             ]
         }
         self.assertTrue(sto_crm.is_newer_version("v1.18.0", "1.17.0"))
         self.assertFalse(sto_crm.is_newer_version("1.17.0", "1.17.0"))
         self.assertEqual(sto_crm.select_release_asset(release)["name"], "STO_CRM.exe")
+        self.assertEqual(sto_crm.select_release_asset(release, kind="manifest")["name"], "latest.json")
         self.assertEqual(sto_crm.normalize_github_repository("https://github.com/owner/repo.git"), "owner/repo")
+
+    def test_release_manifest_drives_update_asset_metadata(self):
+        release = {"tag_name": "v1.20.0", "html_url": "https://github.com/owner/repo/releases/tag/v1.20.0"}
+        manifest = {
+            "version": "1.20.0",
+            "asset": {
+                "name": "STO_CRM.exe",
+                "size": 123,
+                "sha256": "ABCDEF",
+                "download_url": "https://github.com/owner/repo/releases/download/v1.20.0/STO_CRM.exe",
+            },
+        }
+        info = sto_crm.release_info_from_manifest(release, manifest, {"name": "latest.json", "size": 100})
+        self.assertEqual(info["version"], "1.20.0")
+        self.assertEqual(info["asset"]["sha256"], "abcdef")
+        self.assertEqual(info["manifest"]["name"], "latest.json")
 
     def test_update_status_reports_release_lookup_failures_without_crashing(self):
         old_fetch_json = sto_crm.fetch_json
@@ -1564,6 +1582,8 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('data-action="check-update"', html)
         self.assertIn('data-action="install-update"', html)
         self.assertIn('STO_CRM.exe', html)
+        self.assertIn('latest.json', html)
+        self.assertIn('release-only', html)
 
     def test_home_page_exposes_theme_route_and_modal_accessibility_hooks(self):
         html = sto_crm.INDEX_HTML

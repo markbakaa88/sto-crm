@@ -23,6 +23,7 @@ release/
 *.spec.bak
 
 # Local assistant/editor metadata
+.source/
 .serena/
 .idea/
 .vscode/

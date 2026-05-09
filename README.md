@@ -16,15 +16,16 @@
 
 ## Обновления через GitHub
 
-Приложение подключено к репозиторию `markbakaa88/sto-crm` и разделу `Обновления` в интерфейсе. Механизм обновления работает через GitHub Releases:
+Приложение подключено к release-only репозиторию `markbakaa88/sto-crm`: в GitHub должны лежать только готовые билды, checksum и manifest, без исходного кода проекта. Механизм обновления работает через GitHub Releases:
 
 1. откройте `Обновления` → `Проверить обновления`;
-2. CRM получает последний релиз GitHub и выбирает asset `STO_CRM.exe`;
-3. при установке скачанный файл проверяется по размеру и SHA-256;
-4. текущий `.exe` сохраняется как резервная копия в `%LOCALAPPDATA%\STO_CRM\updates`;
-5. приложение закрывается, exe атомарно заменяется и запускается снова.
+2. CRM получает последний GitHub Release и asset `latest.json`;
+3. manifest указывает на готовый `STO_CRM.exe`, его размер и SHA-256;
+4. при установке скачанный exe проверяется по размеру, SHA-256 и сигнатуре `.exe`;
+5. текущий `.exe` сохраняется как резервная копия в `%LOCALAPPDATA%\STO_CRM\updates`;
+6. приложение закрывается, exe атомарно заменяется и запускается снова.
 
-Для приватного репозитория на рабочих местах задайте токен GitHub с доступом на чтение репозитория:
+Для приватного release-only репозитория на рабочих местах задайте токен GitHub с доступом на чтение репозитория:
 
 ```powershell
 setx STO_CRM_GITHUB_TOKEN "github_pat_..."
@@ -113,13 +114,29 @@ python -m unittest discover -v
 
 ## Публикация обновления
 
-1. Зафиксируйте изменения в `main` и убедитесь, что CI проходит.
-2. Увеличьте `APP_VERSION` в `sto_crm.py`.
-3. Создайте тег версии и отправьте его в GitHub:
+Этот исходный проект храните локально или в отдельном приватном source-репозитории. Публичный/рабочий репозиторий `markbakaa88/sto-crm` должен быть release-only.
 
-```powershell
-git tag v1.17.0
-git push origin main --tags
+Для публикации обновления в release-only репозиторий загрузите в GitHub Release только:
+
+- `STO_CRM.exe` — готовая Windows-сборка;
+- `STO_CRM.exe.sha256` — checksum;
+- `latest.json` — manifest обновления;
+- опционально `README.md` с краткими заметками релиза.
+
+Минимальный `latest.json`:
+
+```json
+{
+  "version": "1.17.0",
+  "tag": "v1.17.0",
+  "name": "СТО CRM 1.17.0",
+  "asset": {
+    "name": "STO_CRM.exe",
+    "size": 12345678,
+    "sha256": "...",
+    "download_url": "https://github.com/markbakaa88/sto-crm/releases/download/v1.17.0/STO_CRM.exe"
+  }
+}
 ```
 
-Workflow `Build release` соберет `release\STO_CRM.exe`, приложит SHA-256 checksum и создаст GitHub Release. Именно этот Release видит раздел `Обновления` в CRM.
+Именно `latest.json` читает раздел `Обновления` в CRM; исходники в release-only репозиторий загружать не нужно.
