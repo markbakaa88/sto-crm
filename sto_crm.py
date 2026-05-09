@@ -50,7 +50,6 @@ LOOKUP_LIMIT = 5_000
 INTERNAL_ERROR_MESSAGE = "Внутренняя ошибка сервера. Подробности записаны в журнал приложения."
 GITHUB_REPOSITORY = "markbakaa88/sto-crm"
 GITHUB_UPDATES_CONFIG_ENV = "STO_CRM_UPDATE_REPOSITORY"
-GITHUB_TOKEN_ENV = "STO_CRM_GITHUB_TOKEN"
 GITHUB_UPDATE_TIMEOUT = 15
 GITHUB_UPDATE_MAX_ASSET_BYTES = 250 * 1024 * 1024
 GITHUB_RELEASE_MANIFEST_NAME = "latest.json"
@@ -60,6 +59,13 @@ MANIFEST_ASSET_RE = re.compile(r"(?:^|[-_.])latest(?:[-_.]|$).*\.json$|^latest\.
 VIN_RE = re.compile(r"^[A-HJ-NPR-Z0-9]{17}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 SENSITIVE_QUERY_RE = re.compile(r"([?&](?:token|csrf|csrf_token)=)([^&\s]+)", re.IGNORECASE)
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+TRUSTED_UPDATE_DOWNLOAD_HOSTS = {
+    "api.github.com",
+    "github.com",
+    "github-releases.githubusercontent.com",
+    "objects.githubusercontent.com",
+}
 MIN_VEHICLE_YEAR = 1900
 PREFERRED_CHANNELS = {"phone": "Телефон", "sms": "SMS", "email": "Email", "messenger": "Мессенджер", "none": "Не писать"}
 ORDER_PRIORITIES = {"low": "Низкий", "normal": "Обычный", "high": "Высокий", "urgent": "Срочно"}
@@ -2775,10 +2781,39 @@ def build_reports(
     appointments: list[dict[str, Any]],
     inspections: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    today = datetime.now().date()
-    month_prefix = datetime.now().strftime("%Y-%m")
+    now = datetime.now()
+    today = now.date()
+    month_prefix = now.strftime("%Y-%m")
     active_statuses = {"new", "diagnostics", "estimate", "approved", "in_progress", "done"}
     active_orders = [o for o in orders if o.get("status") in active_statuses]
+
+    def parse_local_datetime(value: Any) -> datetime | None:
+        text = str(value or "").strip().replace(" ", "T")
+        if not text:
+            return None
+        try:
+            return datetime.fromisoformat(text[:16])
+        except ValueError:
+            return None
+
+    def summarize_order(order: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": order.get("id"),
+            "number": order.get("number"),
+            "status": order.get("status"),
+            "priority": order.get("priority"),
+            "customer_id": order.get("customer_id"),
+            "customer_name": order.get("customer_name"),
+            "customer_phone": order.get("customer_phone"),
+            "vehicle": orderVehicleText(order),
+            "promised_at": order.get("promised_at"),
+            "advisor": order.get("advisor"),
+            "mechanic": order.get("mechanic"),
+            "total": round(parse_float(order.get("total")), 2),
+            "due": round(parse_float(order.get("due")), 2),
+            "margin": round(parse_float(order.get("margin")), 2),
+            "updated_at": order.get("updated_at"),
+        }
     month_closed = [o for o in orders if str(o.get("closed_at", "")).startswith(month_prefix) and o.get("status") == "closed"]
     revenue_month = sum(parse_float(o.get("total")) for o in month_closed)
     gross_margin_month = sum(parse_float(o.get("margin")) for o in month_closed)
@@ -2788,16 +2823,22 @@ def build_reports(
     conversion_base = [o for o in orders if o.get("status") in {"estimate", "approved", "in_progress", "done", "closed"}]
     conversion_won = [o for o in conversion_base if o.get("status") in {"approved", "in_progress", "done", "closed"}]
     conversion_rate = (len(conversion_won) / len(conversion_base) * 100) if conversion_base else 0
+    pipeline_value = sum(parse_float(o.get("total")) for o in active_orders)
+    pipeline_due = sum(parse_float(o.get("due")) for o in active_orders)
     status_counts = {status: 0 for status in ORDER_STATUSES}
     for order in orders:
         status_counts[str(order.get("status"))] = status_counts.get(str(order.get("status")), 0) + 1
     low_stock = [p for p in inventory if parse_float(p.get("quantity")) <= parse_float(p.get("min_quantity"))]
     inventory_value = sum(parse_float(p.get("quantity")) * parse_float(p.get("cost")) for p in inventory)
     promised_today = []
+    overdue_orders = []
     for order in active_orders:
         promised_at = str(order.get("promised_at") or "")
+        promised_dt = parse_local_datetime(promised_at)
         if promised_at.startswith(today.isoformat()):
             promised_today.append(order)
+        if promised_dt and promised_dt < now:
+            overdue_orders.append(order)
     reminder_horizon = today + timedelta(days=14)
     service_reminders = []
     for vehicle in vehicles:
@@ -2858,6 +2899,24 @@ def build_reports(
         if appointment.get("status") in appointment_active_statuses
         and str(appointment.get("scheduled_at") or "")[:10] >= today.isoformat()
     ][:8]
+    appointment_load_7_days = []
+    for offset in range(7):
+        day = today + timedelta(days=offset)
+        day_prefix = day.isoformat()
+        day_appointments = [
+            appointment
+            for appointment in appointments
+            if appointment.get("status") in appointment_active_statuses
+            and str(appointment.get("scheduled_at") or "").startswith(day_prefix)
+        ]
+        appointment_load_7_days.append(
+            {
+                "date": day_prefix,
+                "label": day.strftime("%d.%m"),
+                "count": len(day_appointments),
+                "appointments": day_appointments[:5],
+            }
+        )
     inspection_alerts = []
     for inspection in inspections:
         if inspection.get("status") == "archived":
@@ -2885,6 +2944,78 @@ def build_reports(
         inspection_alerts,
         key=lambda item: (0 if item.get("condition_status") == "critical" else 1, str(item.get("inspected_at") or "")),
     )
+    procurement_plan = []
+    for part in low_stock:
+        quantity = max(parse_float(part.get("quantity")), 0)
+        min_quantity = max(parse_float(part.get("min_quantity")), 0)
+        target_quantity = max(min_quantity * 2, min_quantity + 1, 1)
+        reorder_quantity = max(target_quantity - quantity, 0)
+        unit_budget = parse_float(part.get("cost")) or parse_float(part.get("price"))
+        procurement_plan.append(
+            {
+                "id": part.get("id"),
+                "sku": part.get("sku"),
+                "name": part.get("name"),
+                "unit": part.get("unit"),
+                "quantity": round(quantity, 2),
+                "min_quantity": round(min_quantity, 2),
+                "reorder_quantity": round(reorder_quantity, 2),
+                "budget": round(reorder_quantity * unit_budget, 2),
+                "supplier": part.get("supplier"),
+                "urgency": "critical" if quantity <= 0 else "low",
+            }
+        )
+    procurement_plan.sort(key=lambda item: (0 if item["urgency"] == "critical" else 1, -parse_float(item.get("budget"))))
+
+    pipeline_by_status = []
+    for status, label in ORDER_STATUSES.items():
+        status_orders = [order for order in orders if order.get("status") == status]
+        overdue_ids = {int(order["id"]) for order in overdue_orders if order.get("id")}
+        status_overdue = [order for order in status_orders if int(order.get("id") or 0) in overdue_ids]
+        pipeline_by_status.append(
+            {
+                "status": status,
+                "label": label,
+                "count": len(status_orders),
+                "total": round(sum(parse_float(order.get("total")) for order in status_orders), 2),
+                "due": round(sum(parse_float(order.get("due")) for order in status_orders), 2),
+                "overdue_count": len(status_overdue),
+                "orders": [summarize_order(order) for order in status_orders[:6]],
+            }
+        )
+
+    overdue_ids = {int(order["id"]) for order in overdue_orders if order.get("id")}
+    workload: dict[str, dict[str, Any]] = {}
+    for order in active_orders:
+        responsible = clean_text(order.get("mechanic") or order.get("advisor"), 120, "Не назначен") or "Не назначен"
+        bucket = workload.setdefault(
+            responsible,
+            {
+                "name": responsible,
+                "orders_count": 0,
+                "total": 0.0,
+                "due": 0.0,
+                "overdue_count": 0,
+            },
+        )
+        bucket["orders_count"] += 1
+        bucket["total"] += parse_float(order.get("total"))
+        bucket["due"] += parse_float(order.get("due"))
+        if int(order.get("id") or 0) in overdue_ids:
+            bucket["overdue_count"] += 1
+    workload_by_responsible = sorted(
+        [
+            {
+                **bucket,
+                "total": round(parse_float(bucket.get("total")), 2),
+                "due": round(parse_float(bucket.get("due")), 2),
+            }
+            for bucket in workload.values()
+        ],
+        key=lambda item: (parse_int(item.get("overdue_count")), parse_int(item.get("orders_count")), parse_float(item.get("total"))),
+        reverse=True,
+    )[:8]
+
     service_sales: dict[str, float] = defaultdict(float)
     for order in orders:
         if order.get("status") == "cancelled":
@@ -2930,6 +3061,240 @@ def build_reports(
         reverse=True,
     )[:8]
 
+    crm_tasks_count = len(service_reminders) + len(followups_due) + len(authorizations_pending) + len(deferred_work) + len(inspection_alerts)
+    risk_points = len(overdue_orders) * 9 + len(low_stock) * 4 + len(authorizations_pending) * 5 + len(inspection_alerts) * 5 + len(deferred_work) * 3
+    business_health_score = max(0, min(100, 100 - risk_points))
+    if business_health_score >= 85:
+        business_health_label = "Отлично"
+    elif business_health_score >= 70:
+        business_health_label = "Контроль"
+    else:
+        business_health_label = "Риски"
+
+    action_plan: list[dict[str, Any]] = []
+
+    def add_action(
+        kind: str,
+        title: str,
+        detail: str,
+        priority: int,
+        tone: str,
+        route: str,
+        action: str,
+        record_id: Any = "",
+        cta: str = "Открыть",
+        customer_name: str = "",
+        customer_phone: str = "",
+        vehicle: str = "",
+        amount: Any = 0,
+        due_at: str = "",
+    ) -> None:
+        priority = max(0, min(100, parse_int(priority, 0)))
+        if priority >= 90:
+            priority_label = "Срочно"
+        elif priority >= 72:
+            priority_label = "Высокий"
+        elif priority >= 55:
+            priority_label = "Средний"
+        else:
+            priority_label = "Планово"
+        action_plan.append(
+            {
+                "id": f"{kind}:{record_id or len(action_plan) + 1}:{len(action_plan) + 1}",
+                "type": kind,
+                "priority": priority,
+                "priority_label": priority_label,
+                "tone": tone,
+                "title": clean_text(title, 180, "Действие CRM"),
+                "detail": clean_text(detail, 260),
+                "customer_name": clean_text(customer_name, 120),
+                "customer_phone": clean_text(customer_phone, 80),
+                "vehicle": clean_text(vehicle, 160),
+                "amount": round(parse_float(amount), 2),
+                "due_at": clean_text(due_at, 40),
+                "route": clean_text(route, 40, "dashboard"),
+                "action": clean_text(action, 60),
+                "record_id": record_id or "",
+                "cta": clean_text(cta, 80, "Открыть"),
+            }
+        )
+
+    for order in overdue_orders[:10]:
+        promised_dt = parse_local_datetime(order.get("promised_at"))
+        overdue_hours = int(max((now - promised_dt).total_seconds() // 3600, 0)) if promised_dt else 0
+        base_priority = {"urgent": 100, "high": 94, "normal": 88, "low": 82}.get(str(order.get("priority") or "normal"), 86)
+        add_action(
+            "overdue_order",
+            f"Просрочен заказ-наряд {order.get('number') or 'без номера'}",
+            f"Срок прошел {overdue_hours} ч назад · статус {ORDER_STATUSES.get(str(order.get('status') or ''), order.get('status') or 'не указан')} · к оплате {money(order.get('due'))}.",
+            min(100, base_priority + (2 if parse_float(order.get("due")) else 0)),
+            "danger",
+            "orders",
+            "edit-order",
+            order.get("id"),
+            "Открыть заказ",
+            str(order.get("customer_name") or ""),
+            str(order.get("customer_phone") or ""),
+            orderVehicleText(order),
+            order.get("due"),
+            str(order.get("promised_at") or ""),
+        )
+
+    for item in inspection_alerts[:10]:
+        condition = str(item.get("condition_status") or "attention")
+        add_action(
+            "inspection_alert",
+            f"DVI: {INSPECTION_CONDITIONS.get(condition, condition).lower()} — {item.get('title') or 'пункт осмотра'}",
+            f"{item.get('area') or 'Осмотр'} · рекомендация на {money(item.get('estimate'))} еще не согласована.",
+            96 if condition == "critical" else 78,
+            "danger" if condition == "critical" else "warning",
+            "inspections",
+            "edit-inspection",
+            item.get("inspection_id"),
+            "Открыть осмотр",
+            str(item.get("customer_name") or ""),
+            str(item.get("customer_phone") or ""),
+            str(item.get("vehicle") or ""),
+            item.get("estimate"),
+            str(item.get("inspected_at") or ""),
+        )
+
+    for order in authorizations_pending[:8]:
+        add_action(
+            "authorization",
+            f"Согласовать смету {order.get('number') or 'без номера'}",
+            f"Клиент еще не подтвердил работы на {money(order.get('total'))}. Зафиксируйте ответственного и дату согласования.",
+            86,
+            "warning",
+            "orders",
+            "edit-order",
+            order.get("id"),
+            "Согласовать",
+            str(order.get("customer_name") or ""),
+            str(order.get("customer_phone") or ""),
+            orderVehicleText(order),
+            order.get("total"),
+            str(order.get("updated_at") or ""),
+        )
+
+    for order in followups_due[:8]:
+        add_action(
+            "follow_up",
+            f"Связаться после визита {order.get('number') or ''}".strip(),
+            "Проверить удовлетворенность, закрыть возможные возражения и предложить следующий визит.",
+            72,
+            "info",
+            "orders",
+            "edit-order",
+            order.get("id"),
+            "Открыть клиента",
+            str(order.get("customer_name") or ""),
+            str(order.get("customer_phone") or ""),
+            orderVehicleText(order),
+            0,
+            str(order.get("follow_up_at") or ""),
+        )
+
+    for vehicle in service_reminders[:8]:
+        vehicle_text = " ".join(
+            str(part)
+            for part in [vehicle.get("make"), vehicle.get("model"), vehicle.get("year"), vehicle.get("plate")]
+            if part
+        )
+        reminder_reasons = []
+        if vehicle.get("due_by_date"):
+            reminder_reasons.append("по дате")
+        if vehicle.get("due_by_mileage"):
+            reminder_reasons.append("по пробегу")
+        add_action(
+            "service_reminder",
+            "Напомнить о плановом сервисе",
+            f"Причина: {', '.join(reminder_reasons) or 'приближается регламент'} · канал {PREFERRED_CHANNELS.get(str(vehicle.get('customer_preferred_channel') or 'phone'), 'Телефон')}.",
+            64,
+            "info",
+            "vehicles",
+            "edit-vehicle",
+            vehicle.get("id"),
+            "Открыть авто",
+            str(vehicle.get("customer_name") or ""),
+            str(vehicle.get("customer_phone") or ""),
+            vehicle_text,
+            0,
+            str(vehicle.get("next_service_at") or ""),
+        )
+
+    for item in deferred_work[:8]:
+        approval_status = str(item.get("approval_status") or "deferred")
+        add_action(
+            "deferred_work",
+            f"Вернуть в продажу: {item.get('title') or 'отложенная работа'}",
+            f"Статус клиента: {ITEM_APPROVAL_STATUSES.get(approval_status, approval_status).lower()} · потенциально {money(item.get('amount'))}.",
+            66 if approval_status == "declined" else 60,
+            "warning",
+            "orders",
+            "edit-order",
+            item.get("order_id"),
+            "Открыть заказ",
+            str(item.get("customer_name") or ""),
+            str(item.get("customer_phone") or ""),
+            str(item.get("vehicle") or ""),
+            item.get("amount"),
+        )
+
+    for part in procurement_plan[:8]:
+        add_action(
+            "procurement",
+            f"Заказать склад: {part.get('name') or 'позиция'}",
+            f"Остаток {part.get('quantity')} {part.get('unit') or 'шт'} при минимуме {part.get('min_quantity')} · бюджет {money(part.get('budget'))}.",
+            68 if part.get("urgency") == "critical" else 54,
+            "danger" if part.get("urgency") == "critical" else "info",
+            "inventory",
+            "edit-inventory",
+            part.get("id"),
+            "Открыть склад",
+            "",
+            "",
+            "",
+            part.get("budget"),
+        )
+
+    for appointment in appointments_today[:6]:
+        status = str(appointment.get("status") or "scheduled")
+        appointment_vehicle = " ".join(
+            str(part)
+            for part in [appointment.get("vehicle_make"), appointment.get("vehicle_model"), appointment.get("vehicle_year"), appointment.get("vehicle_plate")]
+            if part
+        )
+        add_action(
+            "appointment_today",
+            f"Приемка сегодня: {appointment.get('customer_name') or 'клиент'}",
+            f"{APPOINTMENT_STATUSES.get(status, status)} · {appointment.get('reason') or 'причина не указана'}.",
+            58 if status in {"scheduled", "confirmed"} else 50,
+            "success" if status == "arrived" else "info",
+            "appointments",
+            "edit-appointment",
+            appointment.get("id"),
+            "Открыть запись",
+            str(appointment.get("customer_name") or ""),
+            str(appointment.get("customer_phone") or ""),
+            appointment_vehicle,
+            0,
+            str(appointment.get("scheduled_at") or ""),
+        )
+
+    action_plan.sort(
+        key=lambda item: (
+            -parse_int(item.get("priority"), 0),
+            str(item.get("due_at") or "9999-12-31T23:59"),
+            str(item.get("title") or ""),
+        )
+    )
+    action_plan_total = len(action_plan)
+    action_plan = action_plan[:18]
+    action_plan_by_tone: dict[str, int] = defaultdict(int)
+    for item in action_plan:
+        action_plan_by_tone[str(item.get("tone") or "info")] += 1
+
     return {
         "active_orders": len(active_orders),
         "revenue_month": round(revenue_month, 2),
@@ -2937,23 +3302,36 @@ def build_reports(
         "margin_percent_month": round(margin_percent_month, 1),
         "conversion_rate": round(conversion_rate, 1),
         "inventory_value": round(inventory_value, 2),
+        "pipeline_value": round(pipeline_value, 2),
+        "pipeline_due": round(pipeline_due, 2),
+        "business_health_score": business_health_score,
+        "business_health_label": business_health_label,
         "due_total": round(due_total, 2),
         "avg_check": round(avg_check, 2),
         "low_stock_count": len(low_stock),
         "appointments_today_count": len(appointments_today),
         "inspections_count": len(inspections),
         "inspection_alerts_count": len(inspection_alerts),
-        "crm_tasks_count": len(service_reminders) + len(followups_due) + len(authorizations_pending) + len(deferred_work) + len(inspection_alerts),
+        "overdue_orders_count": len(overdue_orders),
+        "crm_tasks_count": crm_tasks_count,
+        "action_plan": action_plan,
+        "action_plan_total": action_plan_total,
+        "action_plan_by_tone": dict(action_plan_by_tone),
         "promised_today": promised_today[:8],
+        "overdue_orders": [summarize_order(order) for order in overdue_orders[:8]],
         "appointments_today": appointments_today[:8],
         "appointments_upcoming": appointments_upcoming,
+        "appointment_load_7_days": appointment_load_7_days,
         "inspection_alerts": inspection_alerts[:8],
         "low_stock": low_stock[:8],
+        "procurement_plan": procurement_plan[:8],
         "service_reminders": service_reminders[:8],
         "followups_due": followups_due[:8],
         "authorizations_pending": authorizations_pending[:8],
         "deferred_work": deferred_work[:8],
         "vip_customers": vip_customers,
+        "workload_by_responsible": workload_by_responsible,
+        "pipeline_by_status": pipeline_by_status,
         "status_counts": status_counts,
         "top_services": top_services,
     }
@@ -2973,6 +3351,7 @@ def orderVehicleText(order: dict[str, Any]) -> str:
 
 
 def bootstrap_payload(q: str = "", status: str = "all") -> dict[str, Any]:
+    status = clean_text(status, 40, "all") or "all"
     if status not in {"all", *ORDER_STATUSES}:
         raise ValueError("Некорректный статус заказа.")
     customers = list_customers(q)
@@ -2990,6 +3369,8 @@ def bootstrap_payload(q: str = "", status: str = "all") -> dict[str, Any]:
     all_vehicles = list_vehicles("", None)
     all_appointments = list_appointments("", "all", None)
     all_inspections = list_inspections("", "all", None)
+    lookup_appointments = all_appointments[:LOOKUP_LIMIT]
+    lookup_inspections = all_inspections[:LOOKUP_LIMIT]
     reports = build_reports(
         all_orders, all_inventory, all_vehicles, all_appointments, all_inspections
     )
@@ -3022,6 +3403,8 @@ def bootstrap_payload(q: str = "", status: str = "all") -> dict[str, Any]:
             "vehicles": lookup_vehicles,
             "inventory": lookup_inventory,
             "orders": lookup_orders,
+            "appointments": lookup_appointments,
+            "inspections": lookup_inspections,
         },
         "reports": reports,
         "preferred_channels": PREFERRED_CHANNELS,
@@ -3158,15 +3541,41 @@ def select_release_asset(release: dict[str, Any], *, kind: str = "exe") -> dict[
 
 
 def github_headers(accept: str = "application/vnd.github+json") -> dict[str, str]:
-    headers = {
+    return {
         "Accept": accept,
         "User-Agent": f"STO-CRM/{APP_VERSION}",
         "X-GitHub-Api-Version": "2022-11-28",
     }
-    token = clean_text(os.environ.get(GITHUB_TOKEN_ENV), 300)
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
+
+
+def validate_update_download_url(url: str) -> str:
+    """Проверяет, что обновление скачивается только по доверенной HTTPS-ссылке GitHub."""
+    cleaned = clean_text(url, 1000)
+    if not cleaned:
+        raise RuntimeError("В релизе нет ссылки на файл обновления.")
+    try:
+        parsed = urllib.parse.urlparse(cleaned)
+    except ValueError as exc:
+        raise RuntimeError("Manifest обновления содержит некорректную ссылку на файл.") from exc
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise RuntimeError("Manifest обновления содержит некорректную ссылку на файл.") from exc
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or host not in TRUSTED_UPDATE_DOWNLOAD_HOSTS or port not in {None, 443} or parsed.username or parsed.password:
+        raise RuntimeError("Manifest обновления содержит недоверенную ссылку на файл.")
+    return cleaned
+
+
+def validate_sha256(value: Any, *, required: bool = True) -> str:
+    digest = clean_text(value, 80).lower()
+    if not digest:
+        if required:
+            raise RuntimeError("В release-only manifest отсутствует SHA-256 файла обновления.")
+        return ""
+    if not SHA256_RE.fullmatch(digest):
+        raise RuntimeError("В release-only manifest указан некорректный SHA-256 файла обновления.")
+    return digest
 
 
 def fetch_json(url: str, timeout: int = GITHUB_UPDATE_TIMEOUT, headers: dict[str, str] | None = None) -> dict[str, Any]:
@@ -3182,7 +3591,7 @@ def fetch_json(url: str, timeout: int = GITHUB_UPDATE_TIMEOUT, headers: dict[str
         if exc.code == 404:
             raise RuntimeError("Релиз GitHub не найден. Опубликуйте release-only билд STO_CRM.exe и latest.json.") from exc
         if exc.code in {401, 403}:
-            raise RuntimeError(f"GitHub отклонил запрос ({exc.code}). Для приватного release-only репозитория задайте {GITHUB_TOKEN_ENV}.") from exc
+            raise RuntimeError(f"GitHub отклонил запрос ({exc.code}). Release-only репозиторий должен быть публичным.") from exc
         raise RuntimeError(f"GitHub недоступен: HTTP {exc.code}.") from exc
     except (OSError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
         raise RuntimeError(f"Не удалось получить информацию об обновлении: {exc}") from exc
@@ -3195,22 +3604,29 @@ def fetch_asset_json(asset: dict[str, Any]) -> dict[str, Any]:
     return fetch_json(url, headers=github_headers("application/octet-stream"))
 
 
-def normalize_release_asset(asset: dict[str, Any] | None, manifest_asset: dict[str, Any] | None = None) -> dict[str, Any] | None:
+def normalize_release_asset(
+    asset: dict[str, Any] | None,
+    manifest_asset: dict[str, Any] | None = None,
+    *,
+    require_sha256: bool = False,
+) -> dict[str, Any] | None:
     if not asset:
         return None
     name = clean_text(asset.get("name") or (manifest_asset or {}).get("name") or "STO_CRM.exe", 180)
-    download_url = clean_text(asset.get("download_url") or asset.get("browser_download_url") or (manifest_asset or {}).get("browser_download_url"), 1000)
+    download_url = validate_update_download_url(
+        asset.get("download_url") or asset.get("browser_download_url") or (manifest_asset or {}).get("browser_download_url")
+    )
     return {
         "name": name,
         "size": parse_int(asset.get("size") or (manifest_asset or {}).get("size")),
-        "sha256": clean_text(asset.get("sha256") or asset.get("hash") or "", 80).lower(),
+        "sha256": validate_sha256(asset.get("sha256") or asset.get("hash") or "", required=require_sha256),
         "download_url": download_url,
     }
 
 
 def release_info_from_manifest(release: dict[str, Any], manifest: dict[str, Any], manifest_asset: dict[str, Any]) -> dict[str, Any]:
     repository = normalize_github_repository()
-    asset = normalize_release_asset(manifest.get("asset") if isinstance(manifest.get("asset"), dict) else None)
+    asset = normalize_release_asset(manifest.get("asset") if isinstance(manifest.get("asset"), dict) else None, require_sha256=True)
     version = clean_text(manifest.get("version") or manifest.get("tag") or release.get("tag_name") or "", 80).lstrip("vV")
     return {
         "repository": repository,
@@ -3252,7 +3668,7 @@ def latest_release_info() -> dict[str, Any]:
         "prerelease": bool(release.get("prerelease")),
         "draft": bool(release.get("draft")),
         "manifest": None,
-        "asset": normalize_release_asset(asset),
+        "asset": normalize_release_asset(asset, require_sha256=False),
     }
 
 
@@ -3300,17 +3716,18 @@ def append_updater_log(message: str) -> None:
 
 
 def download_release_asset(asset: dict[str, Any], target: Path) -> dict[str, Any]:
-    url = clean_text(asset.get("download_url"), 1000)
-    if not url:
-        raise RuntimeError("В релизе нет ссылки на файл обновления.")
+    url = validate_update_download_url(asset.get("download_url"))
+    expected_sha = validate_sha256(asset.get("sha256"), required=True)
     expected_size = parse_int(asset.get("size"))
     if expected_size > GITHUB_UPDATE_MAX_ASSET_BYTES:
         raise RuntimeError("Файл обновления слишком большой для безопасной автоматической установки.")
     request = urllib.request.Request(url, headers=github_headers("application/octet-stream"))
     sha256 = hashlib.sha256()
     total = 0
+    tmp_target = target.with_name(f"{target.name}.tmp")
     try:
-        with urllib.request.urlopen(request, timeout=GITHUB_UPDATE_TIMEOUT) as response, target.open("wb") as output:
+        tmp_target.unlink(missing_ok=True)
+        with urllib.request.urlopen(request, timeout=GITHUB_UPDATE_TIMEOUT) as response, tmp_target.open("wb") as output:
             while True:
                 chunk = response.read(1024 * 1024)
                 if not chunk:
@@ -3320,18 +3737,25 @@ def download_release_asset(asset: dict[str, Any], target: Path) -> dict[str, Any
                     raise RuntimeError("Файл обновления превышает безопасный лимит.")
                 sha256.update(chunk)
                 output.write(chunk)
+        if expected_size and total != expected_size:
+            raise RuntimeError("Размер скачанного обновления не совпадает с размером в GitHub Release.")
+        if total <= 0:
+            raise RuntimeError("GitHub вернул пустой файл обновления.")
+        digest = sha256.hexdigest()
+        if expected_sha != digest:
+            raise RuntimeError("SHA-256 скачанного обновления не совпадает с release-only manifest.")
+        tmp_target.replace(target)
     except urllib.error.HTTPError as exc:
+        tmp_target.unlink(missing_ok=True)
         raise RuntimeError(f"Не удалось скачать обновление: HTTP {exc.code}.") from exc
     except (OSError, TimeoutError) as exc:
+        tmp_target.unlink(missing_ok=True)
         raise RuntimeError(f"Не удалось скачать обновление: {exc}") from exc
-    if expected_size and total != expected_size:
-        raise RuntimeError("Размер скачанного обновления не совпадает с размером в GitHub Release.")
-    if total <= 0:
-        raise RuntimeError("GitHub вернул пустой файл обновления.")
-    digest = sha256.hexdigest()
-    expected_sha = clean_text(asset.get("sha256"), 80).lower()
-    if expected_sha and expected_sha != digest:
-        raise RuntimeError("SHA-256 скачанного обновления не совпадает с release-only manifest.")
+    except Exception as exc:
+        tmp_target.unlink(missing_ok=True)
+        if isinstance(exc, RuntimeError):
+            raise
+        raise RuntimeError(f"Не удалось скачать обновление: {exc}") from exc
     return {"size": total, "sha256": digest}
 
 
@@ -3414,6 +3838,8 @@ def install_update_from_github() -> dict[str, Any]:
     asset = release.get("asset")
     if not asset:
         raise RuntimeError("В последнем GitHub Release нет файла STO_CRM.exe для обновления.")
+    validate_sha256(asset.get("sha256"), required=True)
+    validate_update_download_url(asset.get("download_url"))
     update_dir = user_data_dir() / "updates"
     update_dir.mkdir(parents=True, exist_ok=True)
     safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", asset.get("name") or "STO_CRM.exe")
@@ -3450,6 +3876,13 @@ class CRMHandler(BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:
         self.handle_request("DELETE")
 
+    def do_OPTIONS(self) -> None:
+        try:
+            self.validate_local_request_context()
+            self.send_bytes(b"", "text/plain; charset=utf-8", status=204, headers={"Allow": "GET, POST, PUT, DELETE, OPTIONS"})
+        except PermissionError as exc:
+            self.send_error_json(403, str(exc))
+
     def handle_request(self, method: str) -> None:
         try:
             parsed = urllib.parse.urlparse(self.path)
@@ -3481,6 +3914,7 @@ class CRMHandler(BaseHTTPRequestHandler):
                 self.send_json(bootstrap_payload(q, status))
                 return
             if method == "GET" and path in {"/api/catalog", "/api/car-catalog"}:
+                self.validate_local_request_context()
                 self.send_json(car_catalog_payload())
                 return
             if method == "GET" and path == "/api/update/status":
@@ -3660,6 +4094,7 @@ class CRMHandler(BaseHTTPRequestHandler):
         status: int = 200,
         headers: dict[str, str] | None = None,
     ) -> None:
+        self.close_connection = True
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -3677,6 +4112,7 @@ class CRMHandler(BaseHTTPRequestHandler):
             "img-src 'self' data:; object-src 'none'; base-uri 'none'; "
             "form-action 'self'; frame-ancestors 'none'",
         )
+        self.send_header("Connection", "close")
         for key, value in (headers or {}).items():
             self.send_header(key, value)
         self.end_headers()
@@ -3694,23 +4130,28 @@ def print_order_html(order: dict[str, Any]) -> str:
         for part in [order.get("vehicle_make"), order.get("vehicle_model"), order.get("vehicle_year"), order.get("vehicle_plate")]
         if part
     )
+    status_label = ORDER_STATUSES.get(str(order.get("status") or ""), str(order.get("status") or ""))
+    printed_at = datetime.now().strftime("%d.%m.%Y %H:%M")
     rows = []
     for index, item in enumerate(order.get("items", []), start=1):
         total = parse_float(item.get("quantity")) * parse_float(item.get("unit_price")) if item_is_billable(item) else 0
-        approval_label = ITEM_APPROVAL_STATUSES.get(str(item.get("approval_status") or "approved"), str(item.get("approval_status") or "approved"))
+        approval_key = str(item.get("approval_status") or "approved")
+        approval_label = ITEM_APPROVAL_STATUSES.get(approval_key, approval_key)
+        approval_class = "approved" if approval_key == "approved" else "deferred" if approval_key == "deferred" else "declined" if approval_key == "declined" else "neutral"
         rows.append(
             f"""
             <tr>
-                <td>{index}</td>
-                <td>{html.escape(str(item.get('title') or ''))}</td>
+                <td class="row-index">{index}</td>
+                <td><strong>{html.escape(str(item.get('title') or ''))}</strong></td>
                 <td>{'Работа' if item.get('kind') == 'service' else 'Запчасть'}</td>
-                <td>{html.escape(approval_label)}</td>
-                <td>{parse_float(item.get('quantity')):g}</td>
-                <td>{money(item.get('unit_price'))}</td>
-                <td>{money(total)}</td>
+                <td><span class="line-badge {approval_class}">{html.escape(approval_label)}</span></td>
+                <td class="num">{parse_float(item.get('quantity')):g}</td>
+                <td class="num">{money(item.get('unit_price'))}</td>
+                <td class="num total-cell">{money(total)}</td>
             </tr>
             """
         )
+    rows_html = "".join(rows) or "<tr><td colspan=\"7\" class=\"empty-row\">В заказ-наряде нет позиций.</td></tr>"
     return f"""<!doctype html>
 <html lang="ru">
 <head>
@@ -3718,77 +4159,218 @@ def print_order_html(order: dict[str, Any]) -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{html.escape(str(order.get("number")))} · заказ-наряд</title>
     <style>
-        body {{ font-family: Arial, sans-serif; margin: 32px; color: #15191f; }}
-        header {{ display:flex; justify-content:space-between; gap:24px; border-bottom:2px solid #15191f; padding-bottom:16px; }}
-        h1 {{ font-size:24px; margin:0 0 8px; }}
-        .muted {{ color:#68717d; }}
-        .grid {{ display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:24px 0; }}
-        .box {{ border:1px solid #d7dce2; padding:14px; border-radius:6px; }}
-        .table-scroll {{ width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }}
-        table {{ width:100%; border-collapse:collapse; margin-top:16px; min-width:720px; }}
-        th, td {{ border-bottom:1px solid #d7dce2; padding:9px; text-align:left; }}
-        th {{ background:#f0f3f6; }}
-        .totals {{ margin-left:auto; width:320px; margin-top:16px; }}
-        .totals div {{ display:flex; justify-content:space-between; padding:6px 0; }}
-        .sign {{ display:grid; grid-template-columns:1fr 1fr; gap:40px; margin-top:60px; }}
-        .line {{ border-top:1px solid #15191f; padding-top:8px; }}
-        @page {{ margin: 14mm; }}
-        @media print {{ button {{ display:none; }} body {{ margin: 0; }} .table-scroll {{ overflow: visible; }} table {{ min-width: 0; }} }}
-        @media (max-width: 720px) {{ body {{ margin: 16px; }} header, .grid, .sign {{ grid-template-columns: 1fr; display: grid; }} .totals {{ width: 100%; }} table {{ font-size: 12px; }} }}
+        :root {{
+            --ink: #0f172a;
+            --muted: #64748b;
+            --line: #dbe3ee;
+            --line-strong: #cbd5e1;
+            --surface: #ffffff;
+            --surface-soft: #f8fafc;
+            --accent: #0f766e;
+            --accent-soft: #ccfbf1;
+            --blue: #1d4ed8;
+            --green: #047857;
+            --amber: #b45309;
+            --red: #b91c1c;
+            --shadow: 0 24px 70px rgba(15,23,42,.14);
+            color-scheme: light;
+            font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+        }}
+        * {{ box-sizing: border-box; }}
+        body {{
+            margin: 0;
+            background:
+                radial-gradient(circle at 8% -10%, rgba(15,118,110,.16), transparent 34vw),
+                linear-gradient(135deg, #eef4fb, #f8fafc 46%, #eef7ff);
+            color: var(--ink);
+            font-size: 13px;
+            line-height: 1.5;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }}
+        .print-toolbar {{
+            position: sticky;
+            top: 0;
+            z-index: 3;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            padding: 14px clamp(14px, 3vw, 32px);
+            background: rgba(255,255,255,.78);
+            border-bottom: 1px solid rgba(203,213,225,.8);
+            backdrop-filter: blur(14px);
+        }}
+        .print-button {{
+            min-height: 40px;
+            padding: 0 16px;
+            border: 0;
+            border-radius: 999px;
+            background: linear-gradient(135deg, var(--accent), #14b8a6);
+            color: #fff;
+            font: inherit;
+            font-weight: 800;
+            cursor: pointer;
+            box-shadow: 0 12px 30px rgba(15,118,110,.22);
+        }}
+        .document {{
+            width: min(1080px, calc(100% - 32px));
+            margin: 24px auto;
+            padding: clamp(22px, 4vw, 42px);
+            background: var(--surface);
+            border: 1px solid rgba(203,213,225,.82);
+            border-radius: 28px;
+            box-shadow: var(--shadow);
+        }}
+        .doc-hero {{
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 24px;
+            align-items: start;
+            padding-bottom: 22px;
+            border-bottom: 2px solid var(--ink);
+        }}
+        .brand-lockup {{ display: flex; align-items: center; gap: 14px; min-width: 0; }}
+        .brand-mark {{
+            width: 54px;
+            height: 54px;
+            border-radius: 18px;
+            display: grid;
+            place-items: center;
+            background: linear-gradient(135deg, #0f172a, var(--accent));
+            color: #fff;
+            font-weight: 950;
+            letter-spacing: -.05em;
+            box-shadow: 0 18px 40px rgba(15,118,110,.24);
+        }}
+        h1 {{ margin: 0; font-size: clamp(25px, 4vw, 38px); line-height: 1; letter-spacing: -.06em; }}
+        .eyebrow {{ color: var(--accent); font-weight: 900; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; }}
+        .muted {{ color: var(--muted); }}
+        .doc-meta {{ display: grid; justify-items: end; gap: 8px; min-width: 220px; text-align: right; }}
+        .status-chip {{
+            display: inline-flex;
+            align-items: center;
+            min-height: 30px;
+            padding: 0 12px;
+            border-radius: 999px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            font-weight: 850;
+        }}
+        .summary-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 22px 0; }}
+        .box {{
+            min-width: 0;
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 16px;
+            background: linear-gradient(180deg, #fff, var(--surface-soft));
+        }}
+        .box-title {{ display: block; margin-bottom: 8px; color: var(--muted); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }}
+        .notes-grid {{ display: grid; gap: 12px; margin: 18px 0; }}
+        .table-scroll {{ width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; border: 1px solid var(--line); border-radius: 18px; }}
+        table {{ width:100%; border-collapse:collapse; min-width:760px; }}
+        th, td {{ border-bottom:1px solid var(--line); padding:11px 12px; text-align:left; vertical-align: top; }}
+        tr:last-child td {{ border-bottom: 0; }}
+        th {{ background:#f1f5f9; color: #475569; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }}
+        .row-index {{ width: 46px; color: var(--muted); font-weight: 800; }}
+        .num {{ text-align:right; font-variant-numeric: tabular-nums; white-space: nowrap; }}
+        .total-cell {{ font-weight: 850; }}
+        .line-badge {{ display: inline-flex; min-height: 24px; align-items: center; padding: 0 9px; border-radius: 999px; font-size: 11px; font-weight: 850; }}
+        .line-badge.approved {{ background:#dcfce7; color: var(--green); }}
+        .line-badge.deferred {{ background:#fef3c7; color: var(--amber); }}
+        .line-badge.declined {{ background:#fee2e2; color: var(--red); }}
+        .line-badge.neutral {{ background:#e2e8f0; color: #475569; }}
+        .empty-row {{ text-align:center; color: var(--muted); padding: 24px; }}
+        .totals {{
+            margin: 18px 0 0 auto;
+            width: min(380px, 100%);
+            display: grid;
+            gap: 0;
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            background: #fff;
+        }}
+        .totals div {{ display:flex; justify-content:space-between; gap:12px; padding:10px 14px; border-bottom: 1px solid var(--line); }}
+        .totals div:last-child {{ border-bottom: 0; }}
+        .totals .grand {{ background: #0f172a; color: #fff; font-size: 16px; font-weight: 900; }}
+        .sign {{ display:grid; grid-template-columns:1fr 1fr; gap:40px; margin-top:58px; }}
+        .line {{ border-top:1.5px solid var(--ink); padding-top:8px; color: var(--muted); }}
+        @page {{ margin: 12mm; }}
+        @media print {{
+            body {{ background: #fff; font-size: 11px; }}
+            .print-toolbar {{ display:none; }}
+            .document {{ width: 100%; margin: 0; padding: 0; border: 0; border-radius: 0; box-shadow: none; }}
+            .table-scroll {{ overflow: visible; }}
+            table {{ min-width: 0; }}
+            .box {{ break-inside: avoid; }}
+            .totals, .sign {{ break-inside: avoid; }}
+        }}
+        @media (max-width: 720px) {{
+            .document {{ width: min(100% - 20px, 1080px); margin: 10px auto; border-radius: 18px; }}
+            .doc-hero, .summary-grid, .sign {{ grid-template-columns: 1fr; }}
+            .doc-meta {{ justify-items: start; text-align: left; min-width: 0; }}
+            table {{ font-size: 12px; }}
+        }}
     </style>
 </head>
 <body>
-    <button type="button" id="printButton" aria-label="Печать заказ-наряда">Печать</button>
+    <div class="print-toolbar"><button type="button" class="print-button" id="printButton" aria-label="Печать заказ-наряда">⎙ Печать</button></div>
     <noscript>Для кнопки печати включите JavaScript или используйте Ctrl+P.</noscript>
-    <header>
-        <div>
-            <h1>Заказ-наряд {html.escape(str(order.get("number") or ""))}</h1>
-            <div class="muted">СТО CRM · {datetime.now().strftime("%d.%m.%Y %H:%M")}</div>
+    <main class="document" aria-label="Печатная форма заказ-наряда">
+        <header class="doc-hero">
+            <div class="brand-lockup">
+                <div class="brand-mark" aria-hidden="true">CRM</div>
+                <div>
+                    <div class="eyebrow">СТО CRM · заказ-наряд</div>
+                    <h1>{html.escape(str(order.get("number") or ""))}</h1>
+                    <div class="muted">Сформировано: {printed_at}</div>
+                </div>
+            </div>
+            <div class="doc-meta">
+                <span class="status-chip">{html.escape(status_label)}</span>
+                <div><strong>Мастер:</strong> {html.escape(str(order.get("mechanic") or order.get("advisor") or "—"))}</div>
+                <div><strong>Согласовал:</strong> {html.escape(str(order.get("authorized_by") or "—"))}</div>
+            </div>
+        </header>
+        <section class="summary-grid" aria-label="Клиент и автомобиль">
+            <div class="box">
+                <span class="box-title">Клиент</span>
+                <strong>{html.escape(str(order.get("customer_name") or ""))}</strong><br>
+                {html.escape(str(order.get("customer_phone") or ""))}<br>
+                {html.escape(str(order.get("customer_email") or ""))}
+            </div>
+            <div class="box">
+                <span class="box-title">Автомобиль</span>
+                <strong>{html.escape(vehicle or "Автомобиль не выбран")}</strong><br>
+                VIN: {html.escape(str(order.get("vehicle_vin") or "—"))}<br>
+                Пробег: {parse_int(order.get("odometer"))} км
+            </div>
+        </section>
+        <section class="notes-grid" aria-label="Описание работ">
+            <div class="box"><span class="box-title">Жалоба клиента</span>{html.escape(str(order.get("complaint") or "—"))}</div>
+            <div class="box"><span class="box-title">Диагностика</span>{html.escape(str(order.get("diagnosis") or "—"))}</div>
+            <div class="box"><span class="box-title">Рекомендации</span>{html.escape(str(order.get("recommendations") or "—"))}</div>
+        </section>
+        <div class="table-scroll" role="region" aria-label="Позиции заказ-наряда" tabindex="0">
+            <table>
+                <thead><tr><th scope="col">№</th><th scope="col">Наименование</th><th scope="col">Тип</th><th scope="col">Согласование</th><th scope="col">Кол-во</th><th scope="col">Цена</th><th scope="col">Сумма</th></tr></thead>
+                <tbody>{rows_html}</tbody>
+            </table>
         </div>
-        <div>
-            <strong>Статус:</strong> {html.escape(ORDER_STATUSES.get(str(order.get("status") or ""), str(order.get("status") or "")))}<br>
-            <strong>Мастер:</strong> {html.escape(str(order.get("mechanic") or ""))}<br>
-            <strong>Согласовал:</strong> {html.escape(str(order.get("authorized_by") or ""))}
-        </div>
-    </header>
-    <section class="grid">
-        <div class="box">
-            <strong>Клиент</strong><br>
-            {html.escape(str(order.get("customer_name") or ""))}<br>
-            {html.escape(str(order.get("customer_phone") or ""))}<br>
-            {html.escape(str(order.get("customer_email") or ""))}
-        </div>
-        <div class="box">
-            <strong>Автомобиль</strong><br>
-            {html.escape(vehicle)}<br>
-            VIN: {html.escape(str(order.get("vehicle_vin") or ""))}<br>
-            Пробег: {parse_int(order.get("odometer"))} км
-        </div>
-    </section>
-    <section class="box">
-        <strong>Жалоба</strong><br>{html.escape(str(order.get("complaint") or ""))}
-        <br><br><strong>Диагностика</strong><br>{html.escape(str(order.get("diagnosis") or ""))}
-        <br><br><strong>Рекомендации</strong><br>{html.escape(str(order.get("recommendations") or ""))}
-    </section>
-    <div class="table-scroll" role="region" aria-label="Позиции заказ-наряда" tabindex="0">
-        <table>
-            <thead><tr><th scope="col">№</th><th scope="col">Наименование</th><th scope="col">Тип</th><th scope="col">Согласование</th><th scope="col">Кол-во</th><th scope="col">Цена</th><th scope="col">Сумма</th></tr></thead>
-            <tbody>{''.join(rows)}</tbody>
-        </table>
-    </div>
-    <section class="totals">
-        <div><span>Работы</span><strong>{money(order.get("service_total"))}</strong></div>
-        <div><span>Запчасти</span><strong>{money(order.get("parts_total"))}</strong></div>
-        <div><span>Скидка</span><strong>{money(order.get("discount"))}</strong></div>
-        <div><span>Налог</span><strong>{money(order.get("tax"))}</strong></div>
-        <div><span>Итого</span><strong>{money(order.get("total"))}</strong></div>
-        <div><span>Оплачено</span><strong>{money(order.get("paid"))}</strong></div>
-        <div><span>К оплате</span><strong>{money(order.get("due"))}</strong></div>
-    </section>
-    <section class="sign">
-        <div class="line">Представитель сервиса</div>
-        <div class="line">Клиент</div>
-    </section>
+        <section class="totals" aria-label="Итоги заказ-наряда">
+            <div><span>Работы</span><strong>{money(order.get("service_total"))}</strong></div>
+            <div><span>Запчасти</span><strong>{money(order.get("parts_total"))}</strong></div>
+            <div><span>Скидка</span><strong>{money(order.get("discount"))}</strong></div>
+            <div><span>Налог</span><strong>{money(order.get("tax"))}</strong></div>
+            <div><span>Итого</span><strong>{money(order.get("total"))}</strong></div>
+            <div><span>Оплачено</span><strong>{money(order.get("paid"))}</strong></div>
+            <div class="grand"><span>К оплате</span><strong>{money(order.get("due"))}</strong></div>
+        </section>
+        <section class="sign" aria-label="Подписи сторон">
+            <div class="line">Представитель сервиса</div>
+            <div class="line">Клиент</div>
+        </section>
+    </main>
     <script>document.getElementById("printButton").addEventListener("click", () => window.print());</script>
 </body>
 </html>"""
@@ -3803,55 +4385,81 @@ INDEX_HTML = r"""<!doctype html>
     <title>СТО CRM</title>
     <style>
 :root {
-            --bg: #f0f4f8;
+            --bg: #eef4fb;
+            --page-gradient: linear-gradient(135deg, #fbfdff 0%, #eef4fb 48%, #e8f7ff 100%);
             --surface: #ffffff;
             --surface-soft: #f8fafc;
             --surface-strong: #eef2f6;
-            --surface-glass: rgba(255,255,255,.78);
-            --ink: #0f172a;
+            --surface-raised: #ffffff;
+            --surface-glass: rgba(255,255,255,.82);
+            --surface-tint: rgba(13, 148, 136, .07);
+            --ink: #0b1220;
             --muted: #64748b;
+            --muted-strong: #475569;
             --line: #e2e8f0;
             --line-strong: #cbd5e1;
             --accent: #0d9488;
             --accent-strong: #0f766e;
-            --accent-glow: rgba(13, 148, 136, 0.15);
-            --blue: #3b82f6;
+            --accent-soft: #ccfbf1;
+            --accent-glow: rgba(13, 148, 136, 0.18);
+            --blue: #2563eb;
+            --blue-soft: #dbeafe;
             --amber: #d97706;
+            --amber-soft: #fef3c7;
             --red: #dc2626;
+            --red-soft: #fee2e2;
             --green: #059669;
+            --green-soft: #d1fae5;
             --violet: #7c3aed;
-            --sidebar: #0f172a;
-            --sidebar-soft: #1e293b;
-            --shadow-sm: 0 1px 2px rgba(0,0,0,.04);
-            --shadow: 0 4px 12px rgba(0,0,0,.06), 0 1px 3px rgba(0,0,0,.04);
-            --shadow-lg: 0 20px 60px rgba(0,0,0,.12);
-            --focus: 0 0 0 3px rgba(13, 148, 136, .2);
-            --radius: 10px;
-            --radius-sm: 7px;
-            --transition: 160ms ease;
-            font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+            --violet-soft: #ede9fe;
+            --brand-start: #0f172a;
+            --brand-end: #134e4a;
+            --brand-contrast: #ecfeff;
+            --sidebar: #0b1220;
+            --sidebar-soft: rgba(255,255,255,.08);
+            --sidebar-strong: rgba(255,255,255,.14);
+            --shadow-sm: 0 1px 2px rgba(15, 23, 42, .06);
+            --shadow: 0 10px 30px rgba(15, 23, 42, .08), 0 1px 3px rgba(15, 23, 42, .05);
+            --shadow-lg: 0 22px 70px rgba(15, 23, 42, .14);
+            --shadow-xl: 0 30px 90px rgba(15, 23, 42, .18);
+            --focus: 0 0 0 3px rgba(13, 148, 136, .22);
+            --radius: 16px;
+            --radius-sm: 10px;
+            --radius-lg: 24px;
+            --transition: 180ms cubic-bezier(.2, .8, .2, 1);
+            --font-ui: 'Inter', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+            --content-max: 1680px;
+            font-family: var(--font-ui);
         }
         body.dark {
             --bg: #0f172a;
+            --page-gradient: linear-gradient(135deg, #0b1120 0%, #0f172a 55%, #102235 100%);
             --surface: #1e293b;
             --surface-soft: #1a2332;
             --surface-strong: #243044;
+            --surface-raised: #243044;
             --surface-glass: rgba(30, 41, 59, .82);
+            --surface-tint: rgba(20, 184, 166, .09);
             --ink: #e2e8f0;
             --muted: #94a3b8;
+            --muted-strong: #cbd5e1;
             --line: #2d3a4d;
             --line-strong: #3b4d63;
+            --brand-start: #020617;
+            --brand-end: #0f766e;
+            --brand-contrast: #ccfbf1;
         }
-        body.dark .topbar { background: rgba(30, 41, 59, .94); }
-        body.dark .search input { background: #1a2332; }
+        body.dark .topbar { background: rgba(15, 23, 42, .78); }
+        body.dark .search input { background: rgba(15, 23, 42, .74); }
         body.dark .search input:focus { background: #1e293b; }
         body.dark .search-clear:hover,
         body.dark .search-clear:focus-visible { background: #2d3a4d; color: var(--ink); }
         body.dark .btn { background: #2d3a4d; color: var(--ink); }
         body.dark .btn:hover { background: #3b4d63; }
-        body.dark .btn.ghost { background: #1e293b; border-color: var(--line); }
+        body.dark .btn.ghost { background: rgba(30, 41, 59, .72); border-color: var(--line); }
         body.dark .btn.ghost:hover { background: #2d3a4d; }
-        body.dark .segmented { background: #1a2332; }
+        body.dark .segmented { background: rgba(15, 23, 42, .72); }
         body.dark .table-wrap { background: var(--surface); }
         body.dark th { background: var(--surface-strong); color: #94a3b8; }
         body.dark tr:hover td { background: #243044; }
@@ -3862,11 +4470,11 @@ INDEX_HTML = r"""<!doctype html>
         body.dark .modal-head, body.dark .modal-foot { background: #1a2332; }
         body.dark .catalog-make-head { background: #1a2332; }
         body.dark input, body.dark select, body.dark textarea { background: #1a2332; color: var(--ink); border-color: var(--line-strong); }
-        body.dark .stat-chip { background: #134e4a40; color: #14b8a6; }
-        body.dark .count-pill { background: #2d3a4d; color: #cbd5e1; }
-        body.dark .metric { background: var(--surface); border-color: var(--line); }
+        body.dark .stat-chip { background: rgba(20, 184, 166, .16); color: #5eead4; }
+        body.dark .count-pill { background: rgba(45, 58, 77, .86); color: #cbd5e1; }
+        body.dark .metric { background: linear-gradient(180deg, rgba(30, 41, 59, .92), rgba(30, 41, 59, .74)); border-color: var(--line); }
         body.dark .bar-track { background: #2d3a4d; }
-        body.dark .panel-head { background: #1a2332; }
+        body.dark .panel-head { background: rgba(26, 35, 50, .94); }
         body.dark label { color: #94a3b8; }
         body.dark .check-field { color: #94a3b8; }
         body.dark .loading-skeleton { background: #2d3a4d; }
@@ -3879,6 +4487,15 @@ INDEX_HTML = r"""<!doctype html>
         body.dark .toast { background: #334155; color: #e2e8f0; }
         body.dark .update-release { background: #1a2332; border-color: var(--line); }
         body.dark .update-card { background: linear-gradient(135deg, rgba(13, 148, 136, .14), rgba(59, 130, 246, .10)); }
+        body.dark .command-palette { border-color: var(--line); }
+        body.dark .deal-card { background: #1a2332; }
+        body.dark .timeline-day { background: #1a2332; }
+        body.dark .page-hero, body.dark .section-card.hero-card { background: linear-gradient(135deg, rgba(20, 184, 166, .16), rgba(37, 99, 235, .14)); }
+        body.dark .context-pill,
+        body.dark .hero-stat,
+        body.dark .insight-card { background: linear-gradient(180deg, rgba(30,41,59,.92), rgba(26,35,50,.78)); border-color: var(--line); }
+        body.dark .metric-icon,
+        body.dark .insight-icon { background: rgba(20,184,166,.14); color: #5eead4; }
         @media (prefers-color-scheme: dark) {
             body:not(.light) {
                 --bg: #0f172a;
@@ -3898,9 +4515,10 @@ INDEX_HTML = r"""<!doctype html>
         body {
             margin: 0;
             background:
-                radial-gradient(circle at 20% 0%, rgba(13, 148, 136, .10), transparent 34vw),
-                radial-gradient(circle at 92% 8%, rgba(59, 130, 246, .10), transparent 30vw),
-                var(--bg);
+                radial-gradient(circle at 16% -8%, rgba(13, 148, 136, .16), transparent 31vw),
+                radial-gradient(circle at 84% 2%, rgba(37, 99, 235, .14), transparent 33vw),
+                radial-gradient(circle at 55% 100%, rgba(124, 58, 237, .08), transparent 34vw),
+                var(--page-gradient, var(--bg));
             color: var(--ink);
             font-size: 14px;
             line-height: 1.5;
@@ -3910,8 +4528,23 @@ INDEX_HTML = r"""<!doctype html>
             display: flex;
             flex-direction: column;
         }
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: -1;
+            background-image:
+                linear-gradient(rgba(15, 23, 42, .035) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(15, 23, 42, .035) 1px, transparent 1px);
+            background-size: 42px 42px;
+            mask-image: linear-gradient(to bottom, rgba(0,0,0,.72), transparent 78%);
+        }
+        body.dark::before { background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px); }
+        ::selection { background: var(--accent-soft); color: var(--accent-strong); }
+        body.dark ::selection { background: rgba(20, 184, 166, .35); color: #ecfeff; }
         button, input, select, textarea { font: inherit; }
-        button { border: 0; cursor: pointer; transition: background-color var(--transition), color var(--transition), border-color var(--transition), box-shadow var(--transition), transform var(--transition); }
+        button { border: 0; cursor: pointer; transition: background-color var(--transition), color var(--transition), border-color var(--transition), box-shadow var(--transition), transform var(--transition), opacity var(--transition); }
         button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
             outline: none;
             box-shadow: var(--focus);
@@ -3924,111 +4557,174 @@ INDEX_HTML = r"""<!doctype html>
             }
         }
         a { color: inherit; text-decoration: none; }
-        .app { min-width: 0; min-height: 100%; display: grid; grid-template-columns: 272px minmax(0, 1fr); }
-        .sidebar {
-            min-width: 0;
+        .skip-link {
+            position: fixed;
+            top: 14px;
+            left: 14px;
+            z-index: 100;
+            transform: translateY(-150%);
+            padding: 10px 14px;
+            border-radius: 999px;
             background: var(--sidebar);
             color: #fff;
-            padding: 20px 16px;
+            box-shadow: var(--shadow-lg);
+            font-weight: 800;
+            transition: transform var(--transition);
+        }
+        .skip-link:focus-visible { transform: translateY(0); }
+        .app { min-width: 0; min-height: 100%; display: grid; grid-template-columns: 292px minmax(0, 1fr); }
+        .sidebar {
+            min-width: 0;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow-y: auto;
+            background:
+                radial-gradient(circle at 18% 4%, rgba(20, 184, 166, .22), transparent 34%),
+                radial-gradient(circle at 86% 16%, rgba(37, 99, 235, .18), transparent 30%),
+                linear-gradient(160deg, var(--brand-start), var(--brand-end));
+            color: #fff;
+            padding: 22px 16px;
             display: flex;
             flex-direction: column;
             gap: 20px;
-            box-shadow: 2px 0 24px rgba(0,0,0,.08);
+            box-shadow: 14px 0 44px rgba(15, 23, 42, .14);
             z-index: 6;
+            isolation: isolate;
+        }
+        .sidebar::after {
+            content: "";
+            position: absolute;
+            inset: 12px;
+            border: 1px solid rgba(255,255,255,.08);
+            border-radius: 22px;
+            pointer-events: none;
+            z-index: -1;
         }
         .brand {
-            min-height: 56px;
+            min-height: 66px;
             display: flex;
             align-items: center;
             gap: 12px;
-            padding: 0 8px 16px;
-            border-bottom: 1px solid rgba(255,255,255,.1);
+            padding: 4px 8px 18px;
+            border-bottom: 1px solid rgba(255,255,255,.12);
         }
         .brand-mark {
-            width: 42px;
-            height: 42px;
-            border-radius: 10px;
-            background: linear-gradient(135deg, var(--accent), #14b8a6);
+            width: 48px;
+            height: 48px;
+            border-radius: 16px;
+            background:
+                linear-gradient(135deg, rgba(255,255,255,.22), rgba(255,255,255,.04)),
+                linear-gradient(135deg, var(--accent), #14b8a6);
             color: #fff;
             display: grid;
             place-items: center;
             font-weight: 900;
-            font-size: 16px;
-            box-shadow: 0 4px 12px var(--accent-glow);
+            font-size: 15px;
+            letter-spacing: -.04em;
+            box-shadow: 0 16px 36px rgba(20, 184, 166, .28);
         }
-        .brand-title { font-size: 17px; font-weight: 750; letter-spacing: -.02em; }
-        .brand-subtitle { font-size: 12px; color: rgba(255,255,255,.55); margin-top: 3px; }
-        .nav { display: grid; gap: 4px; }
+        .brand-title { font-size: 18px; font-weight: 850; letter-spacing: -.03em; }
+        .brand-subtitle { font-size: 12px; color: rgba(255,255,255,.62); margin-top: 3px; }
+        .nav { display: grid; gap: 6px; }
         .nav button {
-            min-height: 42px;
-            color: rgba(255,255,255,.72);
+            min-height: 46px;
+            color: rgba(255,255,255,.76);
             background: transparent;
             text-align: left;
             padding: 10px 12px;
-            border-radius: var(--radius-sm);
+            border-radius: 14px;
             display: flex;
             align-items: center;
             gap: 11px;
-            font-weight: 550;
+            font-weight: 650;
+            letter-spacing: -.015em;
+            border: 1px solid transparent;
             transition: background-color var(--transition), color var(--transition), border-color var(--transition), box-shadow var(--transition), transform var(--transition);
         }
-        .nav button:hover { color: #fff; background: rgba(255,255,255,.06); }
+        .nav button:hover { color: #fff; background: var(--sidebar-soft); border-color: rgba(255,255,255,.08); }
         @media (hover: hover) {
-            .nav button:hover { transform: translateX(2px); }
+            .nav button:hover { transform: translateX(3px); }
         }
-        .nav button.active { color: #fff; background: var(--sidebar-soft); font-weight: 650; box-shadow: inset 3px 0 0 var(--accent); }
-        .nav button:focus-visible { box-shadow: inset 3px 0 0 var(--accent), 0 0 0 3px rgba(20, 184, 166, .35); }
+        .nav button.active {
+            color: #fff;
+            background: linear-gradient(135deg, var(--sidebar-strong), rgba(20, 184, 166, .20));
+            border-color: rgba(255,255,255,.13);
+            font-weight: 800;
+            box-shadow: inset 3px 0 0 #5eead4, 0 14px 30px rgba(0,0,0,.12);
+        }
+        .nav button:focus-visible { box-shadow: inset 3px 0 0 #5eead4, 0 0 0 3px rgba(20, 184, 166, .35); }
         .nav .icon {
-            width: 26px;
-            height: 26px;
-            border-radius: 6px;
+            width: 28px;
+            height: 28px;
+            border-radius: 9px;
             display: grid;
             place-items: center;
-            color: #94a3b8;
-            background: rgba(255,255,255,.06);
-            font-weight: 800;
+            color: #bae6fd;
+            background: rgba(255,255,255,.08);
+            font-weight: 850;
             font-size: 13px;
+            flex: 0 0 auto;
         }
-        .nav button.active .icon { color: #fff; background: var(--accent); }
+        .nav-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        .nav-badge {
+            margin-left: auto;
+            min-width: 24px;
+            height: 24px;
+            padding: 0 8px;
+            border-radius: 999px;
+            display: inline-grid;
+            place-items: center;
+            color: #ccfbf1;
+            background: rgba(20,184,166,.16);
+            border: 1px solid rgba(153,246,228,.22);
+            font-size: 11px;
+            font-weight: 900;
+            font-variant-numeric: tabular-nums;
+        }
+        .nav-badge[hidden] { display: none; }
+        .nav button.active .icon { color: #042f2e; background: #99f6e4; }
+        .nav button.active .nav-badge { color: #042f2e; background: #ccfbf1; border-color: transparent; }
         .db-path {
             margin-top: auto;
-            padding: 12px 10px 0;
-            color: rgba(255,255,255,.5);
+            padding: 14px 10px 0;
+            color: rgba(255,255,255,.56);
             font-size: 11px;
             overflow-wrap: anywhere;
-            border-top: 1px solid rgba(255,255,255,.1);
+            border-top: 1px solid rgba(255,255,255,.12);
         }
         .main { min-width: 0; display: flex; flex-direction: column; }
         .topbar {
             min-width: 0;
-            min-height: 72px;
-            background: rgba(255,255,255,.92);
-            border-bottom: 1px solid var(--line);
+            min-height: 76px;
+            background: rgba(255,255,255,.76);
+            border-bottom: 1px solid rgba(203,213,225,.72);
             display: flex;
             align-items: center;
             gap: 16px;
-            padding: 12px 24px;
+            padding: 13px 28px;
             position: sticky;
             top: 0;
             z-index: 5;
-            backdrop-filter: blur(12px) saturate(140%);
-            -webkit-backdrop-filter: blur(12px) saturate(140%);
+            backdrop-filter: blur(18px) saturate(150%);
+            -webkit-backdrop-filter: blur(18px) saturate(150%);
         }
-        .title-block { min-width: 200px; display: grid; gap: 3px; }
-        .topbar h1 { font-size: 21px; line-height: 1.2; margin: 0; font-weight: 750; letter-spacing: -.02em; }
-        .view-subtitle { color: var(--muted); font-size: 12px; }
-        .search { flex: 1; min-width: 220px; position: relative; }
+        .title-block { min-width: 220px; display: grid; gap: 4px; }
+        .topbar h1 { font-size: clamp(21px, 2vw, 26px); line-height: 1.15; margin: 0; font-weight: 850; letter-spacing: -.035em; }
+        .view-subtitle { color: var(--muted); font-size: 12px; font-weight: 600; }
+        .search { flex: 1; min-width: 240px; position: relative; }
         .search input {
             width: 100%;
-            height: 42px;
-            border: 1.5px solid var(--line);
-            border-radius: 14px;
-            padding: 0 44px 0 40px;
-            background: #f8fafc;
+            height: 44px;
+            border: 1.5px solid rgba(203, 213, 225, .82);
+            border-radius: 999px;
+            padding: 0 46px 0 42px;
+            background: rgba(255,255,255,.78);
+            box-shadow: var(--shadow-sm);
             transition: background-color var(--transition), color var(--transition), border-color var(--transition), box-shadow var(--transition), transform var(--transition);
         }
-        .search input:focus { border-color: var(--accent); box-shadow: var(--focus); background: #fff; }
-        .search span { position: absolute; left: 14px; top: 10px; color: var(--muted); font-size: 16px; }
+        .search input:focus { border-color: var(--accent); box-shadow: var(--focus), var(--shadow); background: #fff; }
+        .search span { position: absolute; left: 16px; top: 11px; color: var(--muted); font-size: 16px; }
         .search-clear {
             position: absolute;
             right: 8px;
@@ -4046,7 +4742,39 @@ INDEX_HTML = r"""<!doctype html>
         .search-clear:hover,
         .search-clear:focus-visible { background: #e2e8f0; color: var(--ink); outline: none; box-shadow: var(--focus); }
         .top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-        .content { min-width: 0; padding: 24px 28px 40px; display: grid; gap: 20px; }
+        .content { min-width: 0; width: min(100%, var(--content-max)); margin: 0 auto; padding: 28px clamp(18px, 3vw, 40px) 44px; display: grid; gap: 22px; }
+        .context-strip {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+        }
+        .context-pill {
+            min-width: 0;
+            position: relative;
+            overflow: hidden;
+            display: grid;
+            gap: 3px;
+            padding: 14px 16px 14px 18px;
+            border: 1.5px solid rgba(203,213,225,.74);
+            border-radius: 18px;
+            background: linear-gradient(180deg, rgba(255,255,255,.82), rgba(255,255,255,.64));
+            box-shadow: var(--shadow-sm);
+        }
+        .context-pill::before {
+            content: "";
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 4px;
+            background: var(--accent);
+        }
+        .context-pill.warning::before { background: var(--amber); }
+        .context-pill.danger::before { background: var(--red); }
+        .context-pill.info::before { background: var(--blue); }
+        .context-pill strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; letter-spacing: -.025em; }
+        .context-pill span { color: var(--muted); font-size: 12px; font-weight: 700; }
+        .context-label { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; }
+        .live-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--green); box-shadow: 0 0 0 5px rgba(5,150,105,.13); }
+        .app.offline .live-dot { background: var(--red); box-shadow: 0 0 0 5px rgba(220,38,38,.13); }
         .toolbar {
             display: flex;
             align-items: center;
@@ -4056,33 +4784,40 @@ INDEX_HTML = r"""<!doctype html>
         }
         .toolbar-left, .toolbar-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .btn {
-            min-height: 38px;
-            padding: 0 14px;
-            border-radius: var(--radius-sm);
-            background: #f1f5f9;
+            min-height: 40px;
+            padding: 0 15px;
+            border-radius: 999px;
+            background: rgba(241,245,249,.92);
             color: var(--ink);
             display: inline-flex;
             align-items: center;
             justify-content: center;
             gap: 7px;
             white-space: nowrap;
-            border: 1.5px solid transparent;
-            font-weight: 550;
+            border: 1.5px solid rgba(203,213,225,.78);
+            font-weight: 700;
+            letter-spacing: -.015em;
+            box-shadow: var(--shadow-sm);
             transition: background-color var(--transition), color var(--transition), border-color var(--transition), box-shadow var(--transition), transform var(--transition);
         }
-        .btn:hover { background: #e2e8f0; }
+        .btn:hover { background: #e2e8f0; border-color: var(--line-strong); box-shadow: var(--shadow); }
         @media (hover: hover) {
             .btn:hover { transform: translateY(-1px); }
         }
         .btn:focus-visible { border-color: var(--accent); }
         .btn:active { transform: translateY(0); }
-        .btn.primary { background: var(--accent); color: #fff; box-shadow: 0 2px 8px var(--accent-glow); }
-        .btn.primary:hover { background: var(--accent-strong); box-shadow: 0 4px 16px var(--accent-glow); }
-        .btn.danger { background: #fef2f2; color: var(--red); border-color: #fecaca; }
+        .btn.primary {
+            background: linear-gradient(135deg, var(--accent), #14b8a6);
+            color: #fff;
+            border-color: transparent;
+            box-shadow: 0 12px 26px var(--accent-glow);
+        }
+        .btn.primary:hover { background: linear-gradient(135deg, var(--accent-strong), var(--accent)); box-shadow: 0 16px 34px var(--accent-glow); }
+        .btn.danger { background: #fef2f2; color: var(--red); border-color: #fecaca; box-shadow: none; }
         .btn.danger:hover { background: #fee2e2; }
-        .btn.ghost { background: #fff; border-color: var(--line); }
-        .btn.ghost:hover { border-color: var(--line-strong); background: #f8fafc; }
-        .btn.icon { width: 38px; padding: 0; font-weight: 850; font-size: 16px; }
+        .btn.ghost { background: rgba(255,255,255,.78); border-color: rgba(203,213,225,.78); }
+        .btn.ghost:hover { border-color: var(--line-strong); background: #fff; }
+        .btn.icon { width: 40px; padding: 0; font-weight: 850; font-size: 16px; }
         .segmented {
             display: inline-flex;
             border: 1.5px solid var(--line);
@@ -4103,31 +4838,47 @@ INDEX_HTML = r"""<!doctype html>
             font-weight: 550;
         }
         .segmented button.active { background: var(--sidebar); color: #fff; box-shadow: var(--shadow-sm); }
-        .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(180px, 1fr)); gap: 14px; }
-        .ops-grid { display: grid; grid-template-columns: minmax(300px, 1.3fr) repeat(4, minmax(160px, .6fr)); gap: 14px; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(190px, 1fr)); gap: 16px; }
+        .ops-grid { display: grid; grid-template-columns: minmax(320px, 1.3fr) repeat(4, minmax(170px, .6fr)); gap: 16px; }
         .ops-card {
             min-width: 0;
-            min-height: 112px;
-            background: var(--surface);
-            border: 1.5px solid var(--line);
+            min-height: 118px;
+            background: linear-gradient(180deg, var(--surface-glass), var(--surface));
+            border: 1.5px solid rgba(203,213,225,.72);
             border-radius: var(--radius);
-            padding: 16px;
+            padding: 18px;
             display: grid;
             align-content: space-between;
-            gap: 10px;
+            gap: 12px;
             box-shadow: var(--shadow-sm);
-            transition: box-shadow var(--transition), transform var(--transition);
+            transition: box-shadow var(--transition), transform var(--transition), border-color var(--transition);
         }
-        .ops-card:hover { box-shadow: var(--shadow); transform: translateY(-1px); }
-        .ops-card strong { display: block; min-width: 0; font-size: 22px; line-height: 1.2; white-space: normal; word-break: break-word; font-weight: 750; }
+        .ops-card:hover { box-shadow: var(--shadow); transform: translateY(-2px); border-color: var(--line-strong); }
+        .ops-card strong { display: block; min-width: 0; font-size: 24px; line-height: 1.15; white-space: normal; word-break: break-word; font-weight: 850; letter-spacing: -.035em; }
         .ops-card strong, .metric strong, .panel-head h2, .catalog-make-head strong {
             overflow-wrap: anywhere;
         }
         .ops-card small { color: var(--muted); font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: .04em; }
         .ops-card.accent {
-            background: linear-gradient(135deg, #134e4a, #0f766e);
+            position: relative;
+            overflow: hidden;
+            background:
+                radial-gradient(circle at 88% 12%, rgba(255,255,255,.22), transparent 28%),
+                linear-gradient(135deg, #134e4a, #0f766e 52%, #0f172a);
             color: #fff;
-            border-color: #134e4a;
+            border-color: rgba(20, 184, 166, .34);
+            box-shadow: 0 18px 46px rgba(15, 118, 110, .24);
+        }
+        .ops-card.accent::after {
+            content: "";
+            position: absolute;
+            width: 160px;
+            height: 160px;
+            right: -62px;
+            bottom: -76px;
+            border-radius: 999px;
+            background: rgba(255,255,255,.14);
+            pointer-events: none;
         }
         .ops-card.accent small { color: rgba(255,255,255,.65); }
         .ops-actions { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -4235,86 +4986,182 @@ INDEX_HTML = r"""<!doctype html>
         }
         .metric {
             min-width: 0;
+            position: relative;
+            isolation: isolate;
+            overflow: hidden;
             background: linear-gradient(180deg, var(--surface-glass), var(--surface));
-            border: 1.5px solid var(--line);
+            border: 1.5px solid rgba(203,213,225,.76);
             border-left: 4px solid var(--accent);
             border-radius: var(--radius);
-            padding: 16px 16px 14px;
-            min-height: 104px;
+            padding: 18px 18px 16px;
+            min-height: 116px;
             box-shadow: var(--shadow-sm);
             transition: box-shadow var(--transition), transform var(--transition), border-color var(--transition);
         }
-        .metric:hover { box-shadow: var(--shadow); transform: translateY(-1px); border-color: var(--line-strong); }
-        .metric:nth-child(2) { border-left-color: var(--blue); }
-        .metric:nth-child(3) { border-left-color: var(--amber); }
-        .metric:nth-child(4) { border-left-color: var(--red); }
+        .metric::after {
+            content: "";
+            position: absolute;
+            width: 92px;
+            height: 92px;
+            right: -46px;
+            top: -42px;
+            border-radius: 999px;
+            background: var(--surface-tint);
+            z-index: -1;
+        }
+        .metric:hover { box-shadow: var(--shadow); transform: translateY(-2px); border-color: var(--line-strong); }
+        .metric:nth-child(2), .metric.tone-blue { border-left-color: var(--blue); }
+        .metric:nth-child(3), .metric.tone-warning { border-left-color: var(--amber); }
+        .metric:nth-child(4), .metric.tone-danger { border-left-color: var(--red); }
+        .metric.tone-success { border-left-color: var(--green); }
+        .metric-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 11px;
+        }
         .metric small {
             color: var(--muted);
             display: block;
-            margin-bottom: 10px;
-            font-weight: 700;
+            margin: 0;
+            font-weight: 800;
             font-size: 11px;
             text-transform: uppercase;
-            letter-spacing: .04em;
+            letter-spacing: .055em;
+        }
+        .metric-icon,
+        .insight-icon {
+            width: 34px;
+            height: 34px;
+            border-radius: 12px;
+            display: grid;
+            place-items: center;
+            flex: 0 0 auto;
+            background: var(--accent-soft);
+            color: var(--accent-strong);
+            font-size: 13px;
+            font-weight: 900;
+            box-shadow: inset 0 0 0 1px rgba(13,148,136,.12);
         }
         .metric { min-width: 0; }
-        .metric strong { font-size: 28px; line-height: 1.15; display: block; font-weight: 750; }
-        .metric .trend { margin-top: 10px; color: var(--muted); font-size: 12px; }
+        .metric strong { font-size: clamp(27px, 2.4vw, 34px); line-height: 1.05; display: block; font-weight: 850; letter-spacing: -.045em; }
+        .metric .trend { margin-top: 11px; color: var(--muted); font-size: 12px; font-weight: 600; }
+        body.compact .content { gap: 16px; }
+        body.compact .metric { min-height: 94px; padding: 14px; }
+        body.compact .metric strong { font-size: 26px; }
+        body.compact .ops-card { min-height: 96px; padding: 14px; }
+        body.compact .panel-body { padding: 14px; }
+        body.compact .panel-head { min-height: 48px; padding: 12px 14px; }
+        body.compact th, body.compact td { padding: 9px 11px; }
+        body.compact .section-card.hero-card { padding: 22px; }
         .section-card {
             min-width: 0;
             background: linear-gradient(135deg, var(--surface-glass), var(--surface));
-            border: 1.5px solid var(--line);
+            border: 1.5px solid rgba(203,213,225,.74);
             border-radius: var(--radius);
-            padding: 18px;
+            padding: 20px;
             box-shadow: var(--shadow-sm);
         }
         .section-card.compact { padding: 14px 16px; }
+        .section-card.hero-card {
+            position: relative;
+            overflow: hidden;
+            isolation: isolate;
+            padding: clamp(22px, 3vw, 34px);
+            border-radius: var(--radius-lg);
+            background:
+                radial-gradient(circle at 86% 12%, rgba(20, 184, 166, .18), transparent 26%),
+                linear-gradient(135deg, rgba(255,255,255,.94), rgba(240,253,250,.86) 48%, rgba(239,246,255,.9));
+            box-shadow: var(--shadow);
+        }
+        .section-card.hero-card::after {
+            content: "";
+            position: absolute;
+            width: 260px;
+            height: 260px;
+            right: -92px;
+            bottom: -130px;
+            border-radius: 999px;
+            background: linear-gradient(135deg, rgba(13,148,136,.16), rgba(37,99,235,.12));
+            z-index: -1;
+        }
+        .hero-layout { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; }
+        .hero-eyebrow { display: inline-flex; align-items: center; width: fit-content; gap: 8px; margin-bottom: 10px; padding: 5px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); font-size: 11px; font-weight: 850; text-transform: uppercase; letter-spacing: .08em; }
+        .hero-eyebrow::before { content: ""; width: 7px; height: 7px; border-radius: 999px; background: currentColor; box-shadow: 0 0 0 4px rgba(13,148,136,.14); }
         .section-card h3 {
             margin: 0 0 4px;
             font-size: 16px;
             line-height: 1.25;
         }
+        .section-card.hero-card h3 { font-size: clamp(28px, 4vw, 44px); line-height: .98; letter-spacing: -.06em; margin-bottom: 10px; max-width: 780px; }
         .section-card p { margin: 0; color: var(--muted); }
-        .insight-grid { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 14px; }
+        .section-card.hero-card p { max-width: 760px; font-size: 15px; color: var(--muted-strong); }
+        .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+        .hero-stat-stack { display: grid; grid-template-columns: repeat(2, minmax(128px, 1fr)); gap: 10px; min-width: min(360px, 100%); }
+        .hero-stat { padding: 14px; border-radius: 16px; background: rgba(255,255,255,.72); border: 1px solid rgba(203,213,225,.75); box-shadow: var(--shadow-sm); }
+        .hero-stat strong { display: block; font-size: 24px; line-height: 1.05; letter-spacing: -.045em; }
+        .hero-stat span { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; font-weight: 700; }
+        .view-heading {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+            padding: 18px 20px;
+            border: 1.5px solid rgba(203,213,225,.74);
+            border-radius: var(--radius);
+            background: linear-gradient(135deg, var(--surface-glass), rgba(255,255,255,.68));
+            box-shadow: var(--shadow-sm);
+        }
+        body.dark .view-heading { background: linear-gradient(135deg, rgba(30,41,59,.92), rgba(30,41,59,.62)); }
+        .view-heading h2 { margin: 0; font-size: clamp(20px, 2vw, 28px); line-height: 1.08; letter-spacing: -.045em; }
+        .view-heading p { margin: 6px 0 0; max-width: 760px; color: var(--muted); font-weight: 600; }
+        .view-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+        .view-heading-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+        .insight-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
         .insight-card {
             min-width: 0;
             display: grid;
             gap: 8px;
-            padding: 14px;
-            border: 1.5px solid var(--line);
-            border-radius: var(--radius-sm);
-            background: var(--surface);
+            padding: 16px;
+            border: 1.5px solid rgba(203,213,225,.72);
+            border-radius: var(--radius);
+            background: linear-gradient(180deg, var(--surface-glass), var(--surface));
             box-shadow: var(--shadow-sm);
+            transition: box-shadow var(--transition), transform var(--transition), border-color var(--transition);
         }
-        .insight-card strong { font-size: 16px; }
-        .insight-card small { color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
-        .grid-2 { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(340px, .6fr); gap: 16px; align-items: start; }
+        .insight-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); border-color: var(--line-strong); }
+        .insight-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .insight-card strong { font-size: 18px; letter-spacing: -.025em; }
+        .insight-card small { color: var(--muted); font-weight: 800; text-transform: uppercase; letter-spacing: .055em; font-size: 11px; }
+        .grid-2 { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(360px, .6fr); gap: 18px; align-items: start; }
         .panel {
             min-width: 0;
             background: var(--surface);
-            border: 1.5px solid var(--line);
+            border: 1.5px solid rgba(203,213,225,.74);
             border-radius: var(--radius);
             overflow: hidden;
             box-shadow: var(--shadow-sm);
         }
         .panel-head {
-            min-height: 52px;
+            min-height: 56px;
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 12px;
-            padding: 14px 16px;
+            padding: 15px 18px;
             border-bottom: 1px solid var(--line);
-            background: var(--surface-soft);
+            background: linear-gradient(180deg, var(--surface-soft), rgba(248,250,252,.78));
         }
-        .panel-head h2 { font-size: 15px; margin: 0; font-weight: 700; }
-        .panel-body { padding: 16px; }
+        .panel-head h2 { font-size: 16px; margin: 0; font-weight: 850; letter-spacing: -.025em; }
+        .panel-body { padding: 18px; }
         .table-wrap {
             min-width: 0;
             overflow: auto;
             position: relative;
             background: var(--surface);
-            border: 1.5px solid var(--line);
+            border: 1.5px solid rgba(203,213,225,.74);
             border-radius: var(--radius);
             box-shadow: var(--shadow-sm);
         }
@@ -4362,6 +5209,7 @@ INDEX_HTML = r"""<!doctype html>
         tr:hover td { background: #f8fafc; }
         td.money, th.money { text-align: right; font-variant-numeric: tabular-nums; }
         .cell-title { display: grid; gap: 3px; }
+        .cell-title strong { letter-spacing: -.02em; }
         .plate {
             display: inline-flex;
             align-items: center;
@@ -4391,25 +5239,25 @@ INDEX_HTML = r"""<!doctype html>
             font-size: 12px;
             font-weight: 750;
         }
-        .s-new { background: #dbeafe; color: #1d4ed8; }
-        .s-diagnostics, .s-estimate { background: #fef3c7; color: #92400e; }
-        .s-approved, .s-in_progress { background: #d1fae5; color: #065f46; }
+        .s-new { background: var(--blue-soft); color: #1d4ed8; }
+        .s-diagnostics, .s-estimate { background: var(--amber-soft); color: #92400e; }
+        .s-approved, .s-in_progress { background: var(--green-soft); color: #065f46; }
         .s-done { background: #cffafe; color: #0e7490; }
         .s-closed { background: #f1f5f9; color: #475569; }
-        .s-cancelled { background: #fee2e2; color: var(--red); }
-        .a-scheduled { background: #dbeafe; color: #1d4ed8; }
-        .a-confirmed, .a-arrived { background: #d1fae5; color: #065f46; }
+        .s-cancelled { background: var(--red-soft); color: var(--red); }
+        .a-scheduled { background: var(--blue-soft); color: #1d4ed8; }
+        .a-confirmed, .a-arrived { background: var(--green-soft); color: #065f46; }
         .a-done { background: #f1f5f9; color: #475569; }
-        .a-no_show, .a-cancelled { background: #fee2e2; color: var(--red); }
-        .item-approved { background: #d1fae5; color: #065f46; }
-        .item-deferred { background: #fef3c7; color: #92400e; }
-        .item-declined { background: #fee2e2; color: var(--red); }
-        .inspection-draft { background: #dbeafe; color: #1d4ed8; }
-        .inspection-ready, .inspection-sent { background: #d1fae5; color: #065f46; }
+        .a-no_show, .a-cancelled { background: var(--red-soft); color: var(--red); }
+        .item-approved { background: var(--green-soft); color: #065f46; }
+        .item-deferred { background: var(--amber-soft); color: #92400e; }
+        .item-declined { background: var(--red-soft); color: var(--red); }
+        .inspection-draft { background: var(--blue-soft); color: #1d4ed8; }
+        .inspection-ready, .inspection-sent { background: var(--green-soft); color: #065f46; }
         .inspection-archived { background: #f1f5f9; color: #475569; }
-        .condition-ok { background: #d1fae5; color: #065f46; }
-        .condition-attention { background: #fef3c7; color: #92400e; }
-        .condition-critical { background: #fee2e2; color: var(--red); }
+        .condition-ok { background: var(--green-soft); color: #065f46; }
+        .condition-attention { background: var(--amber-soft); color: #92400e; }
+        .condition-critical { background: var(--red-soft); color: var(--red); }
         .priority { color: var(--muted); font-size: 12px; margin-top: 2px; }
         .priority.high, .priority.urgent { color: var(--red); font-weight: 750; }
         .stack { display: grid; gap: 10px; }
@@ -4561,6 +5409,185 @@ INDEX_HTML = r"""<!doctype html>
         }
         .toast.show { display: block; }
         .toast.error { background: var(--red); color: #fff; }
+        .command-palette-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 40;
+            display: none;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 9vh 18px 18px;
+            background: rgba(15, 23, 42, .42);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+        }
+        .command-palette-backdrop.open { display: flex; animation: fadeIn 160ms ease; }
+        .command-palette {
+            width: min(720px, 100%);
+            border: 1.5px solid rgba(255,255,255,.18);
+            border-radius: 16px;
+            background: var(--surface);
+            box-shadow: var(--shadow-lg);
+            overflow: hidden;
+        }
+        .command-palette-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--line);
+            background: var(--surface-soft);
+        }
+        .command-palette-head input {
+            border: 0;
+            box-shadow: none !important;
+            background: transparent !important;
+            padding: 8px 0;
+            min-height: 38px;
+            font-size: 16px;
+        }
+        .command-palette-list { max-height: 420px; overflow: auto; padding: 8px; }
+        .command-item {
+            width: 100%;
+            min-height: 54px;
+            border-radius: 10px;
+            background: transparent;
+            color: var(--ink);
+            display: grid;
+            grid-template-columns: 32px 1fr auto;
+            align-items: center;
+            gap: 12px;
+            padding: 10px;
+            text-align: left;
+        }
+        .command-item:hover,
+        .command-item.active { background: var(--surface-soft); }
+        .command-item kbd {
+            border: 1px solid var(--line);
+            border-bottom-width: 2px;
+            border-radius: 6px;
+            padding: 2px 6px;
+            color: var(--muted);
+            background: var(--surface);
+            font: 700 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        }
+        .pipeline-board {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+            gap: 14px;
+        }
+        .pipeline-column {
+            min-width: 0;
+            border: 1.5px solid rgba(203,213,225,.74);
+            border-radius: var(--radius);
+            background: linear-gradient(180deg, var(--surface-glass), var(--surface));
+            box-shadow: var(--shadow-sm);
+            overflow: hidden;
+        }
+        .pipeline-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 13px 15px;
+            border-bottom: 1px solid var(--line);
+            background: var(--surface-soft);
+        }
+        .pipeline-head strong { letter-spacing: -.02em; }
+        .pipeline-body { padding: 14px; display: grid; gap: 11px; }
+        .deal-card {
+            border: 1px solid rgba(203,213,225,.72);
+            border-radius: 14px;
+            padding: 12px;
+            background: linear-gradient(180deg, var(--surface-glass), var(--surface));
+            display: grid;
+            gap: 7px;
+            box-shadow: var(--shadow-sm);
+        }
+        .deal-card.overdue { border-color: #fecaca; box-shadow: inset 3px 0 0 var(--red), var(--shadow-sm); }
+        .deal-card button { justify-self: start; }
+        .action-center .panel-body { padding: 0; }
+        .action-stream { display: grid; gap: 0; }
+        .action-card {
+            min-width: 0;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 14px;
+            padding: 16px 18px;
+            border-bottom: 1px solid var(--line);
+            background: linear-gradient(90deg, rgba(13,148,136,.08), transparent 48%);
+        }
+        .action-card:last-child { border-bottom: 0; }
+        .action-card strong { display: block; font-size: 14px; line-height: 1.3; }
+        .action-card p { margin: 5px 0 0; color: var(--muted); }
+        .action-meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 9px; }
+        .action-priority {
+            display: inline-flex;
+            align-items: center;
+            min-height: 24px;
+            padding: 0 9px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 850;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            background: #ecfeff;
+            color: #0e7490;
+        }
+        .action-card.danger { box-shadow: inset 4px 0 0 var(--red); background: linear-gradient(90deg, rgba(220,38,38,.08), transparent 45%); }
+        .action-card.warning { box-shadow: inset 4px 0 0 var(--amber); background: linear-gradient(90deg, rgba(217,119,6,.08), transparent 45%); }
+        .action-card.success { box-shadow: inset 4px 0 0 var(--green); background: linear-gradient(90deg, rgba(5,150,105,.08), transparent 45%); }
+        .action-card.info { box-shadow: inset 4px 0 0 var(--blue); }
+        .action-card.danger .action-priority { background: #fee2e2; color: var(--red); }
+        .action-card.warning .action-priority { background: #fef3c7; color: #92400e; }
+        .action-card.success .action-priority { background: #d1fae5; color: #065f46; }
+        .action-side { display: grid; justify-items: end; align-content: center; gap: 8px; min-width: 136px; }
+        .action-score { color: var(--muted); font-size: 12px; font-weight: 750; font-variant-numeric: tabular-nums; }
+        body.dark .action-card { background: linear-gradient(90deg, rgba(20,184,166,.08), transparent 45%); }
+        body.dark .action-card.danger { background: linear-gradient(90deg, rgba(248,113,113,.12), transparent 45%); }
+        body.dark .action-card.warning { background: linear-gradient(90deg, rgba(251,191,36,.12), transparent 45%); }
+        body.dark .action-card.success { background: linear-gradient(90deg, rgba(52,211,153,.10), transparent 45%); }
+        .timeline {
+            display: grid;
+            grid-template-columns: repeat(7, minmax(96px, 1fr));
+            gap: 10px;
+        }
+        .timeline-day {
+            min-width: 0;
+            border: 1.5px solid rgba(203,213,225,.74);
+            border-radius: var(--radius);
+            background: linear-gradient(180deg, var(--surface-glass), var(--surface));
+            padding: 13px;
+            display: grid;
+            gap: 10px;
+            box-shadow: var(--shadow-sm);
+        }
+        .timeline-day.today { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+        .timeline-day strong { display: flex; justify-content: space-between; gap: 8px; }
+        .timeline-list { display: grid; gap: 6px; font-size: 12px; }
+        .health-card {
+            position: relative;
+            overflow: hidden;
+            isolation: isolate;
+            background: linear-gradient(135deg, #0f766e, #1d4ed8);
+            color: #fff;
+        }
+        .health-card::after {
+            content: "";
+            position: absolute;
+            width: 180px;
+            height: 180px;
+            border-radius: 999px;
+            right: -60px;
+            top: -70px;
+            background: rgba(255,255,255,.14);
+            z-index: -1;
+        }
+        .health-card small,
+        .health-card .trend { color: rgba(255,255,255,.72); }
+        .health-card .metric-icon { background: rgba(255,255,255,.16); color: #fff; box-shadow: inset 0 0 0 1px rgba(255,255,255,.16); }
+        .health-card strong { display: flex; align-items: baseline; gap: 6px; }
+        .health-score { font-size: 34px; }
         .app.offline .topbar { border-bottom-color: var(--red); }
         .modal-backdrop.saving { cursor: progress; }
         .modal-backdrop.saving .modal { opacity: .88; }
@@ -4623,8 +5650,8 @@ INDEX_HTML = r"""<!doctype html>
             font: inherit;
             line-height: 1.45;
         }
-        .offline-banner {
-            display: none;
+        .offline-banner,
+        .error-banner {
             border: 1.5px solid #fecaca;
             color: #991b1b;
             background: #fef2f2;
@@ -4632,8 +5659,13 @@ INDEX_HTML = r"""<!doctype html>
             padding: 10px 12px;
             font-weight: 650;
         }
+        .offline-banner { display: none; }
+        .error-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+        .error-banner span { min-width: min(100%, 260px); color: #7f1d1d; font-weight: 500; }
         .app.offline .offline-banner { display: block; }
-        body.dark .offline-banner { background: rgba(127, 29, 29, .28); color: #fecaca; border-color: rgba(248, 113, 113, .45); }
+        body.dark .offline-banner,
+        body.dark .error-banner { background: rgba(127, 29, 29, .28); color: #fecaca; border-color: rgba(248, 113, 113, .45); }
+        body.dark .error-banner span { color: #fecaca; }
         .shutdown-state {
             min-height: 100vh;
             display: grid;
@@ -4670,14 +5702,17 @@ INDEX_HTML = r"""<!doctype html>
         .loading-skeleton { animation: pulse 1.6s ease-in-out infinite; background: #e2e8f0; border-radius: var(--radius-sm); min-height: 24px; }
         @media (max-width: 1120px) {
             .app { grid-template-columns: 1fr; }
-            .sidebar { position: sticky; top: 0; z-index: 7; padding: 10px; overflow: hidden; }
+            .sidebar { position: sticky; top: 0; height: auto; max-height: 64px; z-index: 7; padding: 10px; overflow: hidden; }
+            .sidebar::after { display: none; }
             .brand, .db-path { display: none; }
             .nav { display: flex; overflow: auto; scrollbar-width: thin; }
             .nav button { flex: 0 0 auto; }
-            .topbar { top: 56px; min-height: 0; padding: 12px; flex-wrap: wrap; }
+            .topbar { top: 64px; min-height: 0; padding: 12px; flex-wrap: wrap; }
             .title-block { width: 100%; }
-            .content { padding: 16px; }
-            .kpi-grid, .grid-2, .ops-grid, .catalog-summary, .catalog-grid, .insight-grid { grid-template-columns: 1fr; }
+            .content { padding: 18px; width: 100%; }
+            .context-strip, .kpi-grid, .grid-2, .ops-grid, .catalog-summary, .catalog-grid, .insight-grid { grid-template-columns: 1fr; }
+            .hero-layout { grid-template-columns: 1fr; }
+            .hero-stat-stack { min-width: 0; width: 100%; }
             .top-actions { width: 100%; justify-content: flex-start; }
         }
         @media (max-width: 680px) {
@@ -4687,7 +5722,9 @@ INDEX_HTML = r"""<!doctype html>
             .catalog-search { min-width: 100%; }
             .btn { min-height: 44px; }
             .btn.icon { width: 44px; }
-            .metric, .ops-card, .panel, .table-wrap { width: 100%; max-width: calc(100vw - 24px); }
+            .context-pill, .metric, .ops-card, .panel, .table-wrap { width: 100%; max-width: calc(100vw - 24px); }
+            .hero-stat-stack { grid-template-columns: 1fr; }
+            .section-card.hero-card h3 { font-size: 30px; }
             .ops-card strong { max-width: min(100%, 300px); font-size: 19px; }
             .ops-actions { display: grid; grid-template-columns: 1fr; }
             .ops-actions .btn { width: 100%; min-width: 0; }
@@ -4695,6 +5732,11 @@ INDEX_HTML = r"""<!doctype html>
             .form-grid, .form-grid.three { grid-template-columns: 1fr; }
             .span-2, .span-3 { grid-column: auto; }
             .bar { grid-template-columns: 1fr; gap: 6px; }
+            .timeline { grid-template-columns: minmax(0, 1fr); }
+            .action-card { grid-template-columns: 1fr; }
+            .action-side { justify-items: start; min-width: 0; }
+            .command-palette-backdrop { padding: 12px; align-items: stretch; }
+            .command-palette-list { max-height: calc(100vh - 130px); }
             .modal-foot { justify-content: stretch; flex-wrap: wrap; }
             .modal-foot .btn { flex: 1 1 auto; }
             .table-wrap { -webkit-overflow-scrolling: touch; scroll-snap-type: x mandatory; }
@@ -4706,6 +5748,7 @@ INDEX_HTML = r"""<!doctype html>
     </style>
 </head>
 <body>
+<a class="skip-link" href="#content">К основному содержанию</a>
 <div class="app">
     <aside class="sidebar">
         <div class="brand">
@@ -4716,16 +5759,16 @@ INDEX_HTML = r"""<!doctype html>
             </div>
         </div>
         <nav class="nav" id="nav" aria-label="Основные разделы CRM">
-            <button type="button" data-route="dashboard" class="active" aria-current="page"><span class="icon" aria-hidden="true">⌂</span>Панель</button>
-            <button type="button" data-route="appointments"><span class="icon" aria-hidden="true">📅</span>Запись</button>
-            <button type="button" data-route="inspections"><span class="icon" aria-hidden="true">✓</span>Осмотры</button>
-            <button type="button" data-route="orders"><span class="icon" aria-hidden="true">№</span>Заказы</button>
-            <button type="button" data-route="customers"><span class="icon" aria-hidden="true">👤</span>Клиенты</button>
-            <button type="button" data-route="vehicles"><span class="icon" aria-hidden="true">🚘</span>Авто</button>
-            <button type="button" data-route="catalog"><span class="icon" aria-hidden="true">◎</span>Каталог авто</button>
-            <button type="button" data-route="inventory"><span class="icon" aria-hidden="true">▦</span>Склад</button>
-            <button type="button" data-route="reports"><span class="icon" aria-hidden="true">↗</span>Отчеты</button>
-            <button type="button" data-route="updates"><span class="icon" aria-hidden="true">⬢</span>Обновления</button>
+            <button type="button" data-route="dashboard" class="active" aria-current="page"><span class="icon" aria-hidden="true">⌂</span><span class="nav-label">Панель</span><span class="nav-badge" data-nav-badge="dashboard" hidden></span></button>
+            <button type="button" data-route="appointments"><span class="icon" aria-hidden="true">📅</span><span class="nav-label">Запись</span><span class="nav-badge" data-nav-badge="appointments" hidden></span></button>
+            <button type="button" data-route="inspections"><span class="icon" aria-hidden="true">✓</span><span class="nav-label">Осмотры</span><span class="nav-badge" data-nav-badge="inspections" hidden></span></button>
+            <button type="button" data-route="orders"><span class="icon" aria-hidden="true">№</span><span class="nav-label">Заказы</span><span class="nav-badge" data-nav-badge="orders" hidden></span></button>
+            <button type="button" data-route="customers"><span class="icon" aria-hidden="true">👤</span><span class="nav-label">Клиенты</span></button>
+            <button type="button" data-route="vehicles"><span class="icon" aria-hidden="true">🚘</span><span class="nav-label">Авто</span></button>
+            <button type="button" data-route="catalog"><span class="icon" aria-hidden="true">◎</span><span class="nav-label">Каталог авто</span></button>
+            <button type="button" data-route="inventory"><span class="icon" aria-hidden="true">▦</span><span class="nav-label">Склад</span><span class="nav-badge" data-nav-badge="inventory" hidden></span></button>
+            <button type="button" data-route="reports"><span class="icon" aria-hidden="true">↗</span><span class="nav-label">Отчеты</span></button>
+            <button type="button" data-route="updates"><span class="icon" aria-hidden="true">⬢</span><span class="nav-label">Обновления</span><span class="nav-badge" data-nav-badge="updates" hidden></span></button>
         </nav>
         <div class="db-path" id="dbPath"></div>
     </aside>
@@ -4742,7 +5785,9 @@ INDEX_HTML = r"""<!doctype html>
                 <button class="search-clear" id="clearSearch" type="button" aria-label="Очистить поиск" title="Очистить поиск" hidden>×</button>
             </div>
             <div class="top-actions">
+                <button type="button" class="btn ghost" id="commandBtn" title="Командная палитра Ctrl+K" aria-label="Открыть командную палитру">⌘K</button>
                 <button type="button" class="btn ghost" id="themeToggle" title="Тёмная/светлая тема" aria-label="Переключить тёмную или светлую тему" aria-pressed="false">◐</button>
+                <button type="button" class="btn ghost" id="densityToggle" title="Плотность интерфейса" aria-label="Переключить плотность интерфейса" aria-pressed="false">↕</button>
                 <button type="button" class="btn ghost" id="backupBtn" title="Создать резервную копию"><span aria-hidden="true">⇩</span>Резерв</button>
                 <button type="button" class="btn icon" id="refreshBtn" title="Обновить" aria-label="Обновить данные">↻</button>
                 <button type="button" class="btn danger" id="shutdownBtn" title="Остановить локальную CRM">Остановить</button>
@@ -4753,6 +5798,7 @@ INDEX_HTML = r"""<!doctype html>
             <div class="loading-state" role="status" aria-label="Загрузка данных CRM">
                 <div class="loading-mark" aria-hidden="true"></div>
                 <strong>Загружаем данные CRM...</strong>
+                <span class="muted">Готовим рабочее пространство смены</span>
             </div>
         </section>
     </main>
@@ -4766,6 +5812,17 @@ INDEX_HTML = r"""<!doctype html>
         </div>
         <div class="modal-body" id="modalBody"></div>
         <div class="modal-foot" id="modalFoot"></div>
+    </div>
+</div>
+<div class="command-palette-backdrop" id="commandPalette" role="presentation">
+    <div class="command-palette" role="dialog" aria-modal="true" aria-labelledby="commandPaletteTitle">
+        <div class="command-palette-head">
+            <span aria-hidden="true">⌘</span>
+            <label class="sr-only" id="commandPaletteTitle" for="commandSearch">Командная палитра CRM</label>
+            <input id="commandSearch" autocomplete="off" placeholder="Команда, раздел или действие…" aria-label="Командная палитра CRM">
+            <button type="button" class="btn icon" id="commandClose" aria-label="Закрыть командную палитру">×</button>
+        </div>
+        <div class="command-palette-list" id="commandList" role="listbox" aria-label="Доступные команды CRM"></div>
     </div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
@@ -4782,11 +5839,14 @@ const state = {
     updateLoading: false,
     updateInstalling: false,
     loadSeq: 0,
+    lastError: "",
     orderDraftItems: [],
     inspectionDraftItems: [],
     modalDirty: false,
     saving: false,
-    loading: false
+    loading: false,
+    lastLoadedAt: "",
+    compactMode: false
 };
 
 const routes = {
@@ -4929,6 +5989,30 @@ function appointmentVehicle(appointment) {
 
 function classToken(value) {
     return String(value ?? "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-") || "unknown";
+}
+
+function formatClockTime(value) {
+    const parsed = value ? new Date(value) : new Date();
+    if (Number.isNaN(parsed.getTime())) return "—";
+    return parsed.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+}
+
+function contextPill(label, value, hint, tone = "") {
+    const toneClass = tone ? ` ${classToken(tone)}` : "";
+    return `<article class="context-pill${toneClass}" aria-label="${esc(`${label}: ${value}. ${hint}`)}"><div class="context-label"><span class="live-dot" aria-hidden="true"></span>${esc(label)}</div><strong>${esc(value)}</strong><span>${esc(hint)}</span></article>`;
+}
+
+function contextStripHtml() {
+    if (!state.data) return "";
+    const r = state.data.reports || {};
+    const riskCount = Number(r.overdue_orders_count || 0) + Number(r.inspection_alerts_count || 0) + Number(r.low_stock_count || 0);
+    const riskTone = riskCount > 0 ? (riskCount > 3 ? "danger" : "warning") : "success";
+    return `<section class="context-strip" aria-label="Операционный статус CRM">
+        ${contextPill("Смена", `${Math.max(0, Math.min(100, Number(r.business_health_score || 0)))}/100 · ${r.business_health_label || "Контроль"}`, "Индекс здоровья сервиса", riskTone)}
+        ${contextPill("Воронка", money(r.pipeline_value || 0), `${r.active_orders || 0} активных заказов`, "info")}
+        ${contextPill("К оплате", money(r.due_total || 0), "Дебиторская задолженность", Number(r.due_total || 0) > 0 ? "warning" : "success")}
+        ${contextPill("Обновлено", formatClockTime(state.lastLoadedAt), `Онлайн · ${state.data.app?.version || ""}`, "success")}
+    </section>`;
 }
 
 function statusBadge(status) {
@@ -5088,6 +6172,8 @@ async function loadData() {
         const data = await api(`/api/bootstrap?${params}`);
         if (seq !== state.loadSeq) return;
         state.data = data;
+        state.lastLoadedAt = new Date().toISOString();
+        state.lastError = "";
         setOnlineState(true);
         $("#dbPath").textContent = `База: ${state.data.app.db_path}`;
         $("#dbPath").title = state.data.app.db_directory ? `Папка базы: ${state.data.app.db_directory}` : "";
@@ -5150,11 +6236,12 @@ function render() {
         updates: renderUpdates
     };
     const busy = content.getAttribute("aria-busy") || "false";
-    content.innerHTML = `${offlineBannerHtml()}${renderers[state.route]()}`;
+    content.innerHTML = `${offlineBannerHtml()}${errorBannerHtml()}${contextStripHtml()}${renderers[state.route]()}`;
     content.setAttribute("aria-busy", busy);
     bindViewActions(content);
     bindCatalogFilter(content);
     updateScrollHints(content);
+    updateNavigationBadges();
 }
 
 function updateScrollHints(root = document) {
@@ -5167,8 +6254,27 @@ function updateScrollHints(root = document) {
                 hint.textContent = "Прокрутите вправо →";
                 container.append(hint);
             }
+            let srHint = container.querySelector(":scope > .scroll-hint-sr");
+            if (!srHint) {
+                srHint = document.createElement("div");
+                srHint.className = "sr-only scroll-hint-sr";
+                srHint.id = `scrollHint${Math.random().toString(36).slice(2)}`;
+                srHint.textContent = "Таблица прокручивается горизонтально. Используйте Shift и колесо мыши, тач-жест или горизонтальную прокрутку клавиатурой.";
+                container.append(srHint);
+            }
             const hasOverflow = container.scrollWidth > container.clientWidth + 1;
             container.classList.toggle("has-horizontal-overflow", hasOverflow);
+            if (hasOverflow) {
+                container.setAttribute("tabindex", container.getAttribute("tabindex") || "0");
+                const describedBy = new Set((container.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
+                describedBy.add(srHint.id);
+                container.setAttribute("aria-describedby", [...describedBy].join(" "));
+            } else {
+                const describedBy = (container.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean).filter(id => id !== srHint.id);
+                if (describedBy.length) container.setAttribute("aria-describedby", describedBy.join(" "));
+                else container.removeAttribute("aria-describedby");
+                if (container.getAttribute("tabindex") === "0") container.removeAttribute("tabindex");
+            }
         });
     };
     refresh();
@@ -5179,9 +6285,33 @@ function offlineBannerHtml() {
     return `<div class="offline-banner" role="alert">Нет связи с локальным сервером. Проверьте, что СТО CRM запущена, или нажмите «Обновить».</div>`;
 }
 
+function errorBannerHtml() {
+    if (!state.lastError) return "";
+    return `<div class="error-banner" role="alert"><strong>Последнее действие не выполнено.</strong><span>${esc(state.lastError)}</span><button class="btn ghost" type="button" data-action="dismiss-error">Скрыть</button></div>`;
+}
+
 function setOnlineState(isOnline) {
     const app = $(".app");
     if (app) app.classList.toggle("offline", !isOnline);
+}
+
+function updateNavigationBadges() {
+    const r = state.data?.reports || {};
+    const badgeValues = {
+        dashboard: r.action_plan_total || 0,
+        appointments: r.appointments_today_count || 0,
+        inspections: r.inspection_alerts_count || 0,
+        orders: r.active_orders || 0,
+        inventory: r.low_stock_count || 0,
+        updates: state.updateStatus?.ok && state.updateStatus.release?.is_newer ? "!" : 0
+    };
+    $$('[data-nav-badge]').forEach(badge => {
+        const value = badgeValues[badge.dataset.navBadge] || 0;
+        const visible = value === "!" || Number(value) > 0;
+        badge.hidden = !visible;
+        badge.textContent = visible ? String(value) : "";
+        badge.setAttribute("aria-label", value === "!" ? "Доступно обновление" : `${value} требует внимания`);
+    });
 }
 
 function updateSearchClear() {
@@ -5201,16 +6331,105 @@ function clearGlobalSearch() {
     loadData().catch(showError);
 }
 
-function sectionIntro(title, text) {
-    return `<section class="section-card"><h3>${esc(title)}</h3><p>${esc(text)}</p></section>`;
+function commandItems() {
+    return [
+        { icon: "⌂", title: "Панель управления", hint: "Executive cockpit и риски", keys: "G P", run: () => setRoute("dashboard") },
+        { icon: "📅", title: "Новая запись", hint: "Поставить клиента в календарь", keys: "N A", run: () => openAppointmentModal() },
+        { icon: "✓", title: "Новый осмотр DVI", hint: "Цифровой мульти-точечный осмотр", keys: "N D", run: () => openInspectionModal() },
+        { icon: "№", title: "Новый заказ-наряд", hint: "Работы, запчасти и оплаты", keys: "N O", run: () => openOrderModal() },
+        { icon: "👤", title: "Новый клиент", hint: "Добавить клиента в CRM", keys: "N C", run: () => openCustomerModal() },
+        { icon: "🚘", title: "Новый автомобиль", hint: "Карточка авто и сервисный план", keys: "N V", run: () => openVehicleModal() },
+        { icon: "▦", title: "Новая позиция склада", hint: "Остатки, цена и себестоимость", keys: "N S", run: () => openInventoryModal() },
+        { icon: "↗", title: "Отчеты", hint: "Финансы, маржа и закупки", keys: "G R", run: () => setRoute("reports") },
+        { icon: "◎", title: "Каталог авто", hint: "Марки и модели", keys: "G C", run: () => setRoute("catalog") },
+        { icon: "↻", title: "Обновить данные", hint: "Перезагрузить bootstrap", keys: "R", run: () => loadData().then(() => toast("Обновлено")).catch(showError) },
+        { icon: "↕", title: "Плотность интерфейса", hint: "Компактный или комфортный режим", keys: "D", run: () => toggleDensity() },
+        { icon: "⇩", title: "Резервная копия", hint: "Создать консистентный backup SQLite", keys: "B", run: () => createBackupFromUi() },
+        { icon: "⬢", title: "Проверить обновления", hint: "GitHub release-only", keys: "U", run: () => { setRoute("updates"); checkForUpdates(true).catch(showError); } }
+    ];
+}
+
+function filteredCommandItems() {
+    const needle = String($("#commandSearch")?.value || "").trim().toLocaleLowerCase("ru-RU");
+    if (!needle) return commandItems();
+    return commandItems().filter(item => `${item.title} ${item.hint} ${item.keys}`.toLocaleLowerCase("ru-RU").includes(needle));
+}
+
+function renderCommandPalette() {
+    const list = $("#commandList");
+    if (!list) return;
+    const items = filteredCommandItems();
+    list.innerHTML = items.map((item, index) => `
+        <button class="command-item ${index === 0 ? "active" : ""}" type="button" role="option" data-command-index="${index}" aria-selected="${index === 0 ? "true" : "false"}">
+            <span aria-hidden="true">${esc(item.icon)}</span>
+            <span><strong>${esc(item.title)}</strong><div class="muted">${esc(item.hint)}</div></span>
+            <kbd>${esc(item.keys)}</kbd>
+        </button>`).join("") || `<div class="empty"><strong>Команда не найдена</strong><span>Попробуйте другой запрос.</span></div>`;
+}
+
+function openCommandPalette() {
+    if (!state.data) return;
+    $("#commandPalette")?.classList.add("open");
+    const input = $("#commandSearch");
+    if (input) {
+        input.value = "";
+        renderCommandPalette();
+        requestAnimationFrame(() => input.focus({ preventScroll: true }));
+    }
+}
+
+function closeCommandPalette() {
+    $("#commandPalette")?.classList.remove("open");
+}
+
+function runCommand(index = 0) {
+    const item = filteredCommandItems()[index];
+    if (!item) return;
+    closeCommandPalette();
+    item.run();
+}
+
+async function createBackupFromUi() {
+    try {
+        const result = await api("/api/backup", { method: "POST", body: "{}" });
+        toast(`Резервная копия: ${result.path}`);
+    } catch (error) {
+        showError(error);
+    }
+}
+
+function sectionIntro(title, text, options = {}) {
+    const className = options.hero ? "section-card hero-card" : "section-card";
+    const eyebrow = options.eyebrow ? `<div class="hero-eyebrow">${esc(options.eyebrow)}</div>` : "";
+    const actions = (options.actions || []).length
+        ? `<div class="hero-actions">${options.actions.map(action => action.action === "export-csv"
+            ? `<button class="btn ghost" type="button" data-action="export-csv" data-export="${esc(action.export || "")}">${esc(action.label || "CSV")}</button>`
+            : `<button class="btn ${esc(action.className || "")}" type="button" data-action="${esc(action.action || "")}">${esc(action.label || "Открыть")}</button>`).join("")}</div>`
+        : "";
+    const stats = (options.stats || []).length
+        ? `<div class="hero-stat-stack">${options.stats.map(item => `<div class="hero-stat"><strong>${esc(item.value)}</strong><span>${esc(item.label)}</span></div>`).join("")}</div>`
+        : "";
+    if (options.hero) {
+        return `<section class="${className}"><div class="hero-layout"><div>${eyebrow}<h3>${esc(title)}</h3><p>${esc(text)}</p>${actions}</div>${stats}</div></section>`;
+    }
+    return `<section class="${className}"><h3>${esc(title)}</h3><p>${esc(text)}</p></section>`;
 }
 
 function emptyState(title, text, action = "") {
     return `<div class="empty"><strong>${esc(title)}</strong><span>${esc(text)}</span>${action}</div>`;
 }
 
-function insightCard(label, value, hint) {
-    return `<article class="insight-card"><small>${esc(label)}</small><strong>${esc(value)}</strong><span class="muted">${esc(hint)}</span></article>`;
+function insightCard(label, value, hint, options = {}) {
+    const icon = options.icon || String(label || "").trim().slice(0, 1).toLocaleUpperCase("ru-RU") || "•";
+    return `<article class="insight-card" aria-label="${esc(`${label}: ${value}`)}"><div class="insight-head"><small>${esc(label)}</small><span class="insight-icon" aria-hidden="true">${esc(icon)}</span></div><strong>${esc(value)}</strong><span class="muted">${esc(hint)}</span></article>`;
+}
+
+function viewHeading(title, text, meta = [], actions = []) {
+    const metaHtml = meta.length ? `<div class="view-meta">${meta.map(item => `<span class="count-pill">${esc(item)}</span>`).join("")}</div>` : "";
+    const actionsHtml = actions.length ? `<div class="view-heading-actions">${actions.map(action => action.action === "export-csv"
+        ? `<button class="btn ghost" type="button" data-action="export-csv" data-export="${esc(action.export || "")}">${esc(action.label || "CSV")}</button>`
+        : `<button class="btn ${esc(action.className || "")}" type="button" data-action="${esc(action.action || "")}"${action.export ? ` data-export="${esc(action.export)}"` : ""}>${esc(action.label || "Открыть")}</button>`).join("")}</div>` : "";
+    return `<section class="view-heading"><div><h2>${esc(title)}</h2><p>${esc(text)}</p>${metaHtml}</div>${actionsHtml}</section>`;
 }
 
 function tableHead(labels) {
@@ -5255,17 +6474,44 @@ function renderDashboard() {
     const recent = [...state.data.orders].slice(0, 6);
     const catalog = state.data.car_catalog?.stats || { makes: 0, models: 0 };
     return `
-        ${sectionIntro("Панель управления", "Главные показатели, задачи CRM и быстрые действия для смены мастера-приемщика.")}
+        ${sectionIntro("Управляйте сменой автосервиса без хаоса", "Executive cockpit объединяет деньги, загрузку, DVI-риски, склад и приоритетный план действий мастера-приемщика.", {
+            hero: true,
+            eyebrow: "Premium workspace",
+            actions: [
+                { label: "Новый заказ", action: "new-order", className: "primary" },
+                { label: "Записать клиента", action: "new-appointment", className: "ghost" },
+                { label: "План смены", action: "open-action-plan", className: "ghost" } // data-action="open-action-plan"
+            ],
+            stats: [
+                { label: "Индекс смены", value: `${Math.max(0, Math.min(100, Number(r.business_health_score || 0)))}/100` },
+                { label: "Активная воронка", value: money(r.pipeline_value || 0) },
+                { label: "Записей сегодня", value: r.appointments_today_count || 0 },
+                { label: "Задач в плане", value: r.action_plan_total || 0 }
+            ]
+        })}
         <section class="kpi-grid">
-            ${metric("Открытые заказ-наряды", r.active_orders, "В работе, диагностике и согласовании")}
+            ${healthMetric(r)}
+            ${metric("Открытые заказ-наряды", r.active_orders, `${money(r.pipeline_value || 0)} в активной воронке`)}
             ${metric("Выручка месяца", money(r.revenue_month), "По закрытым заказам")}
-            ${metric("Маржа месяца", money(r.gross_margin_month || 0), `${num(r.margin_percent_month).toFixed(1)}% валовой маржи`)}
-            ${metric("CRM задачи", r.crm_tasks_count, "Follow-up, согласования и сервисные напоминания")}
+            ${metric("CRM задачи", r.crm_tasks_count, `${r.overdue_orders_count || 0} просрочено · ${r.inspection_alerts_count || 0} DVI рисков`)}
         </section>
         <section class="insight-grid">
             ${insightCard("К оплате", money(r.due_total), "Дебиторская задолженность")}
-            ${insightCard("Конверсия смет", `${num(r.conversion_rate).toFixed(1)}%`, "Сметы, доведенные до работ")}
+            ${insightCard("Маржа месяца", money(r.gross_margin_month || 0), `${num(r.margin_percent_month).toFixed(1)}% валовой маржи`)}
+            ${insightCard("Конверсия смет", `${num(r.conversion_rate).toFixed(1)}%`, "Согласование → работа")}
+            ${insightCard("Активная воронка", money(r.pipeline_value || 0), `${money(r.pipeline_due || 0)} ожидает оплаты`)}
             ${insightCard("Стоимость склада", money(r.inventory_value || 0), "По себестоимости активных остатков")}
+            ${insightCard("Закупка", money((r.procurement_plan || []).reduce((sum, item) => sum + num(item.budget), 0)), `${(r.procurement_plan || []).length} позиций к заказу`)}
+        </section>
+        <section class="grid-2">
+            <div class="panel">
+                <div class="panel-head"><h2>Воронка заказ-нарядов</h2><button class="btn" type="button" data-action="open-orders">Все заказы</button></div>
+                <div class="panel-body">${pipelineBoard(r.pipeline_by_status || [])}</div>
+            </div>
+            <div class="panel">
+                <div class="panel-head"><h2>Загрузка на 7 дней</h2><button class="btn" type="button" data-action="open-appointments">Календарь</button></div>
+                <div class="panel-body">${appointmentTimeline(r.appointment_load_7_days || [])}</div>
+            </div>
         </section>
         <section class="ops-grid">
             <div class="ops-card accent">
@@ -5309,6 +6555,14 @@ function renderDashboard() {
             </div>
             <div class="stack">
                 <div class="panel">
+                    <div class="panel-head"><h2>Просроченные сроки</h2><button class="btn" type="button" data-action="open-orders">Открыть заказы</button></div>
+                    <div class="panel-body">${overdueOrderList(r.overdue_orders || [])}</div>
+                </div>
+                <div class="panel action-center">
+                    <div class="panel-head"><h2>План смены</h2><span class="count-pill">${r.action_plan_total || 0}</span></div>
+                    <div class="panel-body">${actionPlanList(r.action_plan || [])}</div>
+                </div>
+                <div class="panel">
                     <div class="panel-head"><h2>CRM задачи</h2></div>
                     <div class="panel-body">${crmTaskList(r)}</div>
                 </div>
@@ -5329,37 +6583,145 @@ function renderDashboard() {
                     <div class="panel-body">${smallOrderList(r.promised_today)}</div>
                 </div>
                 <div class="panel">
-                    <div class="panel-head"><h2>Склад ниже минимума</h2></div>
+                    <div class="panel-head"><h2>Склад ниже минимума</h2><button class="btn" type="button" data-action="open-inventory">Склад</button></div>
                     <div class="panel-body">${lowStockList(r.low_stock)}</div>
+                </div>
+                <div class="panel">
+                    <div class="panel-head"><h2>План закупки</h2></div>
+                    <div class="panel-body">${procurementList(r.procurement_plan || [])}</div>
+                </div>
+                <div class="panel">
+                    <div class="panel-head"><h2>Загрузка мастеров</h2></div>
+                    <div class="panel-body">${workloadList(r.workload_by_responsible || [])}</div>
                 </div>
             </div>
         </section>
     `;
 }
 
-function metric(label, value, hint) {
-    return `<article class="metric"><small>${esc(label)}</small><strong>${esc(value)}</strong><div class="trend">${esc(hint)}</div></article>`;
+function metric(label, value, hint, options = {}) {
+    const toneClass = options.tone ? ` tone-${classToken(options.tone)}` : "";
+    const icon = options.icon || String(label || "").trim().slice(0, 1).toLocaleUpperCase("ru-RU") || "•";
+    return `<article class="metric${toneClass}" aria-label="${esc(`${label}: ${value}`)}"><div class="metric-top"><small>${esc(label)}</small><span class="metric-icon" aria-hidden="true">${esc(icon)}</span></div><strong>${esc(value)}</strong><div class="trend">${esc(hint)}</div></article>`;
+}
+
+function healthMetric(report) {
+    const score = Math.max(0, Math.min(100, Number(report.business_health_score || 0)));
+    return `<article class="metric health-card" aria-label="Индекс смены: ${score} из 100"><div class="metric-top"><small>Индекс смены</small><span class="metric-icon" aria-hidden="true">↗</span></div><strong><span class="health-score">${score}</span><span>/100</span></strong><div class="trend">${esc(report.business_health_label || "Контроль")} · просрочки, склад и DVI</div></article>`;
+}
+
+function pipelineBoard(statuses = []) {
+    const active = statuses.filter(column => !["cancelled"].includes(column.status));
+    if (!active.length) return `<div class="muted">Воронка пока пуста.</div>`;
+    return `<div class="pipeline-board">${active.map(column => `
+        <article class="pipeline-column">
+            <div class="pipeline-head"><strong>${esc(column.label)}</strong><span class="count-pill">${column.count}</span></div>
+            <div class="pipeline-body">
+                <div class="muted">${money(column.total)} · долг ${money(column.due)}</div>
+                ${(column.orders || []).slice(0, 3).map(order => {
+                    const overdue = (state.data?.reports?.overdue_orders || []).some(item => Number(item.id) === Number(order.id));
+                    return `
+                    <div class="deal-card ${overdue ? "overdue" : ""}">
+                        <strong>${esc(order.number || "Без номера")}</strong>
+                        <div class="muted">${esc(order.customer_name || "")} · ${esc(order.vehicle || "Авто не выбрано")}</div>
+                        <div>${money(order.total)} · ${esc(priorityLabels[order.priority] || order.priority || "")}</div>
+                        <button class="btn ghost" type="button" data-action="edit-order" data-id="${order.id}">Открыть</button>
+                    </div>`;
+                }).join("") || `<div class="muted">Нет заказов в статусе.</div>`}
+            </div>
+        </article>`).join("")}</div>`;
+}
+
+function appointmentTimeline(days = []) {
+    if (!days.length) return `<div class="muted">Нет данных календаря.</div>`;
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const maxCount = Math.max(...days.map(day => Number(day.count || 0)), 1);
+    return `<div class="timeline">${days.map(day => {
+        const width = Number(day.count || 0) ? Math.max(8, Math.round(Number(day.count || 0) / maxCount * 100)) : 0;
+        return `
+        <article class="timeline-day ${day.date === todayKey ? "today" : ""}">
+            <strong><span>${esc(day.label)}</span><span class="count-pill">${day.count}</span></strong>
+            <div class="bar-track" aria-label="Загрузка ${esc(day.label)}: ${day.count}"><div class="bar-fill" style="width:${width}%"></div></div>
+            <div class="timeline-list">${(day.appointments || []).slice(0, 2).map(item => `<span>${dateShort(item.scheduled_at)} · ${esc(item.customer_name || "")}</span>`).join("") || `<span class="muted">Свободно</span>`}</div>
+        </article>`;
+    }).join("")}</div>`;
+}
+
+function overdueOrderList(orders = []) {
+    if (!orders.length) return `<div class="muted">Просроченных заказ-нарядов нет.</div>`;
+    return `<div class="stack">${orders.map(order => `
+        <div class="deal-card overdue">
+            <strong>${esc(order.number)} · ${money(order.total)}</strong>
+            <div class="muted">${esc(order.customer_name || "")} · ${esc(order.vehicle || "")} · срок ${dateShort(order.promised_at)}</div>
+            <button class="btn ghost" type="button" data-action="edit-order" data-id="${order.id}">Открыть</button>
+        </div>`).join("")}</div>`;
+}
+
+function procurementList(items = []) {
+    if (!items.length) return `<div class="muted">Склад в нормативе.</div>`;
+    return `<div class="stack">${items.map(item => `
+        <div>
+            <strong>${esc(item.name)} ${item.urgency === "critical" ? `<span class="danger-text">критично</span>` : ""}</strong>
+            <div class="muted">${esc(item.sku || "без артикула")} · заказать ${qty(item.reorder_quantity)} ${esc(item.unit || "шт")} · бюджет ${money(item.budget)}</div>
+        </div>`).join("")}</div>`;
+}
+
+function workloadList(items = []) {
+    if (!items.length) return `<div class="muted">Ответственные пока не назначены.</div>`;
+    return `<div class="stack">${items.map(item => `
+        <div>
+            <strong>${esc(item.name)}</strong>
+            <div class="muted">${item.orders_count} заказов · ${money(item.total)} в работе · ${item.overdue_count} просрочено</div>
+        </div>`).join("")}</div>`;
+}
+
+function actionPlanList(items = []) {
+    if (!items.length) {
+        return `<div class="empty"><strong>План смены чист</strong><span>Нет просрочек, критичных DVI, срочных закупок и задач follow-up.</span></div>`;
+    }
+    return `<div class="action-stream">${items.map(item => {
+        const meta = [
+            item.customer_name,
+            item.customer_phone,
+            item.vehicle,
+            item.due_at ? dateShort(item.due_at) : "",
+            Number(item.amount || 0) ? money(item.amount) : ""
+        ].filter(Boolean);
+        return `<article class="action-card ${esc(classToken(item.tone || "info"))}">
+            <div>
+                <strong>${esc(item.title)}</strong>
+                <p>${esc(item.detail || "")}</p>
+                <div class="action-meta">
+                    <span class="action-priority">${esc(item.priority_label || "Планово")}</span>
+                    ${meta.map(value => `<span class="count-pill">${esc(value)}</span>`).join("")}
+                </div>
+            </div>
+            <div class="action-side">
+                <span class="action-score">${Number(item.priority || 0)}/100</span>
+                <button class="btn primary" type="button" data-action="${esc(item.action || "")}" data-id="${esc(item.record_id || "")}" data-route-target="${esc(item.route || "dashboard")}">${esc(item.cta || "Открыть")}</button>
+            </div>
+        </article>`;
+    }).join("")}</div>`;
 }
 
 function renderAppointments() {
     const rows = state.data.appointments || [];
     const upcoming = state.data.reports?.appointments_upcoming || [];
     return `
+        ${viewHeading("Календарь приемки", "Планируйте визиты, подтверждения, прибытия и неявки в одном аккуратном рабочем списке.", [
+            `${rows.length} записей`,
+            `${upcoming.length} ближайших`,
+            `${state.data.reports.appointments_today_count || 0} сегодня`
+        ], [
+            { label: "CSV", action: "export-csv", export: "appointments", className: "ghost" },
+            { label: "Новая запись", action: "new-appointment", className: "primary" }
+        ])}
         <section class="kpi-grid">
             ${metric("Записей сегодня", state.data.reports.appointments_today_count || 0, "Подтверждения, приемка и прибытия")}
             ${metric("Ближайшие записи", upcoming.length, "Активные записи в календаре")}
             ${metric("Клиентов в базе", state.data.lookups.customers.length, "Можно быстро поставить в календарь")}
             ${metric("CRM задачи", state.data.reports.crm_tasks_count, "Напоминания, follow-up и отложенные работы")}
         </section>
-        <div class="toolbar">
-            <div class="toolbar-left">
-                <span class="stat-chip">календарь СТО</span>
-            </div>
-            <div class="toolbar-right">
-                <a class="btn ghost" href="#" data-action="export-csv" data-export="appointments">CSV</a>
-                <button class="btn primary" type="button" data-action="new-appointment">Новая запись</button>
-            </div>
-        </div>
         <div class="table-wrap">
             <table aria-label="Таблица записей клиентов">
                 <thead>${tableHead(["Дата и время", "Клиент и авто", "Статус", "Длительность", "Мастер", "Причина", ""])}</thead>
@@ -5383,21 +6745,20 @@ function renderAppointments() {
 function renderInspections() {
     const rows = state.data.inspections || [];
     return `
+        ${viewHeading("Digital Vehicle Inspection", "Фиксируйте состояние автомобиля, критичные пункты, рекомендации и согласования клиента в профессиональном DVI-процессе.", [
+            `${rows.length} осмотров`,
+            `${state.data.reports.inspection_alerts_count || 0} рисков DVI`,
+            `${state.data.reports.crm_tasks_count || 0} CRM задач`
+        ], [
+            { label: "CSV", action: "export-csv", export: "inspections", className: "ghost" },
+            { label: "Новый осмотр", action: "new-inspection", className: "primary" }
+        ])}
         <section class="kpi-grid">
             ${metric("Осмотров", state.data.reports.inspections_count || 0, "История DVI по клиентам и авто")}
             ${metric("Риски DVI", state.data.reports.inspection_alerts_count || 0, "Требуют согласования и follow-up")}
             ${metric("Каталог авто", state.data.car_catalog?.stats?.models || 0, "Моделей для точной карточки авто")}
             ${metric("CRM задачи", state.data.reports.crm_tasks_count, "Осмотры, follow-up и сервисные напоминания")}
         </section>
-        <div class="toolbar">
-            <div class="toolbar-left">
-                <span class="stat-chip">digital vehicle inspection</span>
-            </div>
-            <div class="toolbar-right">
-                <a class="btn ghost" href="#" data-action="export-csv" data-export="inspections">CSV</a>
-                <button class="btn primary" type="button" data-action="new-inspection">Новый осмотр</button>
-            </div>
-        </div>
         <div class="table-wrap">
             <table aria-label="Таблица цифровых осмотров">
                 <thead>${tableHead(["Дата", "Клиент и авто", "Статус", "Пункты", "Риски", {text: "Рекомендации", className: "money"}, ""])}</thead>
@@ -5465,6 +6826,14 @@ function vipCustomerList(customers = []) {
 
 function renderOrders() {
     return `
+        ${viewHeading("Заказ-наряды", "Контролируйте статусы ремонта, сроки, оплаты, согласование строк и повторные продажи.", [
+            `${state.data.orders.length} найдено`,
+            `${state.data.reports.active_orders || 0} активных`,
+            `${money(state.data.reports.pipeline_value || 0)} в работе`
+        ], [
+            { label: "CSV", action: "export-csv", export: "orders", className: "ghost" },
+            { label: "Новый заказ", action: "new-order", className: "primary" }
+        ])}
         <div class="toolbar">
             <div class="toolbar-left">
                 <div class="segmented" role="group" aria-label="Фильтр заказов по статусу">
@@ -5473,10 +6842,6 @@ function renderOrders() {
                             ${status === "all" ? "Все" : esc(state.data.statuses[status])}
                         </button>`).join("")}
                 </div>
-            </div>
-            <div class="toolbar-right">
-                <a class="btn ghost" href="#" data-action="export-csv" data-export="orders">CSV</a>
-                <button class="btn primary" type="button" data-action="new-order">Новый заказ</button>
             </div>
         </div>
         ${ordersTable(state.data.orders, false)}
@@ -5539,13 +6904,14 @@ function ordersTable(orders, compact) {
 function renderCustomers() {
     const rows = state.data.customers;
     return `
-        <div class="toolbar">
-            <div class="toolbar-left"><span class="stat-chip">${rows.length} найдено</span></div>
-            <div class="toolbar-right">
-                <a class="btn ghost" href="#" data-action="export-csv" data-export="customers">CSV</a>
-                <button class="btn primary" type="button" data-action="new-customer">Новый клиент</button>
-            </div>
-        </div>
+        ${viewHeading("Клиенты", "Единая клиентская база с каналами связи, согласием на напоминания, автомобилями и историей заказов.", [
+            `${rows.length} найдено`,
+            `${state.data.lookups.customers.length} всего`,
+            `${state.data.reports.vip_customers?.length || 0} VIP`
+        ], [
+            { label: "CSV", action: "export-csv", export: "customers", className: "ghost" },
+            { label: "Новый клиент", action: "new-customer", className: "primary" }
+        ])}
         <div class="table-wrap">
             <table aria-label="Таблица клиентов">
                 <thead>${tableHead(["Клиент", "Телефон", "Email", "Канал", "Источник", "Авто", "Заказы", ""])}</thead>
@@ -5571,17 +6937,15 @@ function renderVehicles() {
     const rows = state.data.vehicles;
     const catalog = state.data.car_catalog?.stats || { makes: 0, models: 0 };
     return `
-        <div class="toolbar">
-            <div class="toolbar-left">
-                <span class="stat-chip">Справочник: ${catalog.makes} марок · ${catalog.models} моделей</span>
-                <button class="btn ghost" type="button" data-action="open-catalog">Открыть каталог</button>
-                <span class="count-pill">Сервисных напоминаний: ${state.data.reports.service_reminders?.length || 0}</span>
-            </div>
-            <div class="toolbar-right">
-                <a class="btn ghost" href="#" data-action="export-csv" data-export="vehicles">CSV</a>
-                <button class="btn primary" type="button" data-action="new-vehicle">Новый автомобиль</button>
-            </div>
-        </div>
+        ${viewHeading("Автомобили", "Паспорт автомобиля, VIN, пробег, сервисный план и быстрый доступ к офлайн-каталогу марок и моделей.", [
+            `${rows.length} авто`,
+            `${catalog.makes} марок`,
+            `${state.data.reports.service_reminders?.length || 0} напоминаний`
+        ], [
+            { label: "Каталог", action: "open-catalog", className: "ghost" },
+            { label: "CSV", action: "export-csv", export: "vehicles", className: "ghost" },
+            { label: "Новый автомобиль", action: "new-vehicle", className: "primary" }
+        ])}
         <div class="table-wrap">
             <table aria-label="Таблица автомобилей">
                 <thead>${tableHead(["Автомобиль", "Госномер", "VIN", "Клиент", "Пробег", "Следующий сервис", ""])}</thead>
@@ -5647,6 +7011,14 @@ function renderCatalog() {
     const stats = catalog.stats || { makes: 0, models: 0, empty_makes: 0 };
     const entries = filteredCatalogEntries();
     return `
+        ${viewHeading("Каталог автомобилей", "Офлайн-справочник производителей и моделей помогает быстро и единообразно заполнять карточки автомобилей.", [
+            `${stats.makes} производителей`,
+            `${stats.models} моделей`,
+            `${entries.length} в подборке`
+        ], [
+            { label: "CSV каталога", action: "export-csv", export: "catalog", className: "ghost" },
+            { label: "Новый автомобиль", action: "new-vehicle", className: "primary" }
+        ])}
         <section class="catalog-summary">
             <article class="metric"><small>Производители</small><strong>${stats.makes}</strong><div class="trend">Полный офлайн-справочник марок</div></article>
             <article class="metric"><small>Модели</small><strong>${stats.models}</strong><div class="trend">Доступны в карточке авто</div></article>
@@ -5661,10 +7033,7 @@ function renderCatalog() {
                     <input id="catalogFilter" value="${esc(state.catalogQ)}" placeholder="Фильтр по марке или модели" autocomplete="off" aria-label="Фильтр по марке или модели">
                 </div>
             </div>
-            <div class="toolbar-right">
-                <a class="btn ghost" href="#" data-action="export-csv" data-export="catalog">CSV каталога</a>
-                <button class="btn primary" type="button" data-action="new-vehicle">Новый автомобиль</button>
-            </div>
+
         </div>
         <section class="catalog-grid">
             ${entries.map(entry => catalogMakeHtml(entry.make, entry.models)).join("") || `<div class="empty">В каталоге ничего не найдено.</div>`}
@@ -5725,18 +7094,19 @@ function renderInventory() {
     const rows = state.data.inventory;
     const lowCount = rows.filter(part => Number(part.is_low)).length;
     return `
+        ${viewHeading("Склад", "Следите за остатками, себестоимостью, поставщиками и закупкой до остановки ремонта.", [
+            `${rows.length} позиций`,
+            `${lowCount} ниже минимума`,
+            `${money(state.data.reports.inventory_value || 0)} себестоимость`
+        ], [
+            { label: "CSV", action: "export-csv", export: "inventory", className: "ghost" },
+            { label: "Новая позиция", action: "new-inventory", className: "primary" }
+        ])}
         <section class="insight-grid">
             ${insightCard("Активных позиций", rows.length, "Складские остатки в базе")}
             ${insightCard("Ниже минимума", lowCount, "Позиции для закупки")}
             ${insightCard("Стоимость склада", money(state.data.reports.inventory_value || 0), "По себестоимости остатков")}
         </section>
-        <div class="toolbar">
-            <div class="toolbar-left"><span class="stat-chip">${rows.length} позиций</span></div>
-            <div class="toolbar-right">
-                <a class="btn ghost" href="#" data-action="export-csv" data-export="inventory">CSV</a>
-                <button class="btn primary" type="button" data-action="new-inventory">Новая позиция</button>
-            </div>
-        </div>
         <div class="table-wrap">
             <table aria-label="Таблица складских позиций">
                 <thead>${tableHead(["Позиция", "Артикул", "Бренд", "Остаток", {text: "Цена", className: "money"}, {text: "Себестоимость", className: "money"}, "Поставщик", ""])}</thead>
@@ -5763,16 +7133,27 @@ function renderReports() {
     const maxStatus = Math.max(...Object.values(r.status_counts), 1);
     const maxService = Math.max(...r.top_services.map(x => x.total), 1);
     return `
+        ${viewHeading("Отчеты и аналитика", "Финансы, маржа, загрузка, закупки и удержание клиентов для управленческих решений.", [
+            `${money(r.revenue_month)} выручка`,
+            `${num(r.margin_percent_month).toFixed(1)}% маржа`,
+            `${r.low_stock_count || 0} складских рисков`
+        ], [
+            { label: "Открыть заказы", action: "open-orders", className: "ghost" },
+            { label: "Склад", action: "open-inventory", className: "ghost" }
+        ])}
         <section class="kpi-grid">
+            ${healthMetric(r)}
             ${metric("Средний чек", money(r.avg_check), "Закрытые заказы текущего месяца")}
             ${metric("Выручка месяца", money(r.revenue_month), "Факт по закрытым")}
-            ${metric("Маржа месяца", money(r.gross_margin_month || 0), `${num(r.margin_percent_month).toFixed(1)}% валовой маржи`)}
             ${metric("Низкий склад", r.low_stock_count, "Требуют закупки")}
         </section>
         <section class="insight-grid">
             ${insightCard("К оплате", money(r.due_total), "Все незакрытые долги")}
+            ${insightCard("Маржа месяца", money(r.gross_margin_month || 0), `${num(r.margin_percent_month).toFixed(1)}% валовой маржи`)}
             ${insightCard("Конверсия смет", `${num(r.conversion_rate).toFixed(1)}%`, "Согласование → работа")}
+            ${insightCard("Активная воронка", money(r.pipeline_value || 0), `${money(r.pipeline_due || 0)} ожидает оплаты`)}
             ${insightCard("Стоимость склада", money(r.inventory_value || 0), "Себестоимость остатков")}
+            ${insightCard("Просрочено", r.overdue_orders_count || 0, "Заказы со сроком раньше текущего времени")}
         </section>
         <section class="grid-2">
             <div class="panel">
@@ -5796,6 +7177,16 @@ function renderReports() {
                             <strong>${money(item.total)}</strong>
                         </div>`).join("") || `<div class="muted">Нет данных по работам.</div>`}
                 </div>
+            </div>
+        </section>
+        <section class="grid-2">
+            <div class="panel">
+                <div class="panel-head"><h2>План закупки</h2><button class="btn" type="button" data-action="open-inventory">Склад</button></div>
+                <div class="panel-body">${procurementList(r.procurement_plan || [])}</div>
+            </div>
+            <div class="panel">
+                <div class="panel-head"><h2>Загрузка ответственных</h2></div>
+                <div class="panel-body">${workloadList(r.workload_by_responsible || [])}</div>
             </div>
         </section>
         <section class="panel">
@@ -5914,7 +7305,15 @@ function bindViewActions(root) {
         button.addEventListener("click", event => {
             const action = event.currentTarget.dataset.action;
             const id = Number(event.currentTarget.dataset.id || 0);
+            const routeTarget = event.currentTarget.dataset.routeTarget;
+            if (routeTarget && routes[routeTarget] && routeTarget !== state.route) {
+                setRoute(routeTarget);
+            }
             if (action === "retry-load") loadData().catch(showError);
+            else if (action === "dismiss-error") {
+                state.lastError = "";
+                render();
+            }
             else if (action === "export-csv") {
                 event.preventDefault();
                 downloadCsv(event.currentTarget.dataset.export).catch(showError);
@@ -5923,19 +7322,23 @@ function bindViewActions(root) {
                 state.status = event.currentTarget.dataset.status;
                 loadData().catch(showError);
             } else if (action === "new-appointment") openAppointmentModal();
-            else if (action === "edit-appointment") openAppointmentModal(findById(state.data.appointments, id));
+            else if (action === "edit-appointment") openAppointmentModal(findAppointmentById(id));
             else if (action === "new-inspection") openInspectionModal();
-            else if (action === "edit-inspection") openInspectionModal(findById(state.data.inspections, id));
+            else if (action === "edit-inspection") openInspectionModal(findInspectionById(id));
             else if (action === "new-customer") openCustomerModal();
-            else if (action === "edit-customer") openCustomerModal(findById(state.data.customers, id));
+            else if (action === "edit-customer") openCustomerModal(findCustomerById(id));
             else if (action === "new-vehicle") openVehicleModal();
-            else if (action === "edit-vehicle") openVehicleModal(findById(state.data.vehicles, id));
+            else if (action === "edit-vehicle") openVehicleModal(findVehicleById(id));
             else if (action === "open-catalog") setRoute("catalog");
+            else if (action === "open-orders") setRoute("orders");
+            else if (action === "open-appointments") setRoute("appointments");
+            else if (action === "open-inventory") setRoute("inventory");
+            else if (action === "open-action-plan") document.querySelector(".action-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
             else if (action === "new-inventory") openInventoryModal();
-            else if (action === "edit-inventory") openInventoryModal(findById(state.data.inventory, id));
+            else if (action === "edit-inventory") openInventoryModal(findInventoryById(id));
             else if (action === "new-order") openOrderModal();
-            else if (action === "edit-order") openOrderModal(findById(state.data.orders, id));
-            else if (action === "duplicate-order") openOrderModal(orderDuplicateDraft(findById(state.data.orders, id)));
+            else if (action === "edit-order") openOrderModal(findOrderById(id));
+            else if (action === "duplicate-order") openOrderModal(orderDuplicateDraft(findOrderById(id)));
             else if (action === "print-order") openPrintOrder(id).catch(showError);
             else if (action === "check-update") checkForUpdates(true).catch(showError);
             else if (action === "install-update") installUpdate().catch(showError);
@@ -5945,6 +7348,30 @@ function bindViewActions(root) {
 
 function findById(list, id) {
     return list.find(item => Number(item.id) === Number(id));
+}
+
+function findCustomerById(id) {
+    return findById(state.data?.customers || [], id) || findById(state.data?.lookups?.customers || [], id) || null;
+}
+
+function findVehicleById(id) {
+    return findById(state.data?.vehicles || [], id) || findById(state.data?.lookups?.vehicles || [], id) || null;
+}
+
+function findInventoryById(id) {
+    return findById(state.data?.inventory || [], id) || findById(state.data?.lookups?.inventory || [], id) || null;
+}
+
+function findOrderById(id) {
+    return findById(state.data?.orders || [], id) || findById(state.data?.lookups?.orders || [], id) || null;
+}
+
+function findAppointmentById(id) {
+    return findById(state.data?.appointments || [], id) || findById(state.data?.lookups?.appointments || [], id) || null;
+}
+
+function findInspectionById(id) {
+    return findById(state.data?.inspections || [], id) || findById(state.data?.lookups?.inspections || [], id) || null;
 }
 
 function orderDuplicateDraft(order = {}) {
@@ -6043,6 +7470,18 @@ function closeModal(force = false) {
 }
 
 function handleModalKeydown(event) {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase("ru-RU") === "k") {
+        event.preventDefault();
+        openCommandPalette();
+        return;
+    }
+    if ($("#commandPalette")?.classList.contains("open")) {
+        if (event.key === "Escape") {
+            event.preventDefault();
+            closeCommandPalette();
+        }
+        return;
+    }
     const backdrop = $("#modalBackdrop");
     if (!backdrop.classList.contains("open")) return;
     if (event.key === "Escape") {
@@ -6450,6 +7889,10 @@ function openInventoryModal(part = {}) {
 }
 
 function openOrderModal(order = {}) {
+    if (!order) {
+        toast("Заказ не найден в текущей выборке. Очистите поиск или обновите данные.", "error");
+        return;
+    }
     state.orderDraftItems = (order.items || [{ kind: "service", title: "", approval_status: "approved", quantity: 1, unit_price: 0, unit_cost: 0 }])
         .map(item => ({ approval_status: "approved", inventory_id: "", ...item }));
     const lookupCustomers = state.data.lookups?.customers || state.data.customers;
@@ -6753,11 +8196,15 @@ function showError(error) {
     const status = Number(error?.status || 0);
     if (!status || status >= 500) setOnlineState(false);
     const message = error.message || String(error);
+    state.lastError = message;
     applyFormError(error);
+    const modalOpen = $("#modalBackdrop")?.classList.contains("open");
     if (!state.data) {
         const content = $("#content");
         content.innerHTML = `${offlineBannerHtml()}<div class="notice" role="alert"><strong>Не удалось загрузить данные.</strong><p>${esc(message)}</p><button class="btn primary" type="button" data-action="retry-load">Повторить</button></div>`;
         bindViewActions(content);
+    } else if (!modalOpen) {
+        render();
     }
     toast(message, "error");
 }
@@ -6807,12 +8254,36 @@ $("#globalSearch").addEventListener("keydown", event => {
 });
 $("#clearSearch").addEventListener("click", clearGlobalSearch);
 $("#refreshBtn").addEventListener("click", () => loadData().then(() => toast("Обновлено")).catch(showError));
-$("#backupBtn").addEventListener("click", async () => {
-    try {
-        const result = await api("/api/backup", { method: "POST", body: "{}" });
-        toast(`Резервная копия: ${result.path}`);
-    } catch (error) {
-        showError(error);
+$("#backupBtn").addEventListener("click", createBackupFromUi);
+$("#commandBtn")?.addEventListener("click", openCommandPalette);
+$("#commandClose")?.addEventListener("click", closeCommandPalette);
+$("#commandPalette")?.addEventListener("click", event => {
+    if (event.target.id === "commandPalette") closeCommandPalette();
+    const commandButton = event.target.closest("[data-command-index]");
+    if (commandButton) runCommand(Number(commandButton.dataset.commandIndex || 0));
+});
+$("#commandSearch")?.addEventListener("input", renderCommandPalette);
+$("#commandSearch")?.addEventListener("keydown", event => {
+    const buttons = $$("[data-command-index]", $("#commandList"));
+    const activeIndex = Math.max(0, buttons.findIndex(button => button.classList.contains("active")));
+    if (event.key === "Escape") {
+        event.preventDefault();
+        closeCommandPalette();
+    } else if (event.key === "Enter") {
+        event.preventDefault();
+        runCommand(activeIndex);
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        if (!buttons.length) return;
+        const nextIndex = event.key === "ArrowDown"
+            ? (activeIndex + 1) % buttons.length
+            : (activeIndex - 1 + buttons.length) % buttons.length;
+        buttons.forEach((button, index) => {
+            const active = index === nextIndex;
+            button.classList.toggle("active", active);
+            button.setAttribute("aria-selected", active ? "true" : "false");
+        });
+        buttons[nextIndex].scrollIntoView({ block: "nearest" });
     }
 });
 async function shutdownApp() {
@@ -6852,6 +8323,24 @@ function applyTheme(theme) {
     }
 }
 
+function applyDensity(compact) {
+    state.compactMode = Boolean(compact);
+    document.body.classList.toggle("compact", state.compactMode);
+    const densityButton = $("#densityToggle");
+    if (densityButton) {
+        densityButton.textContent = state.compactMode ? "↧" : "↕";
+        densityButton.setAttribute("aria-pressed", state.compactMode ? "true" : "false");
+        densityButton.setAttribute("aria-label", state.compactMode ? "Компактный режим включен. Нажмите для комфортного режима." : "Комфортный режим включен. Нажмите для компактного режима.");
+        densityButton.title = state.compactMode ? "Компактный режим" : "Комфортный режим";
+    }
+}
+
+function toggleDensity() {
+    applyDensity(!state.compactMode);
+    safeStorageSet("sto-crm-density", state.compactMode ? "compact" : null);
+    toast(state.compactMode ? "Компактная плотность включена" : "Комфортная плотность включена");
+}
+
 function safeStorageGet(key) {
     try { return window.localStorage ? localStorage.getItem(key) : null; }
     catch (_error) { return null; }
@@ -6874,6 +8363,11 @@ function nextThemePreference(current) {
 }
 
 applyTheme(safeStorageGet("sto-crm-theme") || "auto");
+applyDensity(safeStorageGet("sto-crm-density") === "compact");
+const densityToggle = $("#densityToggle");
+if (densityToggle) {
+    densityToggle.addEventListener("click", toggleDensity);
+}
 const themeToggle = $("#themeToggle");
 if (themeToggle) {
     themeToggle.addEventListener("click", () => {
@@ -6951,6 +8445,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--no-browser", action="store_true", help="не открывать браузер автоматически")
     parser.add_argument("--demo", action="store_true", help="заполнить новую базу демонстрационными данными")
     args = parser.parse_args(argv)
+    if args.port < 0 or args.port > 65_535:
+        parser.error("Порт должен быть в диапазоне 0..65535, где 0 означает автоматический выбор свободного порта.")
     try:
         args.host = normalize_bind_host(args.host)
     except ValueError as exc:

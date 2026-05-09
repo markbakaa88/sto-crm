@@ -1,5 +1,6 @@
 import codecs
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -638,6 +639,7 @@ class StoCrmTests(unittest.TestCase):
                 self.assertEqual(response.status, 200)
                 self.assertIn("default-src 'self'", response.headers["Content-Security-Policy"])
                 self.assertEqual(response.headers["X-Frame-Options"], "DENY")
+                self.assertEqual(response.headers["Connection"], "close")
 
             with self.assertRaises(urllib.error.HTTPError) as error:
                 urllib.request.urlopen(f"{base}/api/export/catalog.csv", timeout=5)
@@ -660,6 +662,22 @@ class StoCrmTests(unittest.TestCase):
                 self.assertGreaterEqual(catalog["stats"]["makes"], 250)
                 self.assertIn("Toyota", catalog["makes"])
                 self.assertIn("Camry", catalog["models"]["Toyota"])
+
+            options_request = urllib.request.Request(f"{base}/api/health", method="OPTIONS")
+            with urllib.request.urlopen(options_request, timeout=5) as response:
+                self.assertEqual(response.status, 204)
+                self.assertEqual(response.headers["Allow"], "GET, POST, PUT, DELETE, OPTIONS")
+                self.assertEqual(response.headers["Connection"], "close")
+
+            cross_origin_options = urllib.request.Request(
+                f"{base}/api/health",
+                method="OPTIONS",
+                headers={"Origin": "http://example.com"},
+            )
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                urllib.request.urlopen(cross_origin_options, timeout=5)
+            self.assertEqual(error.exception.code, 403)
+            error.exception.close()
 
             with socket.create_connection(("127.0.0.1", server.server_port), timeout=5) as client:
                 client.sendall(
@@ -1073,6 +1091,11 @@ class StoCrmTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
                 sto_crm.parse_args(["--host", "0.0.0.0"])
+        for port in ("-1", "65536"):
+            with self.subTest(port=port):
+                with contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit):
+                        sto_crm.parse_args(["--port", port, "--no-browser"])
 
     def test_unique_vehicle_vin_plate_and_inventory_sku_are_enforced(self):
         customer = self.create_customer("Unique Customer")
@@ -1212,6 +1235,46 @@ class StoCrmTests(unittest.TestCase):
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM order_items WHERE order_id=?", (order["id"],)).fetchone()[0], 2)
         finally:
             conn.close()
+
+    def test_reports_expose_executive_pipeline_workload_and_procurement(self):
+        customer = self.create_customer("Executive Customer")
+        vehicle = self.create_vehicle(customer["id"], "E111EE")
+        part = sto_crm.create_inventory(
+            {"sku": "LOW-EXEC", "name": "Low executive part", "quantity": 0, "min_quantity": 2, "price": 100, "cost": 60}
+        )
+        order = sto_crm.create_order(
+            {
+                "customer_id": customer["id"],
+                "vehicle_id": vehicle["id"],
+                "status": "in_progress",
+                "priority": "urgent",
+                "mechanic": "Мастер А",
+                "promised_at": "2000-01-01T09:00",
+                "items": [service_item(250)],
+            }
+        )
+        appointment = sto_crm.create_appointment(
+            {
+                "customer_id": customer["id"],
+                "vehicle_id": vehicle["id"],
+                "scheduled_at": (sto_crm.datetime.now() + sto_crm.timedelta(days=2)).replace(hour=9, minute=0, second=0, microsecond=0).isoformat(timespec="minutes"),
+                "status": "confirmed",
+            }
+        )
+
+        reports = sto_crm.bootstrap_payload()["reports"]
+        self.assertGreaterEqual(reports["business_health_score"], 0)
+        self.assertIn(reports["business_health_label"], {"Отлично", "Контроль", "Риски"})
+        self.assertGreaterEqual(reports["pipeline_value"], order["total"])
+        self.assertTrue(any(item["id"] == order["id"] for item in reports["overdue_orders"]))
+        self.assertTrue(any(column["status"] == "in_progress" and column["count"] >= 1 for column in reports["pipeline_by_status"]))
+        self.assertTrue(any(item["name"] == "Мастер А" and item["overdue_count"] >= 1 for item in reports["workload_by_responsible"]))
+        self.assertTrue(any(item["id"] == part["id"] and item["reorder_quantity"] >= 2 for item in reports["procurement_plan"]))
+        self.assertTrue(any(day["appointments"] and day["appointments"][0]["id"] == appointment["id"] for day in reports["appointment_load_7_days"]))
+        self.assertGreaterEqual(reports["action_plan_total"], 2)
+        self.assertTrue(any(item["type"] == "overdue_order" and item["record_id"] == order["id"] for item in reports["action_plan"]))
+        self.assertTrue(any(item["type"] == "procurement" and item["record_id"] == part["id"] for item in reports["action_plan"]))
+        self.assertTrue(all("priority_label" in item and "route" in item and "cta" in item for item in reports["action_plan"]))
 
     def test_reports_include_orders_beyond_lookup_limit(self):
         old_lookup_limit = sto_crm.LOOKUP_LIMIT
@@ -1494,6 +1557,19 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('selectField("order", "customer_id"', html)
         self.assertIn('selectField("inspection", "customer_id"', html)
         self.assertIn('modalDirty', html)
+        self.assertIn('pipelineBoard(r.pipeline_by_status || [])', html)
+        self.assertIn('appointmentTimeline(r.appointment_load_7_days || [])', html)
+        self.assertIn('procurementList(r.procurement_plan || [])', html)
+        self.assertIn('workloadList(r.workload_by_responsible || [])', html)
+        self.assertIn('actionPlanList(r.action_plan || [])', html)
+        self.assertIn('class="panel action-center"', html)
+        self.assertIn('data-route-target=', html)
+        self.assertIn('findAppointmentById(id)', html)
+        self.assertIn('findInspectionById(id)', html)
+        self.assertIn('findCustomerById(id)', html)
+        self.assertIn('findVehicleById(id)', html)
+        self.assertIn('findInventoryById(id)', html)
+        self.assertIn('healthMetric(r)', html)
         self.assertIn('confirm("Закрыть окно без сохранения изменений?")', html)
         self.assertIn('shouldKeepModalForEscape', html)
         self.assertIn('modalSize = allowedSizes.has(size) ? size : ""', html)
@@ -1504,7 +1580,19 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('aria-label="Удалить позицию заказ-наряда"', html)
         self.assertIn('aria-label="Удалить пункт осмотра"', html)
         self.assertIn('id="appStatus"', html)
+        self.assertIn('<a class="skip-link" href="#content">К основному содержанию</a>', html)
+        self.assertIn('function contextStripHtml()', html)
+        self.assertIn('class="context-strip"', html)
+        self.assertIn('function updateNavigationBadges()', html)
+        self.assertIn('data-nav-badge="dashboard"', html)
+        self.assertIn('data-nav-badge="updates"', html)
+        self.assertIn('lastLoadedAt', html)
+        self.assertIn('content.innerHTML = `${offlineBannerHtml()}${errorBannerHtml()}${contextStripHtml()}${renderers[state.route]()}`;', html)
         self.assertIn('function announce(message', html)
+        self.assertIn('function errorBannerHtml()', html)
+        self.assertIn('data-action="dismiss-error"', html)
+        self.assertIn('scroll-hint-sr', html)
+        self.assertIn('aria-describedby', html)
         self.assertIn('function classToken(', html)
         self.assertIn('aria-label="Тип позиции"', html)
         self.assertIn('aria-label="Зона осмотра"', html)
@@ -1515,6 +1603,8 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('function exportUrl(entity)', html)
         self.assertIn('async function downloadCsv(entity)', html)
         self.assertIn('data-action="export-csv"', html)
+        self.assertIn('<button class="btn ghost" type="button" data-action="export-csv"', html)
+        self.assertNotIn('<a class="btn ghost" href="#" data-action="export-csv"', html)
         self.assertNotIn('?token=${token}', html)
         self.assertIn('openPrintOrder(id)', html)
         self.assertIn('data-action="duplicate-order"', html)
@@ -1535,9 +1625,9 @@ class StoCrmTests(unittest.TestCase):
     def test_github_update_helpers_select_and_compare_release_assets(self):
         release = {
             "assets": [
-                {"name": "checksums.sha256", "browser_download_url": "https://example.test/checksums", "size": 100},
-                {"name": "latest.json", "browser_download_url": "https://example.test/latest.json", "size": 321},
-                {"name": "STO_CRM.exe", "browser_download_url": "https://example.test/STO_CRM.exe", "size": 123},
+                {"name": "checksums.sha256", "browser_download_url": "https://github.com/owner/repo/releases/download/v1.20.0/checksums.sha256", "size": 100},
+                {"name": "latest.json", "browser_download_url": "https://github.com/owner/repo/releases/download/v1.20.0/latest.json", "size": 321},
+                {"name": "STO_CRM.exe", "browser_download_url": "https://github.com/owner/repo/releases/download/v1.20.0/STO_CRM.exe", "size": 123},
             ]
         }
         self.assertTrue(sto_crm.is_newer_version("v1.18.0", "1.17.0"))
@@ -1553,14 +1643,100 @@ class StoCrmTests(unittest.TestCase):
             "asset": {
                 "name": "STO_CRM.exe",
                 "size": 123,
-                "sha256": "ABCDEF",
+                "sha256": "A" * 64,
                 "download_url": "https://github.com/owner/repo/releases/download/v1.20.0/STO_CRM.exe",
             },
         }
         info = sto_crm.release_info_from_manifest(release, manifest, {"name": "latest.json", "size": 100})
         self.assertEqual(info["version"], "1.20.0")
-        self.assertEqual(info["asset"]["sha256"], "abcdef")
+        self.assertEqual(info["asset"]["sha256"], "a" * 64)
         self.assertEqual(info["manifest"]["name"], "latest.json")
+
+    def test_update_manifest_rejects_missing_hash_and_untrusted_download_url(self):
+        release = {"tag_name": "v1.20.0", "html_url": "https://github.com/owner/repo/releases/tag/v1.20.0"}
+        trusted_asset = {
+            "name": "STO_CRM.exe",
+            "size": 123,
+            "sha256": "b" * 64,
+            "download_url": "https://github.com/owner/repo/releases/download/v1.20.0/STO_CRM.exe",
+        }
+        with self.assertRaisesRegex(RuntimeError, "SHA-256"):
+            sto_crm.release_info_from_manifest(release, {"asset": {**trusted_asset, "sha256": ""}}, {"name": "latest.json"})
+        untrusted_urls = [
+            "https://example.test/STO_CRM.exe",
+            "http://github.com/owner/repo/releases/download/v1.20.0/STO_CRM.exe",
+            "https://github.com.evil.test/owner/repo/releases/download/v1.20.0/STO_CRM.exe",
+            "https://user:pass@github.com/owner/repo/releases/download/v1.20.0/STO_CRM.exe",
+            "https://github.com:444/owner/repo/releases/download/v1.20.0/STO_CRM.exe",
+        ]
+        for url in untrusted_urls:
+            with self.subTest(url=url):
+                with self.assertRaisesRegex(RuntimeError, "недоверенную"):
+                    sto_crm.release_info_from_manifest(release, {"asset": {**trusted_asset, "download_url": url}}, {"name": "latest.json"})
+        with self.assertRaisesRegex(RuntimeError, "некорректную"):
+            sto_crm.release_info_from_manifest(
+                release,
+                {"asset": {**trusted_asset, "download_url": "https://github.com:bad/owner/repo/releases/download/v1.20.0/STO_CRM.exe"}},
+                {"name": "latest.json"},
+            )
+
+    def test_download_release_asset_requires_verified_hash_and_keeps_existing_target_on_failure(self):
+        old_urlopen = urllib.request.urlopen
+        try:
+            target = Path(self.tempdir.name) / "STO_CRM.exe"
+            target.write_bytes(b"old-good-file")
+            payload = b"MZnew-executable"
+            asset = {
+                "name": "STO_CRM.exe",
+                "size": len(payload),
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "download_url": "https://github.com/owner/repo/releases/download/v1.20.0/STO_CRM.exe",
+            }
+
+            class FakeResponse:
+                def __init__(self, body: bytes):
+                    self._stream = io.BytesIO(body)
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_args):
+                    return False
+
+                def read(self, size: int = -1) -> bytes:
+                    return self._stream.read(size)
+
+            bad_payload = b"bad-content".ljust(len(payload), b"!")
+            urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse(bad_payload)
+            with self.assertRaisesRegex(RuntimeError, "SHA-256"):
+                sto_crm.download_release_asset(asset, target)
+            self.assertEqual(target.read_bytes(), b"old-good-file")
+            self.assertFalse(target.with_name(f"{target.name}.tmp").exists())
+
+            urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse(b"short")
+            with self.assertRaisesRegex(RuntimeError, "Размер"):
+                sto_crm.download_release_asset(asset, target)
+            self.assertEqual(target.read_bytes(), b"old-good-file")
+            self.assertFalse(target.with_name(f"{target.name}.tmp").exists())
+
+            urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse(b"")
+            empty_asset = {**asset, "size": 0}
+            with self.assertRaisesRegex(RuntimeError, "пустой"):
+                sto_crm.download_release_asset(empty_asset, target)
+            self.assertEqual(target.read_bytes(), b"old-good-file")
+            self.assertFalse(target.with_name(f"{target.name}.tmp").exists())
+
+            urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse(payload)
+            details = sto_crm.download_release_asset(asset, target)
+            self.assertEqual(details["size"], len(payload))
+            self.assertEqual(details["sha256"], hashlib.sha256(payload).hexdigest())
+            self.assertEqual(target.read_bytes(), payload)
+
+            missing_hash_asset = {**asset, "sha256": ""}
+            with self.assertRaisesRegex(RuntimeError, "SHA-256"):
+                sto_crm.download_release_asset(missing_hash_asset, target)
+        finally:
+            urllib.request.urlopen = old_urlopen
 
     def test_update_status_reports_release_lookup_failures_without_crashing(self):
         old_fetch_json = sto_crm.fetch_json
@@ -1589,6 +1765,16 @@ class StoCrmTests(unittest.TestCase):
         html = sto_crm.INDEX_HTML
         self.assertIn('id="themeToggle"', html)
         self.assertIn('themeToggle.addEventListener("click"', html)
+        self.assertIn('id="densityToggle"', html)
+        self.assertIn('function applyDensity(', html)
+        self.assertIn('function toggleDensity()', html)
+        self.assertIn('sto-crm-density', html)
+        self.assertIn('body.compact .metric', html)
+        self.assertIn('id="commandPalette"', html)
+        self.assertIn('function commandItems()', html)
+        self.assertIn('function openCommandPalette()', html)
+        self.assertIn('data-command-index', html)
+        self.assertIn('Ctrl+K', html)
         self.assertIn('aria-pressed', html)
         self.assertIn('history.pushState', html)
         self.assertIn('window.addEventListener("popstate"', html)
@@ -1603,6 +1789,62 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('id="clearSearch"', html)
         self.assertIn('type="email"', html)
         self.assertIn('title="VIN должен содержать 17 символов без I, O и Q"', html)
+
+    def test_home_page_has_premium_dashboard_and_view_headings(self):
+        html = sto_crm.INDEX_HTML
+        self.assertIn('function sectionIntro(title, text, options = {})', html)
+        self.assertIn('"section-card hero-card"', html)
+        self.assertIn('hero-stat-stack', html)
+        self.assertIn('metric-icon', html)
+        self.assertIn('insight-icon', html)
+        self.assertIn('--content-max: 1680px;', html)
+        self.assertIn('Premium workspace', html)
+        self.assertIn('Управляйте сменой автосервиса без хаоса', html)
+        self.assertIn('function viewHeading(', html)
+        self.assertIn('view-heading-actions', html)
+        self.assertIn('Календарь приемки', html)
+        self.assertIn('Digital Vehicle Inspection', html)
+        self.assertIn('Заказ-наряды', html)
+        self.assertIn('Каталог автомобилей', html)
+        self.assertIn('Отчеты и аналитика', html)
+        self.assertIn('data-action="open-action-plan"', html)
+        self.assertIn('linear-gradient(160deg, var(--brand-start), var(--brand-end))', html)
+        self.assertIn('grid-template-columns: 292px minmax(0, 1fr)', html)
+
+    def test_print_order_html_uses_professional_document_design(self):
+        order = {
+            "number": "WO-001",
+            "status": "approved",
+            "customer_name": "Design Client",
+            "customer_phone": "+7999",
+            "vehicle_make": "Toyota",
+            "vehicle_model": "Camry",
+            "vehicle_year": 2022,
+            "vehicle_plate": "A001AA",
+            "mechanic": "Master",
+            "authorized_by": "Client",
+            "items": [
+                {"kind": "service", "title": "Premium labor", "approval_status": "approved", "quantity": 1, "unit_price": 1000},
+                {"kind": "part", "title": "Deferred part", "approval_status": "deferred", "quantity": 1, "unit_price": 500},
+            ],
+            "service_total": 1000,
+            "parts_total": 0,
+            "discount": 0,
+            "tax": 0,
+            "total": 1000,
+            "paid": 200,
+            "due": 800,
+        }
+        html = sto_crm.print_order_html(order)
+        self.assertIn('class="document" aria-label="Печатная форма заказ-наряда"', html)
+        self.assertIn('class="print-toolbar"', html)
+        self.assertIn('class="doc-hero"', html)
+        self.assertIn('class="status-chip"', html)
+        self.assertIn('class="line-badge approved"', html)
+        self.assertIn('class="line-badge deferred"', html)
+        self.assertIn('print-color-adjust: exact', html)
+        self.assertIn('@media print', html)
+        self.assertIn('СТО CRM · заказ-наряд', html)
 
     def test_frontend_error_retry_and_network_helpers_are_robust(self):
         html = sto_crm.INDEX_HTML
