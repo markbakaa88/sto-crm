@@ -124,6 +124,8 @@ Push-Location $ProjectRoot
 try {
     $python = Resolve-Python
     $sourcePath = Join-Path $ProjectRoot "sto_crm.py"
+    $packageSourcePaths = @(Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "sto_crm") -Filter "*.py" | ForEach-Object { $_.FullName })
+    $assetPackageSource = Join-Path $ProjectRoot "sto_crm\assets\__init__.py"
     $testPath = Join-Path $ProjectRoot "tests\test_sto_crm.py"
     $specPath = Join-Path $ProjectRoot "STO_CRM.spec"
     $buildDir = Join-Path $ProjectRoot "build"
@@ -135,7 +137,8 @@ try {
     Write-Host "Ensuring $PyInstallerRequirement is available (requires internet access unless pip cache already satisfies it)..."
     Invoke-Checked $python @("-m", "pip", "install", "--disable-pip-version-check", $PyInstallerRequirement)
 
-    Invoke-Checked $python @("-m", "py_compile", $sourcePath, $testPath)
+    $compileArgs = @("-m", "py_compile", $sourcePath, $assetPackageSource, $testPath) + $packageSourcePaths
+    Invoke-Checked $python $compileArgs
     Invoke-Checked $python @("-m", "unittest", "discover", "-v")
 
     Remove-DirectoryIfExists $buildDir
@@ -154,9 +157,10 @@ try {
         Invoke-ReleaseSmokeTest -ExePath $releaseExe
     }
 
-    $unexpected = Get-ChildItem -LiteralPath $releaseDir -File | Where-Object { $_.Name -ne "STO_CRM.exe" }
+    $allowedReleaseFiles = @("STO_CRM.exe", "STO_CRM.exe.sha256", "latest.json")
+    $unexpected = Get-ChildItem -LiteralPath $releaseDir -File | Where-Object { $allowedReleaseFiles -notcontains $_.Name }
     if ($unexpected) {
-        throw "Release directory must contain only STO_CRM.exe. Unexpected files: $($unexpected.Name -join ', ')"
+        throw "Release directory contains unexpected files: $($unexpected.Name -join ', ')"
     }
 
     Write-Host "Done: $releaseExe"

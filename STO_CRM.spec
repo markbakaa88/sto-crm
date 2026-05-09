@@ -5,7 +5,7 @@ a = Analysis(
     ['sto_crm.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('sto_crm/assets', 'sto_crm/assets')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

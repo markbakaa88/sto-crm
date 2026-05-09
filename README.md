@@ -2,6 +2,8 @@
 
 Локальная CRM для автосервиса: один `.exe` запускает сервер на `127.0.0.1`, открывает браузер и хранит данные в SQLite в профиле пользователя.
 
+Исходный код разделен на пакет `sto_crm/` по зонам ответственности (runtime, SQLite, валидация, бизнес-операции, отчеты, HTTP, обновления и frontend-assets), а корневой `sto_crm.py` оставлен тонким совместимым launcher для запуска и PyInstaller.
+
 ## Готовый запуск
 
 Запустите чистый single-file релиз:
@@ -89,7 +91,7 @@ python .\sto_crm.py --demo
 .\build.ps1
 ```
 
-Скрипт можно запускать из любой директории: все пути вычисляются от папки проекта. Он запускает `py_compile`, полный `unittest`, при необходимости устанавливает совместимую версию `PyInstaller` (`pyinstaller>=6.10,<7`), очищает `build`/`dist`, выполняет чистую PyInstaller-сборку из единого файла спецификации `STO_CRM.spec`, пересоздает `release`, копирует single-file исполняемый файл в `release\STO_CRM.exe` и выполняет smoke-test собранного `.exe` через `/api/health`, `/api/bootstrap` и корректное `/api/shutdown`.
+Скрипт можно запускать из любой директории: все пути вычисляются от папки проекта. Он запускает `py_compile` для launcher, пакета `sto_crm/`, frontend-assets package marker и тестов, полный `unittest`, при необходимости устанавливает совместимую версию `PyInstaller` (`pyinstaller>=6.10,<7`), очищает `build`/`dist`, выполняет чистую PyInstaller-сборку из единого файла спецификации `STO_CRM.spec`, пересоздает `release`, копирует single-file исполняемый файл в `release\STO_CRM.exe` и выполняет smoke-test собранного `.exe` через `/api/health`, `/api/bootstrap` и корректное `/api/shutdown`.
 
 Если smoke-test релизного `.exe` нужно пропустить, например в ограниченном CI-окружении:
 
@@ -106,8 +108,15 @@ python -m PyInstaller --clean .\STO_CRM.spec
 ## Проверка
 
 ```powershell
-python -m py_compile .\sto_crm.py .\tests\test_sto_crm.py
+python -m py_compile .\sto_crm.py .\sto_crm\*.py .\sto_crm\assets\__init__.py .\tests\test_sto_crm.py
 python -m unittest discover -v
+```
+
+Дополнительные инструменты разработки устанавливаются отдельно:
+
+```powershell
+python -m pip install -r .\requirements-dev.txt
+python -m pytest -q
 ```
 
 ## Публикация обновления
@@ -125,14 +134,14 @@ python -m unittest discover -v
 
 ```json
 {
-  "version": "1.17.0",
-  "tag": "v1.17.0",
-  "name": "СТО CRM 1.17.0",
+  "version": "1.17.1",
+  "tag": "v1.17.1",
+  "name": "СТО CRM 1.17.1",
   "asset": {
     "name": "STO_CRM.exe",
     "size": 12345678,
     "sha256": "...",
-    "download_url": "https://github.com/markbakaa88/sto-crm/releases/download/v1.17.0/STO_CRM.exe"
+    "download_url": "https://github.com/markbakaa88/sto-crm/releases/download/v1.17.1/STO_CRM.exe"
   }
 }
 ```

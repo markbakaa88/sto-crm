@@ -1,0 +1,334 @@
+from __future__ import annotations
+
+"""Local HTTP API and static UI server."""
+
+import json
+import secrets
+import socket
+import sqlite3
+import sys
+import threading
+import time
+import traceback
+import urllib.parse
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
+
+from . import runtime as _runtime
+from .catalog import car_catalog_payload
+from .config import APP_VERSION, INTERNAL_ERROR_MESSAGE, MAX_BODY_BYTES
+from .database import db
+from .export import bootstrap_payload, csv_export
+from .printing import print_order_html
+from .queries import get_order
+from .runtime import clean_text, parse_int_field, redact_sensitive_query, safe_log
+from .services import (
+    create_appointment,
+    create_customer,
+    create_inspection,
+    create_inventory,
+    create_order,
+    create_vehicle,
+    delete_appointment,
+    delete_customer,
+    delete_inspection,
+    delete_inventory,
+    delete_order,
+    delete_vehicle,
+    update_appointment,
+    update_customer,
+    update_inspection,
+    update_inventory,
+    update_order,
+    update_vehicle,
+)
+from .updates import create_backup, install_update_from_github, update_status
+from .web import INDEX_HTML
+
+class CRMHandler(BaseHTTPRequestHandler):
+    server_version = f"STO-CRM/{APP_VERSION}"
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, fmt: str, *args: Any) -> None:
+        safe_log("%s - %s" % (self.log_date_time_string(), redact_sensitive_query(fmt % args)))
+
+    def do_GET(self) -> None:
+        self.handle_request("GET")
+
+    def do_POST(self) -> None:
+        self.handle_request("POST")
+
+    def do_PUT(self) -> None:
+        self.handle_request("PUT")
+
+    def do_DELETE(self) -> None:
+        self.handle_request("DELETE")
+
+    def do_OPTIONS(self) -> None:
+        try:
+            self.validate_local_request_context()
+            self.send_bytes(b"", "text/plain; charset=utf-8", status=204, headers={"Allow": "GET, POST, PUT, DELETE, OPTIONS"})
+        except PermissionError as exc:
+            self.send_error_json(403, str(exc))
+
+    def handle_request(self, method: str) -> None:
+        try:
+            parsed = urllib.parse.urlparse(self.path)
+            path = parsed.path.rstrip("/") or "/"
+            query = urllib.parse.parse_qs(parsed.query)
+            self.validate_mutating_request(method)
+
+            if method == "GET" and path in {"/", "/app"}:
+                self.send_html(INDEX_HTML)
+                return
+            if method == "GET" and path.startswith("/print/order/"):
+                self.validate_local_request_context()
+                token = (query.get("token") or [""])[0]
+                if not token:
+                    token = self.headers.get("X-CSRF-Token") or self.headers.get("X-CRM-CSRF-Token") or ""
+                if not token or not secrets.compare_digest(token, _runtime.RUNTIME.csrf_token):
+                    raise PermissionError("Печатная форма доступна только из интерфейса CRM.")
+                order_id = parse_int_field(path.rsplit("/", 1)[-1], "номер заказ-наряда")
+                with db() as conn:
+                    self.send_html(print_order_html(get_order(conn, order_id)))
+                return
+            if method == "GET" and path == "/api/health":
+                self.send_json({"ok": True, "version": APP_VERSION, "uptime": round(time.time() - _runtime.RUNTIME.start_time, 1)})
+                return
+            if method == "GET" and path == "/api/bootstrap":
+                self.validate_local_request_context()
+                q = clean_text((query.get("q") or [""])[0], 120)
+                status = clean_text((query.get("status") or ["all"])[0], 40, "all")
+                self.send_json(bootstrap_payload(q, status))
+                return
+            if method == "GET" and path in {"/api/catalog", "/api/car-catalog"}:
+                self.validate_local_request_context()
+                self.send_json(car_catalog_payload())
+                return
+            if method == "GET" and path == "/api/update/status":
+                self.validate_local_request_context()
+                self.send_json(update_status())
+                return
+            if method == "GET" and path.startswith("/api/export/"):
+                self.validate_local_request_context()
+                token = (query.get("token") or [""])[0]
+                if not token:
+                    token = self.headers.get("X-CSRF-Token") or self.headers.get("X-CRM-CSRF-Token") or ""
+                if not secrets.compare_digest(token, _runtime.RUNTIME.csrf_token):
+                    raise PermissionError("Экспорт доступен только из интерфейса CRM.")
+                entity = path.rsplit("/", 1)[-1].replace(".csv", "")
+                filename, content = csv_export(entity)
+                self.send_bytes(
+                    content.encode("utf-8"),
+                    "text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+                )
+                return
+
+            payload = self.read_json() if method in {"POST", "PUT"} else {}
+            parts = [p for p in path.split("/") if p]
+            if len(parts) < 2 or parts[0] != "api":
+                self.send_error_json(404, "Маршрут не найден.")
+                return
+            entity = parts[1]
+            record_id = parse_int_field(parts[2], "идентификатор записи") if len(parts) > 2 else 0
+
+            if entity == "backup" and method == "POST":
+                self.send_json(create_backup())
+            elif entity == "update" and len(parts) > 2 and parts[2] == "install" and method == "POST":
+                result = install_update_from_github()
+                self.send_json(result)
+                if result.get("updated"):
+                    threading.Thread(target=self.server.shutdown, daemon=True).start()
+            elif entity == "shutdown" and method == "POST":
+                self.send_json({"ok": True})
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
+            elif entity == "customers":
+                self.route_entity(method, record_id, payload, create_customer, update_customer, delete_customer)
+            elif entity == "vehicles":
+                self.route_entity(method, record_id, payload, create_vehicle, update_vehicle, delete_vehicle)
+            elif entity == "inventory":
+                self.route_entity(method, record_id, payload, create_inventory, update_inventory, delete_inventory)
+            elif entity == "appointments":
+                self.route_entity(method, record_id, payload, create_appointment, update_appointment, delete_appointment)
+            elif entity == "inspections":
+                self.route_entity(method, record_id, payload, create_inspection, update_inspection, delete_inspection)
+            elif entity == "orders":
+                self.route_entity(method, record_id, payload, create_order, update_order, delete_order)
+            else:
+                self.send_error_json(404, "Маршрут не найден.")
+        except ValueError as exc:
+            self.send_error_json(400, str(exc))
+        except PermissionError as exc:
+            self.send_error_json(403, str(exc))
+        except KeyError as exc:
+            self.send_error_json(404, str(exc).strip("'"))
+        except sqlite3.IntegrityError:
+            self.send_error_json(409, "Запись конфликтует с существующими данными. Обновите страницу и повторите действие.")
+        except BrokenPipeError:
+            return
+        except Exception:
+            if getattr(sys, "stderr", None):
+                traceback.print_exc()
+            self.send_error_json(500, INTERNAL_ERROR_MESSAGE)
+
+    def route_entity(
+        self,
+        method: str,
+        record_id: int,
+        payload: dict[str, Any],
+        create_fn: Any,
+        update_fn: Any,
+        delete_fn: Any,
+    ) -> None:
+        if method == "POST":
+            self.send_json(create_fn(payload), 201)
+        elif method == "PUT" and record_id:
+            self.send_json(update_fn(record_id, payload))
+        elif method == "DELETE" and record_id:
+            self.send_json(delete_fn(record_id))
+        else:
+            self.send_error_json(405, "Метод не поддерживается.")
+
+    def validate_mutating_request(self, method: str) -> None:
+        if method not in {"POST", "PUT", "DELETE"}:
+            return
+        self.validate_local_request_context()
+        if method in {"POST", "PUT"}:
+            raw_length = self.headers.get("Content-Length")
+            try:
+                length = int(raw_length or "0")
+            except ValueError as exc:
+                raise ValueError("Некорректная длина запроса.") from exc
+            if length < 0:
+                raise ValueError("Некорректная длина запроса.")
+            if length == 0:
+                raise ValueError("Пустое тело JSON-запроса.")
+            if length > MAX_BODY_BYTES:
+                raise ValueError("Слишком большой запрос.")
+        self.require_csrf_token()
+        if method in {"POST", "PUT"}:
+            self.require_json_content_type()
+
+    def validate_local_request_context(self) -> None:
+        if not self.is_allowed_host_header(self.headers.get("Host")):
+            raise PermissionError("Запрос отклонен: внешний хост не имеет доступа к локальной CRM.")
+        origin = self.headers.get("Origin")
+        if origin and not self.is_allowed_origin(origin):
+            raise PermissionError("Запрос отклонен: внешний источник не имеет доступа к локальной CRM.")
+        fetch_site = (self.headers.get("Sec-Fetch-Site") or "").lower()
+        if fetch_site and fetch_site not in {"same-origin", "same-site", "none"}:
+            raise PermissionError("Запрос отклонен: внешний сайт не имеет доступа к локальной CRM.")
+
+    def require_csrf_token(self) -> None:
+        token = self.headers.get("X-CSRF-Token") or self.headers.get("X-CRM-CSRF-Token")
+        if not token or not secrets.compare_digest(token, _runtime.RUNTIME.csrf_token):
+            raise PermissionError("Запрос отклонен: обновите страницу CRM и повторите действие.")
+
+    def require_json_content_type(self) -> None:
+        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            raise ValueError("Для изменений требуется Content-Type: application/json.")
+
+    def is_allowed_origin(self, origin: str) -> bool:
+        try:
+            parsed = urllib.parse.urlparse(origin)
+        except ValueError:
+            return False
+        if parsed.scheme != "http":
+            return False
+        host = (parsed.hostname or "").lower()
+        if host not in {"127.0.0.1", "localhost", "::1"}:
+            return False
+        try:
+            port = parsed.port or 80
+        except ValueError:
+            return False
+        return port == self.server.server_port
+
+    def is_allowed_host_header(self, host_header: str | None) -> bool:
+        if not host_header:
+            return False
+        try:
+            parsed = urllib.parse.urlparse(f"//{host_header}")
+        except ValueError:
+            return False
+        host = (parsed.hostname or "").lower()
+        if host not in {"127.0.0.1", "localhost", "::1"}:
+            return False
+        try:
+            port = parsed.port
+        except ValueError:
+            return False
+        return (port or 80) == self.server.server_port
+
+    def read_json(self) -> dict[str, Any]:
+        raw_length = self.headers.get("Content-Length")
+        try:
+            length = int(raw_length or "0")
+        except ValueError as exc:
+            raise ValueError("Некорректная длина запроса.") from exc
+        if length < 0:
+            raise ValueError("Некорректная длина запроса.")
+        if length > MAX_BODY_BYTES:
+            raise ValueError("Слишком большой запрос.")
+        if length == 0:
+            raise ValueError("Пустое тело JSON-запроса.")
+        raw = self.rfile.read(length)
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError("Некорректный JSON.") from exc
+        if not isinstance(data, dict):
+            raise ValueError("Ожидался JSON-объект.")
+        return data
+
+    def send_json(self, payload: Any, status: int = 200) -> None:
+        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        self.send_bytes(body, "application/json; charset=utf-8", status=status)
+
+    def send_html(self, content: str, status: int = 200) -> None:
+        self.send_bytes(content.encode("utf-8"), "text/html; charset=utf-8", status=status)
+
+    def send_error_json(self, status: int, message: str) -> None:
+        self.send_json({"ok": False, "error": message}, status=status)
+
+    def send_bytes(
+        self,
+        body: bytes,
+        content_type: str,
+        status: int = 200,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self.close_connection = True
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Permissions-Policy", "geolocation=(), camera=(), microphone=()")
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; "
+            "connect-src 'self' https://api.github.com https://github.com https://objects.githubusercontent.com; "
+            "img-src 'self' data:; object-src 'none'; base-uri 'none'; "
+            "form-action 'self'; frame-ancestors 'none'",
+        )
+        self.send_header("Connection", "close")
+        for key, value in (headers or {}).items():
+            self.send_header(key, value)
+        self.end_headers()
+        self.wfile.write(body)
+
+
+class CRMServer(ThreadingHTTPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+class CRMServerV6(CRMServer):
+    address_family = socket.AF_INET6

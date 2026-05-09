@@ -12,6 +12,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from email.message import Message
 from pathlib import Path
 
 import sto_crm
@@ -682,6 +683,18 @@ class StoCrmTests(unittest.TestCase):
             with socket.create_connection(("127.0.0.1", server.server_port), timeout=5) as client:
                 client.sendall(
                     (
+                        "GET /api/bootstrap HTTP/1.1\r\n"
+                        f"Host: evil.example:{server.server_port}\r\n"
+                        "Connection: close\r\n"
+                        "\r\n"
+                    ).encode("ascii")
+                )
+                response = client.recv(2048).decode("utf-8", errors="replace")
+            self.assertIn("403", response.splitlines()[0])
+
+            with socket.create_connection(("127.0.0.1", server.server_port), timeout=5) as client:
+                client.sendall(
+                    (
                         "POST /api/backup HTTP/1.1\r\n"
                         f"Host: 127.0.0.1:{server.server_port}\r\n"
                         "Content-Type: application/json\r\n"
@@ -789,6 +802,17 @@ class StoCrmTests(unittest.TestCase):
         )
         self.assertEqual(totals["total"], 100)
         self.assertEqual(totals["paid"], 0)
+
+    def test_margin_is_calculated_before_tax(self):
+        totals = sto_crm.calculate_totals(
+            {"discount": 10, "tax_rate": 20, "paid": 0},
+            [{"kind": "service", "title": "Labor", "quantity": 1, "unit_price": 100, "unit_cost": 60}],
+        )
+        self.assertEqual(totals["subtotal"], 100)
+        self.assertEqual(totals["tax"], 18)
+        self.assertEqual(totals["total"], 108)
+        self.assertEqual(totals["margin"], 30)
+        self.assertEqual(totals["margin_percent"], 33.3)
 
     def test_number_parsers_accept_russian_spacing_and_commas(self):
         self.assertEqual(sto_crm.parse_float("1 500,50"), 1500.5)
@@ -1088,6 +1112,8 @@ class StoCrmTests(unittest.TestCase):
         self.assertEqual(args.port, 0)
         self.assertEqual(sto_crm.parse_args(["--host", "localhost"]).host, "127.0.0.1")
         self.assertEqual(sto_crm.parse_args(["--host", "::1"]).host, "::1")
+        self.assertIs(sto_crm.server_class_for_host("127.0.0.1"), sto_crm.CRMServer)
+        self.assertIs(sto_crm.server_class_for_host("::1"), sto_crm.CRMServerV6)
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
                 sto_crm.parse_args(["--host", "0.0.0.0"])
@@ -1562,7 +1588,7 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('procurementList(r.procurement_plan || [])', html)
         self.assertIn('workloadList(r.workload_by_responsible || [])', html)
         self.assertIn('actionPlanList(r.action_plan || [])', html)
-        self.assertIn('class="panel action-center"', html)
+        self.assertIn('action-center', html)
         self.assertIn('data-route-target=', html)
         self.assertIn('findAppointmentById(id)', html)
         self.assertIn('findInspectionById(id)', html)
@@ -1696,12 +1722,16 @@ class StoCrmTests(unittest.TestCase):
             class FakeResponse:
                 def __init__(self, body: bytes):
                     self._stream = io.BytesIO(body)
+                    self.headers = Message()
 
                 def __enter__(self):
                     return self
 
                 def __exit__(self, *_args):
                     return False
+
+                def geturl(self):
+                    return "https://github.com/owner/repo/releases/download/v1.20.0/STO_CRM.exe"
 
                 def read(self, size: int = -1) -> bytes:
                     return self._stream.read(size)
@@ -1735,6 +1765,58 @@ class StoCrmTests(unittest.TestCase):
             missing_hash_asset = {**asset, "sha256": ""}
             with self.assertRaisesRegex(RuntimeError, "SHA-256"):
                 sto_crm.download_release_asset(missing_hash_asset, target)
+        finally:
+            urllib.request.urlopen = old_urlopen
+
+    def test_update_json_and_redirects_are_bounded_and_validated(self):
+        old_urlopen = urllib.request.urlopen
+        try:
+            class FakeHeaders(Message):
+                def get_content_charset(self):
+                    return "utf-8"
+
+            class FakeResponse:
+                def __init__(self, body: bytes, final_url: str = "https://github.com/owner/repo/releases/download/v1.20.0/latest.json", content_length: int | None = None):
+                    self._stream = io.BytesIO(body)
+                    self._final_url = final_url
+                    self.headers = FakeHeaders()
+                    if content_length is not None:
+                        self.headers["Content-Length"] = str(content_length)
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_args):
+                    return False
+
+                def geturl(self):
+                    return self._final_url
+
+                def read(self, size: int = -1) -> bytes:
+                    return self._stream.read(size)
+
+            urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse(b'{"ok": true}')
+            self.assertEqual(sto_crm.fetch_json("https://api.github.com/repos/owner/repo/releases/latest"), {"ok": True})
+
+            urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse(b"{}", "https://example.test/latest.json")
+            with self.assertRaisesRegex(RuntimeError, "недоверенную"):
+                sto_crm.fetch_json("https://github.com/owner/repo/releases/download/v1.20.0/latest.json")
+
+            urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse(b"{}", content_length=sto_crm.GITHUB_UPDATE_MAX_JSON_BYTES + 1)
+            with self.assertRaisesRegex(RuntimeError, "слишком большой"):
+                sto_crm.fetch_json("https://github.com/owner/repo/releases/download/v1.20.0/latest.json")
+
+            target = Path(self.tempdir.name) / "redirect.exe"
+            asset = {
+                "name": "STO_CRM.exe",
+                "size": 2,
+                "sha256": hashlib.sha256(b"MZ").hexdigest(),
+                "download_url": "https://github.com/owner/repo/releases/download/v1.20.0/STO_CRM.exe",
+            }
+            urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse(b"MZ", "https://example.test/STO_CRM.exe")
+            with self.assertRaisesRegex(RuntimeError, "недоверенную"):
+                sto_crm.download_release_asset(asset, target)
+            self.assertFalse(target.exists())
         finally:
             urllib.request.urlopen = old_urlopen
 
@@ -1808,8 +1890,12 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('Каталог автомобилей', html)
         self.assertIn('Отчеты и аналитика', html)
         self.assertIn('data-action="open-action-plan"', html)
-        self.assertIn('linear-gradient(160deg, var(--brand-start), var(--brand-end))', html)
+        self.assertIn('linear-gradient(160deg, var(--brand-start), var(--brand-mid) 54%, var(--brand-end))', html)
         self.assertIn('grid-template-columns: 292px minmax(0, 1fr)', html)
+        self.assertIn('workspace-grid', html)
+        self.assertIn('function riskRadar(report)', html)
+        self.assertIn('function quickActions()', html)
+        self.assertIn('function miniLedger(report)', html)
 
     def test_print_order_html_uses_professional_document_design(self):
         order = {

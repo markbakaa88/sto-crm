@@ -1,0 +1,675 @@
+from __future__ import annotations
+
+"""Transactional create/update/delete operations for CRM entities."""
+
+import sqlite3
+from collections import defaultdict
+from datetime import datetime, timedelta
+from typing import Any
+
+from .config import APPOINTMENT_ACTIVE_STATUSES, CONSUMING_STATUSES
+from .database import write_db
+from .runtime import now_iso, parse_float, parse_int
+from .validation import (
+    active_appointment_count_for_customer,
+    active_appointment_count_for_vehicle,
+    active_exists,
+    ensure_no_appointment_conflict,
+    ensure_unique_active_value,
+    generate_order_number,
+    item_is_billable,
+    validate_appointment,
+    validate_customer,
+    validate_inspection,
+    validate_inventory,
+    validate_order,
+    validate_vehicle,
+)
+
+
+def _query_get_order(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
+    from .queries import get_order
+
+    return get_order(conn, record_id)
+
+
+def _inspection_totals(items: list[dict[str, Any]]) -> dict[str, float]:
+    from .queries import inspection_totals
+
+    return inspection_totals(items)
+
+
+def create_customer(payload: dict[str, Any]) -> dict[str, Any]:
+    data = validate_customer(payload)
+    stamp = now_iso()
+    with write_db() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO customers(name, phone, email, source, preferred_channel, reminder_consent, notes, created_at, updated_at)
+            VALUES (:name, :phone, :email, :source, :preferred_channel, :reminder_consent, :notes, :created_at, :updated_at)
+            """,
+            {**data, "created_at": stamp, "updated_at": stamp},
+        )
+        return get_customer(conn, int(cur.lastrowid))
+
+
+def update_customer(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    data = validate_customer(payload)
+    with write_db() as conn:
+        if not active_exists(conn, "customers", record_id):
+            raise KeyError("Клиент не найден.")
+        conn.execute(
+            """
+            UPDATE customers
+            SET name=:name, phone=:phone, email=:email, source=:source, preferred_channel=:preferred_channel,
+                reminder_consent=:reminder_consent, notes=:notes, updated_at=:updated_at
+            WHERE id=:id AND deleted_at IS NULL
+            """,
+            {**data, "updated_at": now_iso(), "id": record_id},
+        )
+        return get_customer(conn, record_id)
+
+
+def delete_customer(record_id: int) -> dict[str, Any]:
+    with write_db() as conn:
+        if not active_exists(conn, "customers", record_id):
+            raise KeyError("Клиент не найден.")
+        orders_count = conn.execute(
+            """
+            SELECT COUNT(*) FROM orders
+            WHERE customer_id = ? AND deleted_at IS NULL
+            """,
+            (record_id,),
+        ).fetchone()[0]
+        if orders_count:
+            raise ValueError("У клиента есть заказ-наряды. Сначала удалите или перенесите связанные заказы.")
+        appointments_count = active_appointment_count_for_customer(conn, record_id)
+        if appointments_count:
+            raise ValueError("У клиента есть активные записи в календаре. Завершите или отмените их перед удалением клиента.")
+        inspections_count = conn.execute(
+            """
+            SELECT COUNT(*) FROM inspections
+            WHERE customer_id = ? AND deleted_at IS NULL
+            """,
+            (record_id,),
+        ).fetchone()[0]
+        if inspections_count:
+            raise ValueError("У клиента есть цифровые осмотры. Сначала удалите или перенесите связанные осмотры.")
+        stamp = now_iso()
+        for vehicle in conn.execute(
+            "SELECT id FROM vehicles WHERE customer_id = ? AND deleted_at IS NULL", (record_id,)
+        ).fetchall():
+            vid = vehicle["id"]
+            if conn.execute(
+                "SELECT COUNT(*) FROM orders WHERE vehicle_id = ? AND deleted_at IS NULL", (vid,)
+            ).fetchone()[0]:
+                raise ValueError("У клиента есть автомобили с заказ-нарядами. Сначала удалите или перенесите заказы.")
+            if active_appointment_count_for_vehicle(conn, vid):
+                raise ValueError("У клиента есть автомобили с активными записями в календаре. Завершите или отмените их перед удалением.")
+        conn.execute("UPDATE customers SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL", (stamp, stamp, record_id))
+        conn.execute("UPDATE vehicles SET deleted_at=?, updated_at=? WHERE customer_id=? AND deleted_at IS NULL", (stamp, stamp, record_id))
+        return {"deleted": True}
+
+
+def get_customer(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
+    row = conn.execute("SELECT * FROM customers WHERE id = ? AND deleted_at IS NULL", (record_id,)).fetchone()
+    if not row:
+        raise KeyError("Клиент не найден.")
+    return dict(row)
+
+
+def create_vehicle(payload: dict[str, Any]) -> dict[str, Any]:
+    with write_db() as conn:
+        data = validate_vehicle(conn, payload)
+        ensure_unique_active_value(conn, "vehicles", "vin", data["vin"], "Автомобиль с таким VIN уже есть в базе.")
+        ensure_unique_active_value(conn, "vehicles", "plate", data["plate"], "Автомобиль с таким госномером уже есть в базе.")
+        stamp = now_iso()
+        cur = conn.execute(
+            """
+            INSERT INTO vehicles(customer_id, make, model, year, plate, vin, mileage, next_service_at,
+                                 next_service_mileage, notes, created_at, updated_at)
+            VALUES (:customer_id, :make, :model, :year, :plate, :vin, :mileage, :next_service_at,
+                    :next_service_mileage, :notes, :created_at, :updated_at)
+            """,
+            {**data, "created_at": stamp, "updated_at": stamp},
+        )
+        return get_vehicle(conn, int(cur.lastrowid))
+
+
+def update_vehicle(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    with write_db() as conn:
+        old = conn.execute("SELECT customer_id FROM vehicles WHERE id = ? AND deleted_at IS NULL", (record_id,)).fetchone()
+        if not old:
+            raise KeyError("Автомобиль не найден.")
+        data = validate_vehicle(conn, payload)
+        ensure_unique_active_value(conn, "vehicles", "vin", data["vin"], "Автомобиль с таким VIN уже есть в базе.", record_id)
+        ensure_unique_active_value(conn, "vehicles", "plate", data["plate"], "Автомобиль с таким госномером уже есть в базе.", record_id)
+        if int(old["customer_id"]) != int(data["customer_id"]):
+            orders_count = conn.execute(
+                "SELECT COUNT(*) FROM orders WHERE vehicle_id = ? AND deleted_at IS NULL",
+                (record_id,),
+            ).fetchone()[0]
+            if orders_count:
+                raise ValueError("Нельзя сменить клиента у автомобиля с заказ-нарядами.")
+            if active_appointment_count_for_vehicle(conn, record_id):
+                raise ValueError("Нельзя сменить клиента у автомобиля с активными записями в календаре.")
+            inspections_count = conn.execute(
+                "SELECT COUNT(*) FROM inspections WHERE vehicle_id = ? AND deleted_at IS NULL",
+                (record_id,),
+            ).fetchone()[0]
+            if inspections_count:
+                raise ValueError("Нельзя сменить клиента у автомобиля с цифровыми осмотрами.")
+        conn.execute(
+            """
+            UPDATE vehicles
+            SET customer_id=:customer_id, make=:make, model=:model, year=:year, plate=:plate,
+                vin=:vin, mileage=:mileage, next_service_at=:next_service_at,
+                next_service_mileage=:next_service_mileage, notes=:notes, updated_at=:updated_at
+            WHERE id=:id AND deleted_at IS NULL
+            """,
+            {**data, "updated_at": now_iso(), "id": record_id},
+        )
+        return get_vehicle(conn, record_id)
+
+
+def delete_vehicle(record_id: int) -> dict[str, Any]:
+    with write_db() as conn:
+        if not active_exists(conn, "vehicles", record_id):
+            raise KeyError("Автомобиль не найден.")
+        orders_count = conn.execute(
+            """
+            SELECT COUNT(*) FROM orders
+            WHERE vehicle_id = ? AND deleted_at IS NULL
+            """,
+            (record_id,),
+        ).fetchone()[0]
+        if orders_count:
+            raise ValueError("По автомобилю есть заказ-наряды. Сначала удалите или измените связанные заказы.")
+        appointments_count = active_appointment_count_for_vehicle(conn, record_id)
+        if appointments_count:
+            raise ValueError("По автомобилю есть активные записи в календаре. Завершите или отмените их перед удалением автомобиля.")
+        inspections_count = conn.execute(
+            """
+            SELECT COUNT(*) FROM inspections
+            WHERE vehicle_id = ? AND deleted_at IS NULL
+            """,
+            (record_id,),
+        ).fetchone()[0]
+        if inspections_count:
+            raise ValueError("По автомобилю есть цифровые осмотры. Сначала удалите или измените связанные осмотры.")
+        stamp = now_iso()
+        conn.execute("UPDATE vehicles SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL", (stamp, stamp, record_id))
+        return {"deleted": True}
+
+
+def get_vehicle(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
+    row = conn.execute(
+        """
+        SELECT v.*, c.name AS customer_name
+        FROM vehicles v
+        JOIN customers c ON c.id = v.customer_id
+        WHERE v.id = ? AND v.deleted_at IS NULL
+        """,
+        (record_id,),
+    ).fetchone()
+    if not row:
+        raise KeyError("Автомобиль не найден.")
+    return dict(row)
+
+
+def create_appointment(payload: dict[str, Any]) -> dict[str, Any]:
+    with write_db() as conn:
+        data = validate_appointment(conn, payload)
+        if data["status"] in APPOINTMENT_ACTIVE_STATUSES:
+            ensure_no_appointment_conflict(conn, data["scheduled_at"], data["duration_minutes"])
+        stamp = now_iso()
+        cur = conn.execute(
+            """
+            INSERT INTO appointments(customer_id, vehicle_id, scheduled_at, duration_minutes, status,
+                                     advisor, reason, notes, created_at, updated_at)
+            VALUES (:customer_id, :vehicle_id, :scheduled_at, :duration_minutes, :status,
+                    :advisor, :reason, :notes, :created_at, :updated_at)
+            """,
+            {**data, "created_at": stamp, "updated_at": stamp},
+        )
+        return get_appointment(conn, int(cur.lastrowid))
+
+
+def update_appointment(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    with write_db() as conn:
+        if not active_exists(conn, "appointments", record_id):
+            raise KeyError("Запись не найдена.")
+        data = validate_appointment(conn, payload)
+        if data["status"] in APPOINTMENT_ACTIVE_STATUSES:
+            ensure_no_appointment_conflict(conn, data["scheduled_at"], data["duration_minutes"], record_id=record_id)
+        conn.execute(
+            """
+            UPDATE appointments
+            SET customer_id=:customer_id, vehicle_id=:vehicle_id, scheduled_at=:scheduled_at,
+                duration_minutes=:duration_minutes, status=:status, advisor=:advisor,
+                reason=:reason, notes=:notes, updated_at=:updated_at
+            WHERE id=:id AND deleted_at IS NULL
+            """,
+            {**data, "updated_at": now_iso(), "id": record_id},
+        )
+        return get_appointment(conn, record_id)
+
+
+def delete_appointment(record_id: int) -> dict[str, Any]:
+    with write_db() as conn:
+        if not active_exists(conn, "appointments", record_id):
+            raise KeyError("Запись не найдена.")
+        stamp = now_iso()
+        conn.execute("UPDATE appointments SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL", (stamp, stamp, record_id))
+        return {"deleted": True}
+
+
+def get_appointment(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
+    row = conn.execute(
+        """
+        SELECT a.*, c.name AS customer_name, c.phone AS customer_phone,
+               v.make AS vehicle_make, v.model AS vehicle_model, v.year AS vehicle_year,
+               v.plate AS vehicle_plate, v.vin AS vehicle_vin
+        FROM appointments a
+        JOIN customers c ON c.id = a.customer_id
+        LEFT JOIN vehicles v ON v.id = a.vehicle_id
+        WHERE a.id = ? AND a.deleted_at IS NULL AND c.deleted_at IS NULL
+        """,
+        (record_id,),
+    ).fetchone()
+    if not row:
+        raise KeyError("Запись не найдена.")
+    return dict(row)
+
+
+def create_inspection(payload: dict[str, Any]) -> dict[str, Any]:
+    with write_db() as conn:
+        data = validate_inspection(conn, payload)
+        stamp = now_iso()
+        cur = conn.execute(
+            """
+            INSERT INTO inspections(customer_id, vehicle_id, order_id, status, inspector, inspected_at,
+                                    summary, created_at, updated_at)
+            VALUES (:customer_id, :vehicle_id, :order_id, :status, :inspector, :inspected_at,
+                    :summary, :created_at, :updated_at)
+            """,
+            {**{k: v for k, v in data.items() if k != "items"}, "created_at": stamp, "updated_at": stamp},
+        )
+        inspection_id = int(cur.lastrowid)
+        insert_inspection_items(conn, inspection_id, data["items"])
+        return get_inspection(conn, inspection_id)
+
+
+def update_inspection(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    with write_db() as conn:
+        if not active_exists(conn, "inspections", record_id):
+            raise KeyError("Осмотр не найден.")
+        data = validate_inspection(conn, payload)
+        conn.execute(
+            """
+            UPDATE inspections
+            SET customer_id=:customer_id, vehicle_id=:vehicle_id, order_id=:order_id,
+                status=:status, inspector=:inspector, inspected_at=:inspected_at,
+                summary=:summary, updated_at=:updated_at
+            WHERE id=:id AND deleted_at IS NULL
+            """,
+            {**{k: v for k, v in data.items() if k != "items"}, "updated_at": now_iso(), "id": record_id},
+        )
+        conn.execute("DELETE FROM inspection_items WHERE inspection_id=?", (record_id,))
+        insert_inspection_items(conn, record_id, data["items"])
+        return get_inspection(conn, record_id)
+
+
+def delete_inspection(record_id: int) -> dict[str, Any]:
+    with write_db() as conn:
+        if not active_exists(conn, "inspections", record_id):
+            raise KeyError("Осмотр не найден.")
+        stamp = now_iso()
+        conn.execute("UPDATE inspections SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL", (stamp, stamp, record_id))
+        return {"deleted": True}
+
+
+def insert_inspection_items(conn: sqlite3.Connection, inspection_id: int, items: list[dict[str, Any]]) -> None:
+    stamp = now_iso()
+    conn.executemany(
+        """
+        INSERT INTO inspection_items(inspection_id, area, title, condition_status, approval_status,
+                                     recommendation, estimate, created_at)
+        VALUES (:inspection_id, :area, :title, :condition_status, :approval_status,
+                :recommendation, :estimate, :created_at)
+        """,
+        [{**item, "inspection_id": inspection_id, "created_at": stamp} for item in items],
+    )
+
+
+def list_inspection_items(conn: sqlite3.Connection, inspection_id: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM inspection_items
+        WHERE inspection_id=?
+        ORDER BY id
+        """,
+        (inspection_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_inspection(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
+    row = conn.execute(
+        """
+        SELECT i.*, c.name AS customer_name, c.phone AS customer_phone,
+               v.make AS vehicle_make, v.model AS vehicle_model, v.year AS vehicle_year,
+               v.plate AS vehicle_plate, v.vin AS vehicle_vin,
+               o.number AS order_number
+        FROM inspections i
+        JOIN customers c ON c.id = i.customer_id
+        LEFT JOIN vehicles v ON v.id = i.vehicle_id
+        LEFT JOIN orders o ON o.id = i.order_id
+        WHERE i.id = ? AND i.deleted_at IS NULL AND c.deleted_at IS NULL
+        """,
+        (record_id,),
+    ).fetchone()
+    if not row:
+        raise KeyError("Осмотр не найден.")
+    inspection = dict(row)
+    inspection["items"] = list_inspection_items(conn, record_id)
+    inspection.update(_inspection_totals(inspection["items"]))
+    return inspection
+
+
+def create_inventory(payload: dict[str, Any]) -> dict[str, Any]:
+    data = validate_inventory(payload)
+    stamp = now_iso()
+    with write_db() as conn:
+        ensure_unique_active_value(conn, "inventory", "sku", data["sku"], "Складская позиция с таким артикулом уже есть в базе.")
+        cur = conn.execute(
+            """
+            INSERT INTO inventory(sku, name, brand, unit, quantity, min_quantity, price, cost, supplier, notes, created_at, updated_at)
+            VALUES (:sku, :name, :brand, :unit, :quantity, :min_quantity, :price, :cost, :supplier, :notes, :created_at, :updated_at)
+            """,
+            {**data, "created_at": stamp, "updated_at": stamp},
+        )
+        return get_inventory(conn, int(cur.lastrowid))
+
+
+def update_inventory(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    data = validate_inventory(payload)
+    with write_db() as conn:
+        ensure_unique_active_value(conn, "inventory", "sku", data["sku"], "Складская позиция с таким артикулом уже есть в базе.", record_id)
+        current = get_inventory(conn, record_id)
+        if not current:
+            raise KeyError("Складская позиция не найдена.")
+        has_closed_history = conn.execute(
+            """
+            SELECT 1
+            FROM order_items oi
+            JOIN orders o ON o.id = oi.order_id
+            WHERE oi.inventory_id = ?
+              AND oi.approval_status IN ('approved')
+              AND o.status = 'closed'
+              AND o.deleted_at IS NULL
+            LIMIT 1
+            """,
+            (record_id,),
+        ).fetchone()
+        if has_closed_history and abs(parse_float(data["quantity"]) - parse_float(current["quantity"])) > 0.000001:
+            raise ValueError(
+                "Остаток позиции участвует в закрытых заказах. Создайте отдельную складскую корректировку или отмените связанный закрытый заказ без изменения его позиций."
+            )
+        conn.execute(
+            """
+            UPDATE inventory
+            SET sku=:sku, name=:name, brand=:brand, unit=:unit, quantity=:quantity, min_quantity=:min_quantity,
+                price=:price, cost=:cost, supplier=:supplier, notes=:notes, updated_at=:updated_at
+            WHERE id=:id AND deleted_at IS NULL
+            """,
+            {**data, "updated_at": now_iso(), "id": record_id},
+        )
+        return get_inventory(conn, record_id)
+
+
+def delete_inventory(record_id: int) -> dict[str, Any]:
+    with write_db() as conn:
+        if not active_exists(conn, "inventory", record_id):
+            raise KeyError("Складская позиция не найдена.")
+        order_usage = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM order_items oi
+            JOIN orders o ON o.id = oi.order_id
+            WHERE oi.inventory_id = ? AND o.deleted_at IS NULL
+            """,
+            (record_id,),
+        ).fetchone()[0]
+        if order_usage:
+            raise ValueError("Позиция используется в заказ-нарядах. Сначала удалите или измените связанные заказы.")
+        stamp = now_iso()
+        conn.execute("UPDATE inventory SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL", (stamp, stamp, record_id))
+        return {"deleted": True}
+
+
+def get_inventory(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
+    row = conn.execute("SELECT * FROM inventory WHERE id = ? AND deleted_at IS NULL", (record_id,)).fetchone()
+    if not row:
+        raise KeyError("Складская позиция не найдена.")
+    return dict(row)
+
+
+def create_order(payload: dict[str, Any]) -> dict[str, Any]:
+    with write_db() as conn:
+        order_id = create_order_tx(conn, payload)
+        return _query_get_order(conn, order_id)
+
+
+def create_order_tx(conn: sqlite3.Connection, payload: dict[str, Any]) -> int:
+    data = validate_order(conn, payload)
+    stamp = now_iso()
+    number = generate_order_number(conn)
+    if data["status"] == "closed" and not data["follow_up_at"]:
+        data["follow_up_at"] = (datetime.now() + timedelta(days=1)).replace(microsecond=0).isoformat(timespec="minutes")
+    apply_inventory_delta(conn, "", data["status"], [], data["items"])
+    cur = conn.execute(
+        """
+        INSERT INTO orders(number, customer_id, vehicle_id, status, priority, advisor, mechanic, promised_at,
+                           odometer, complaint, diagnosis, recommendations, discount, tax_rate, paid,
+                           payment_method, authorized_by, authorized_at, follow_up_at, closed_at, created_at, updated_at)
+        VALUES (:number, :customer_id, :vehicle_id, :status, :priority, :advisor, :mechanic, :promised_at,
+                :odometer, :complaint, :diagnosis, :recommendations, :discount, :tax_rate, :paid,
+                :payment_method, :authorized_by, :authorized_at, :follow_up_at, :closed_at, :created_at, :updated_at)
+        """,
+        {
+            **{k: v for k, v in data.items() if k != "items"},
+            "number": number,
+            "closed_at": stamp if data["status"] == "closed" else "",
+            "created_at": stamp,
+            "updated_at": stamp,
+        },
+    )
+    order_id = int(cur.lastrowid)
+    insert_order_items(conn, order_id, data["items"])
+    return order_id
+
+
+def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    with write_db() as conn:
+        old = conn.execute("SELECT * FROM orders WHERE id=? AND deleted_at IS NULL", (record_id,)).fetchone()
+        if not old:
+            raise KeyError("Заказ-наряд не найден.")
+        old_items = list_order_items(conn, record_id)
+        data = validate_order(conn, payload)
+        old_status = str(old["status"])
+        new_status = data["status"]
+        if old_status == "closed":
+            ensure_closed_order_not_changed(old, old_items, data)
+        closed_at = compute_closed_at(old_status, str(old["closed_at"] or ""), new_status)
+        if data["status"] == "closed" and not data["follow_up_at"]:
+            data["follow_up_at"] = str(old["follow_up_at"] or "") or (datetime.now() + timedelta(days=1)).replace(microsecond=0).isoformat(timespec="minutes")
+        apply_inventory_delta(conn, old_status, new_status, old_items, data["items"])
+        conn.execute(
+            """
+            UPDATE orders
+            SET customer_id=:customer_id, vehicle_id=:vehicle_id, status=:status, priority=:priority,
+                advisor=:advisor, mechanic=:mechanic, promised_at=:promised_at, odometer=:odometer,
+                complaint=:complaint, diagnosis=:diagnosis, recommendations=:recommendations,
+                discount=:discount, tax_rate=:tax_rate, paid=:paid, payment_method=:payment_method,
+                authorized_by=:authorized_by, authorized_at=:authorized_at, follow_up_at=:follow_up_at,
+                closed_at=:closed_at, updated_at=:updated_at
+            WHERE id=:id AND deleted_at IS NULL
+            """,
+            {
+                **{k: v for k, v in data.items() if k != "items"},
+                "closed_at": closed_at,
+                "updated_at": now_iso(),
+                "id": record_id,
+            },
+        )
+        conn.execute("DELETE FROM order_items WHERE order_id=?", (record_id,))
+        insert_order_items(conn, record_id, data["items"])
+        return _query_get_order(conn, record_id)
+
+
+def compute_closed_at(old_status: str, old_closed_at: str, new_status: str) -> str:
+    if new_status != "closed":
+        return ""
+    if old_status == "closed" and old_closed_at:
+        return old_closed_at
+    return now_iso()
+
+
+def delete_order(record_id: int) -> dict[str, Any]:
+    with write_db() as conn:
+        old = conn.execute("SELECT * FROM orders WHERE id=? AND deleted_at IS NULL", (record_id,)).fetchone()
+        if not old:
+            raise KeyError("Заказ-наряд не найден.")
+        if str(old["status"]) in CONSUMING_STATUSES:
+            raise ValueError(
+                "Закрытый заказ-наряд сначала переведите в статус «Отменен», "
+                "чтобы возврат складских остатков был явным."
+            )
+        linked_inspections_count = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM inspections
+            WHERE order_id = ? AND deleted_at IS NULL
+            """,
+            (record_id,),
+        ).fetchone()[0]
+        if linked_inspections_count:
+            raise ValueError("К заказ-наряду привязаны цифровые осмотры. Сначала удалите или отвяжите связанные осмотры.")
+        old_items = list_order_items(conn, record_id)
+        apply_inventory_delta(conn, str(old["status"]), "", old_items, [])
+        stamp = now_iso()
+        conn.execute("UPDATE orders SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL", (stamp, stamp, record_id))
+        return {"deleted": True}
+
+
+def insert_order_items(conn: sqlite3.Connection, order_id: int, items: list[dict[str, Any]]) -> None:
+    stamp = now_iso()
+    conn.executemany(
+        """
+        INSERT INTO order_items(order_id, kind, inventory_id, title, approval_status, quantity, unit_price, unit_cost, created_at)
+        VALUES (:order_id, :kind, :inventory_id, :title, :approval_status, :quantity, :unit_price, :unit_cost, :created_at)
+        """,
+        [{**item, "order_id": order_id, "created_at": stamp} for item in items],
+    )
+
+
+def list_order_items(conn: sqlite3.Connection, order_id: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT oi.*, i.sku AS inventory_sku, i.name AS inventory_name
+        FROM order_items oi
+        LEFT JOIN inventory i ON i.id = oi.inventory_id
+        WHERE oi.order_id=?
+        ORDER BY oi.id
+        """,
+        (order_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def part_quantities(items: list[dict[str, Any]]) -> dict[int, float]:
+    result: dict[int, float] = defaultdict(float)
+    for item in items:
+        if item.get("kind") == "part" and item.get("inventory_id") and item_is_billable(item):
+            result[int(item["inventory_id"])] += parse_float(item.get("quantity"))
+    return dict(result)
+
+
+def closed_item_signature(item: dict[str, Any]) -> tuple[Any, ...]:
+    """Стабильный финансовый снимок строки закрытого заказ-наряда."""
+    return (
+        str(item.get("kind") or ""),
+        int(item.get("inventory_id") or 0),
+        str(item.get("title") or ""),
+        str(item.get("approval_status") or "approved"),
+        round(parse_float(item.get("quantity")), 6),
+        round(parse_float(item.get("unit_price")), 2),
+        round(parse_float(item.get("unit_cost")), 2),
+    )
+
+
+def closed_order_signature(order: dict[str, Any] | sqlite3.Row, items: list[dict[str, Any]]) -> tuple[Any, ...]:
+    return (
+        str(order["status"]),
+        int(order["customer_id"]),
+        int(order["vehicle_id"] or 0),
+        str(order["priority"] or ""),
+        str(order["advisor"] or ""),
+        str(order["mechanic"] or ""),
+        str(order["promised_at"] or ""),
+        int(parse_int(order["odometer"])),
+        str(order["complaint"] or ""),
+        str(order["diagnosis"] or ""),
+        str(order["recommendations"] or ""),
+        round(parse_float(order["discount"]), 2),
+        round(parse_float(order["tax_rate"]), 4),
+        round(parse_float(order["paid"]), 2),
+        str(order["payment_method"] or ""),
+        str(order["authorized_by"] or ""),
+        str(order["authorized_at"] or ""),
+        tuple(closed_item_signature(item) for item in items),
+    )
+
+
+def ensure_closed_order_not_changed(old: sqlite3.Row, old_items: list[dict[str, Any]], data: dict[str, Any]) -> None:
+    if int(old["customer_id"]) != data["customer_id"] or (old["vehicle_id"] or None) != data["vehicle_id"]:
+        raise ValueError("Закрытый заказ нельзя перепривязать к другому клиенту или автомобилю.")
+    if data["status"] not in {"closed", "cancelled"}:
+        raise ValueError("Закрытый заказ можно только оставить закрытым или отменить без изменения финансовых данных.")
+    comparable_data = {k: v for k, v in data.items() if k != "items"}
+    if data["status"] == "cancelled":
+        comparable_data["status"] = "closed"
+    if closed_order_signature(old, old_items) != closed_order_signature(comparable_data, data["items"]):
+        if data["status"] == "cancelled":
+            raise ValueError("При отмене закрытого заказа нельзя менять финансовые данные и позиции.")
+        raise ValueError("Финансовые данные и позиции закрытого заказа нельзя изменить после закрытия. Создайте отдельный корректирующий заказ.")
+
+
+def apply_inventory_delta(
+    conn: sqlite3.Connection,
+    old_status: str,
+    new_status: str,
+    old_items: list[dict[str, Any]],
+    new_items: list[dict[str, Any]],
+) -> None:
+    old_consumed = part_quantities(old_items) if old_status in CONSUMING_STATUSES else {}
+    new_consumed = part_quantities(new_items) if new_status in CONSUMING_STATUSES else {}
+    all_part_ids = sorted(set(old_consumed) | set(new_consumed))
+    for part_id in all_part_ids:
+        delta = new_consumed.get(part_id, 0.0) - old_consumed.get(part_id, 0.0)
+        if abs(delta) < 0.000001:
+            continue
+        part = conn.execute("SELECT id, name, quantity, deleted_at FROM inventory WHERE id=?", (part_id,)).fetchone()
+        if not part:
+            raise ValueError("Складская позиция для списания не найдена.")
+        if delta > 0 and part["deleted_at"]:
+            raise ValueError(f"Складская позиция недоступна для списания: {part['name']}.")
+        current_qty = parse_float(part["quantity"])
+        if delta > 0 and current_qty + 0.000001 < delta:
+            raise ValueError(f"Недостаточно на складе: {part['name']}. Доступно {current_qty:g}, требуется {delta:g}.")
+        conn.execute(
+            "UPDATE inventory SET quantity = quantity - ?, updated_at = ? WHERE id = ?",
+            (delta, now_iso(), part_id),
+        )

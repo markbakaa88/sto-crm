@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>СТО CRM</title>
+    <style>__STO_CRM_APP_CSS__</style>
+</head>
+<body>
+<a class="skip-link" href="#content">К основному содержанию</a>
+<div class="app">
+    <aside class="sidebar">
+        <div class="brand">
+            <div class="brand-mark">CRM</div>
+            <div>
+                <div class="brand-title">СТО CRM</div>
+                <div class="brand-subtitle">Автосервис</div>
+            </div>
+        </div>
+        <nav class="nav" id="nav" aria-label="Основные разделы CRM">
+            <button type="button" data-route="dashboard" class="active" aria-current="page"><span class="icon" aria-hidden="true">⌂</span><span class="nav-label">Панель</span><span class="nav-badge" data-nav-badge="dashboard" hidden></span></button>
+            <button type="button" data-route="appointments"><span class="icon" aria-hidden="true">📅</span><span class="nav-label">Запись</span><span class="nav-badge" data-nav-badge="appointments" hidden></span></button>
+            <button type="button" data-route="inspections"><span class="icon" aria-hidden="true">✓</span><span class="nav-label">Осмотры</span><span class="nav-badge" data-nav-badge="inspections" hidden></span></button>
+            <button type="button" data-route="orders"><span class="icon" aria-hidden="true">№</span><span class="nav-label">Заказы</span><span class="nav-badge" data-nav-badge="orders" hidden></span></button>
+            <button type="button" data-route="customers"><span class="icon" aria-hidden="true">👤</span><span class="nav-label">Клиенты</span></button>
+            <button type="button" data-route="vehicles"><span class="icon" aria-hidden="true">🚘</span><span class="nav-label">Авто</span></button>
+            <button type="button" data-route="catalog"><span class="icon" aria-hidden="true">◎</span><span class="nav-label">Каталог авто</span></button>
+            <button type="button" data-route="inventory"><span class="icon" aria-hidden="true">▦</span><span class="nav-label">Склад</span><span class="nav-badge" data-nav-badge="inventory" hidden></span></button>
+            <button type="button" data-route="reports"><span class="icon" aria-hidden="true">↗</span><span class="nav-label">Отчеты</span></button>
+            <button type="button" data-route="updates"><span class="icon" aria-hidden="true">⬢</span><span class="nav-label">Обновления</span><span class="nav-badge" data-nav-badge="updates" hidden></span></button>
+        </nav>
+        <div class="db-path" id="dbPath"></div>
+    </aside>
+    <main class="main">
+        <header class="topbar">
+            <div class="title-block">
+                <h1 id="viewTitle">Панель</h1>
+                <div class="view-subtitle" id="viewSubtitle">Оперативная сводка автосервиса</div>
+            </div>
+            <div class="search">
+                <span aria-hidden="true">⌕</span>
+                <label class="sr-only" for="globalSearch">Поиск по клиентам, автомобилям, заказам и складу</label>
+                <input id="globalSearch" placeholder="Поиск по клиентам, авто, заказам и складу" autocomplete="off" aria-label="Поиск по клиентам, автомобилям, заказам и складу">
+                <button class="search-clear" id="clearSearch" type="button" aria-label="Очистить поиск" title="Очистить поиск" hidden>×</button>
+            </div>
+            <div class="top-actions">
+                <button type="button" class="btn ghost" id="commandBtn" title="Командная палитра Ctrl+K" aria-label="Открыть командную палитру">⌘K</button>
+                <button type="button" class="btn ghost" id="themeToggle" title="Тёмная/светлая тема" aria-label="Переключить тёмную или светлую тему" aria-pressed="false">◐</button>
+                <button type="button" class="btn ghost" id="densityToggle" title="Плотность интерфейса" aria-label="Переключить плотность интерфейса" aria-pressed="false">↕</button>
+                <button type="button" class="btn ghost" id="backupBtn" title="Создать резервную копию"><span aria-hidden="true">⇩</span>Резерв</button>
+                <button type="button" class="btn icon" id="refreshBtn" title="Обновить" aria-label="Обновить данные">↻</button>
+                <button type="button" class="btn danger" id="shutdownBtn" title="Остановить локальную CRM">Остановить</button>
+            </div>
+        </header>
+        <section class="content" id="content">
+            <div class="offline-banner" id="offlineBanner" role="alert">Нет связи с локальным сервером. Проверьте, что СТО CRM запущена, или нажмите «Обновить».</div>
+            <div class="loading-state" role="status" aria-label="Загрузка данных CRM">
+                <div class="loading-mark" aria-hidden="true"></div>
+                <strong>Загружаем данные CRM...</strong>
+                <span class="muted">Готовим рабочее пространство смены</span>
+            </div>
+        </section>
+    </main>
+</div>
+
+<div class="modal-backdrop" id="modalBackdrop" role="presentation">
+    <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" tabindex="-1">
+        <div class="modal-head">
+            <div class="modal-title" id="modalTitle"></div>
+            <button type="button" class="btn icon" id="modalClose" title="Закрыть" aria-label="Закрыть окно">×</button>
+        </div>
+        <div class="modal-body" id="modalBody"></div>
+        <div class="modal-foot" id="modalFoot"></div>
+    </div>
+</div>
+<div class="command-palette-backdrop" id="commandPalette" role="presentation">
+    <div class="command-palette" role="dialog" aria-modal="true" aria-labelledby="commandPaletteTitle">
+        <div class="command-palette-head">
+            <span aria-hidden="true">⌘</span>
+            <label class="sr-only" id="commandPaletteTitle" for="commandSearch">Командная палитра CRM</label>
+            <input id="commandSearch" autocomplete="off" placeholder="Команда, раздел или действие…" aria-label="Командная палитра CRM" role="combobox" aria-controls="commandList" aria-expanded="false" aria-autocomplete="list">
+            <button type="button" class="btn icon" id="commandClose" aria-label="Закрыть командную палитру">×</button>
+        </div>
+        <div class="command-palette-list" id="commandList" role="listbox" aria-label="Доступные команды CRM"></div>
+    </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+<div class="sr-only" id="appStatus" role="status" aria-live="polite" aria-atomic="true"></div>
+
+<script>__STO_CRM_APP_JS__</script>
+</body>
+</html>
