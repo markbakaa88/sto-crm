@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Bootstrap payload and CSV export endpoints."""
+
+from __future__ import annotations
 
 import csv
 import io
@@ -21,7 +21,7 @@ from .config import (
     PREFERRED_CHANNELS,
 )
 from .queries import list_appointments, list_customers, list_inspections, list_inventory, list_orders, list_vehicles
-from .reports import build_reports, orderVehicleText
+from .reports import build_reports
 from .runtime import (
     clean_text,
     csv_cell,

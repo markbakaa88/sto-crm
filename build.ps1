@@ -9,12 +9,11 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
     $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 }
 $PyInstallerRequirement = "pyinstaller>=6.10,<7"
+$RequiredPythonMajor = 3
+$RequiredPythonMinor = 13
 
 function Resolve-Python {
     $candidates = @()
-    if ($env:LOCALAPPDATA) {
-        $candidates += Join-Path $env:LOCALAPPDATA "Python\pythoncore-3.14-64\python.exe"
-    }
     $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
     if ($pythonCommand) {
         $candidates += $pythonCommand.Source
@@ -45,6 +44,22 @@ function Invoke-Checked {
     }
 }
 
+function Assert-CompatiblePython {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PythonPath
+    )
+    $version = & $PythonPath -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to determine Python version: $PythonPath"
+    }
+    $parts = $version.Split('.')
+    if ([int]$parts[0] -ne $RequiredPythonMajor -or [int]$parts[1] -ne $RequiredPythonMinor) {
+        throw "Python $RequiredPythonMajor.$RequiredPythonMinor is required for reproducible release builds, got $version at $PythonPath."
+    }
+    Write-Host "Using Python $version"
+}
+
 function Remove-DirectoryIfExists {
     param(
         [Parameter(Mandatory = $true)]
@@ -66,6 +81,45 @@ function Get-FreeTcpPort {
     }
 }
 
+function Write-ReleaseMetadata {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ReleaseDir,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ReleaseExe,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Repository,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Tag
+    )
+
+    $config = Get-Content (Join-Path $ProjectRoot "sto_crm\config.py") -Raw
+    if ($config -notmatch 'APP_VERSION\s*=\s*"([^"]+)"') { throw "APP_VERSION not found in sto_crm/config.py" }
+    $version = $Matches[1]
+    if ($Tag -notmatch '^v') { $Tag = "v$Tag" }
+    $exe = Get-Item -LiteralPath $ReleaseExe
+    $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $exe.FullName).Hash.ToLowerInvariant()
+    "$hash  STO_CRM.exe" | Set-Content -Encoding ASCII (Join-Path $ReleaseDir "STO_CRM.exe.sha256")
+    $manifest = [ordered]@{
+        version = $version
+        tag = $Tag
+        name = "СТО CRM $version"
+        release_url = "https://github.com/$Repository/releases/tag/$Tag"
+        asset = [ordered]@{
+            name = "STO_CRM.exe"
+            size = $exe.Length
+            sha256 = $hash
+            download_url = "https://github.com/$Repository/releases/download/$Tag/STO_CRM.exe"
+        }
+    }
+    $manifestJson = $manifest | ConvertTo-Json -Depth 4
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText((Join-Path $ReleaseDir "latest.json"), $manifestJson, $utf8NoBom)
+}
+
 function Invoke-ReleaseSmokeTest {
     param(
         [Parameter(Mandatory = $true)]
@@ -79,8 +133,14 @@ function Invoke-ReleaseSmokeTest {
     $process = $null
 
     try {
-        $quotedDbPath = '"' + $dbPath + '"'
-        $process = Start-Process -FilePath $ExePath -ArgumentList @("--no-browser", "--port", $port.ToString(), "--db", $quotedDbPath) -PassThru -WindowStyle Hidden
+        $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = $ExePath
+        $startInfo.UseShellExecute = $true
+        $startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+        foreach ($argument in @("--no-browser", "--port", $port.ToString(), "--db", $dbPath)) {
+            [void]$startInfo.ArgumentList.Add([string]$argument)
+        }
+        $process = [System.Diagnostics.Process]::Start($startInfo)
         $baseUrl = "http://127.0.0.1:$port"
         $health = $null
 
@@ -123,6 +183,7 @@ function Invoke-ReleaseSmokeTest {
 Push-Location $ProjectRoot
 try {
     $python = Resolve-Python
+    Assert-CompatiblePython -PythonPath $python
     $sourcePath = Join-Path $ProjectRoot "sto_crm.py"
     $packageSourcePaths = @(Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "sto_crm") -Filter "*.py" | ForEach-Object { $_.FullName })
     $assetPackageSource = Join-Path $ProjectRoot "sto_crm\assets\__init__.py"
@@ -152,6 +213,12 @@ try {
     New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
     Get-ChildItem -LiteralPath $releaseDir -Force | Remove-Item -Recurse -Force
     Copy-Item -LiteralPath $distExe -Destination $releaseExe -Force
+
+    $config = Get-Content (Join-Path $ProjectRoot "sto_crm\config.py") -Raw
+    if ($config -notmatch 'GITHUB_REPOSITORY\s*=\s*"([^"]+)"') { throw "GITHUB_REPOSITORY not found in sto_crm/config.py" }
+    $releaseRepository = $Matches[1]
+    if ($config -notmatch 'APP_VERSION\s*=\s*"([^"]+)"') { throw "APP_VERSION not found in sto_crm/config.py" }
+    Write-ReleaseMetadata -ReleaseDir $releaseDir -ReleaseExe $releaseExe -Repository $releaseRepository -Tag ("v" + $Matches[1])
 
     if (-not $SkipSmokeTest) {
         Invoke-ReleaseSmokeTest -ExePath $releaseExe

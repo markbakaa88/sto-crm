@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Embedded frontend asset loader."""
+
+from __future__ import annotations
 
 from importlib import resources
 from pathlib import Path
@@ -9,6 +9,7 @@ _ASSET_PACKAGE = f"{__package__}.assets"
 _ASSET_DIR = Path(__file__).resolve().parent / "assets"
 _CSS_MARKER = "__STO_CRM_APP_CSS__"
 _JS_MARKER = "__STO_CRM_APP_JS__"
+FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#0f766e"/><path d="M17 34h30M23 24h18M24 44h16" stroke="white" stroke-width="5" stroke-linecap="round"/></svg>"""
 
 
 def _read_asset(name: str) -> str:

@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Runtime state, path resolution, parsing helpers and safe logging."""
+
+from __future__ import annotations
 
 import math
 import os
@@ -89,7 +89,7 @@ def normalize_github_repository(value: str | None = None) -> str:
     raw = clean_text(value or os.environ.get(GITHUB_UPDATES_CONFIG_ENV) or GITHUB_REPOSITORY, 220)
     if not raw:
         return GITHUB_REPOSITORY
-    if raw.startswith("http://") or raw.startswith("https://"):
+    if raw.startswith(("http://", "https://")):
         parsed = urllib.parse.urlparse(raw)
         parts = [part for part in parsed.path.strip("/").split("/") if part]
         if len(parts) >= 2 and parsed.netloc.lower().endswith("github.com"):
@@ -257,7 +257,10 @@ def money(value: Any) -> str:
 def csv_cell(value: Any) -> Any:
     if not isinstance(value, str):
         return value
-    stripped = value.lstrip()
+    # Spreadsheet apps can hide formulas behind leading whitespace, BOMs or
+    # direction/zero-width marks.  Strip those characters only for detection and
+    # keep the original cell value intact for export fidelity.
+    stripped = value.lstrip().lstrip("\ufeff\u200b\u200c\u200d\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
     if stripped and stripped[0] in ("=", "+", "-", "@", "\t", "\r", "\n"):
         return "'" + value
     return value
@@ -270,7 +273,19 @@ def sql_limit(limit: int | None) -> tuple[str, list[Any]]:
 
 
 def search_needle(q: str) -> str:
-    return f"%{q.casefold()}%"
+    """Return a LIKE pattern for a literal case-insensitive search term.
+
+    User-entered ``%`` and ``_`` are data, not SQL wildcards.  All queries that
+    use this helper must add ``ESCAPE '\\'`` to the corresponding LIKE clause.
+    """
+    escaped = (
+        str(q or "")
+        .casefold()
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+    return f"%{escaped}%"
 
 
 def redact_sensitive_query(message: str) -> str:
@@ -284,7 +299,7 @@ def safe_log(message: str) -> None:
         return
     try:
         text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "?", redact_sensitive_query(str(message)))
-        text = text.replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\t")
+        text = text.replace("\r", "\\r").replace("\n", "\\n")
         stream.write(text + "\n")
         stream.flush()
     except Exception:

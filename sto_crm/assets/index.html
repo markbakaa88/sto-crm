@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230f766e'/%3E%3Cpath d='M17 34h30M23 24h18M24 44h16' stroke='white' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
     <title>СТО CRM</title>
     <style>__STO_CRM_APP_CSS__</style>
 </head>
@@ -20,11 +21,11 @@
         </div>
         <nav class="nav" id="nav" aria-label="Основные разделы CRM">
             <button type="button" data-route="dashboard" class="active" aria-current="page"><span class="icon" aria-hidden="true">⌂</span><span class="nav-label">Панель</span><span class="nav-badge" data-nav-badge="dashboard" hidden></span></button>
-            <button type="button" data-route="appointments"><span class="icon" aria-hidden="true">📅</span><span class="nav-label">Запись</span><span class="nav-badge" data-nav-badge="appointments" hidden></span></button>
+            <button type="button" data-route="appointments"><span class="icon" aria-hidden="true">▤</span><span class="nav-label">Запись</span><span class="nav-badge" data-nav-badge="appointments" hidden></span></button>
             <button type="button" data-route="inspections"><span class="icon" aria-hidden="true">✓</span><span class="nav-label">Осмотры</span><span class="nav-badge" data-nav-badge="inspections" hidden></span></button>
             <button type="button" data-route="orders"><span class="icon" aria-hidden="true">№</span><span class="nav-label">Заказы</span><span class="nav-badge" data-nav-badge="orders" hidden></span></button>
-            <button type="button" data-route="customers"><span class="icon" aria-hidden="true">👤</span><span class="nav-label">Клиенты</span></button>
-            <button type="button" data-route="vehicles"><span class="icon" aria-hidden="true">🚘</span><span class="nav-label">Авто</span></button>
+            <button type="button" data-route="customers"><span class="icon" aria-hidden="true">◔</span><span class="nav-label">Клиенты</span></button>
+            <button type="button" data-route="vehicles"><span class="icon" aria-hidden="true">◈</span><span class="nav-label">Авто</span></button>
             <button type="button" data-route="catalog"><span class="icon" aria-hidden="true">◎</span><span class="nav-label">Каталог авто</span></button>
             <button type="button" data-route="inventory"><span class="icon" aria-hidden="true">▦</span><span class="nav-label">Склад</span><span class="nav-badge" data-nav-badge="inventory" hidden></span></button>
             <button type="button" data-route="reports"><span class="icon" aria-hidden="true">↗</span><span class="nav-label">Отчеты</span></button>
@@ -41,25 +42,39 @@
             <div class="search">
                 <span aria-hidden="true">⌕</span>
                 <label class="sr-only" for="globalSearch">Поиск по клиентам, автомобилям, заказам и складу</label>
-                <input id="globalSearch" placeholder="Поиск по клиентам, авто, заказам и складу" autocomplete="off" aria-label="Поиск по клиентам, автомобилям, заказам и складу">
+                <input id="globalSearch" placeholder="Клиент, авто, заказ, склад" autocomplete="off" aria-label="Поиск по клиентам, автомобилям, заказам и складу">
                 <button class="search-clear" id="clearSearch" type="button" aria-label="Очистить поиск" title="Очистить поиск" hidden>×</button>
             </div>
             <div class="top-actions">
                 <button type="button" class="btn ghost" id="commandBtn" title="Командная палитра Ctrl+K" aria-label="Открыть командную палитру">⌘K</button>
-                <button type="button" class="btn ghost" id="themeToggle" title="Тёмная/светлая тема" aria-label="Переключить тёмную или светлую тему" aria-pressed="false">◐</button>
-                <button type="button" class="btn ghost" id="densityToggle" title="Плотность интерфейса" aria-label="Переключить плотность интерфейса" aria-pressed="false">↕</button>
-                <button type="button" class="btn ghost" id="backupBtn" title="Создать резервную копию"><span aria-hidden="true">⇩</span>Резерв</button>
                 <button type="button" class="btn icon" id="refreshBtn" title="Обновить" aria-label="Обновить данные">↻</button>
-                <button type="button" class="btn danger" id="shutdownBtn" title="Остановить локальную CRM">Остановить</button>
+                <div class="system-menu" id="systemMenuRoot">
+                    <button type="button" class="btn ghost system-menu-button" id="systemMenuBtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="systemMenu" title="Системные действия CRM">
+                        <span>Система</span><span aria-hidden="true">⋯</span>
+                    </button>
+                    <div class="system-menu-panel" id="systemMenu" aria-label="Системные действия CRM" hidden>
+                        <button type="button" class="system-menu-item" id="themeToggle" title="Тёмная/светлая тема" aria-label="Переключить тёмную или светлую тему" aria-pressed="false"><span data-menu-icon aria-hidden="true">◐</span><span data-menu-label>Тема</span></button>
+                        <button type="button" class="system-menu-item" id="densityToggle" title="Плотность интерфейса" aria-label="Переключить плотность интерфейса" aria-pressed="false"><span data-menu-icon aria-hidden="true">↕</span><span data-menu-label>Плотность</span></button>
+                        <button type="button" class="system-menu-item" id="backupBtn" title="Создать резервную копию SQLite"><span data-menu-icon aria-hidden="true">⇩</span><span data-menu-label>Резервная копия</span></button>
+                        <button type="button" class="system-menu-item" data-system-route="updates" title="Открыть раздел обновлений"><span data-menu-icon aria-hidden="true">⬢</span><span data-menu-label>Обновления</span></button>
+                        <button type="button" class="system-menu-item danger" id="shutdownBtn" title="Остановить локальную CRM"><span data-menu-icon aria-hidden="true">⏻</span><span data-menu-label>Остановить CRM</span></button>
+                    </div>
+                </div>
             </div>
         </header>
-        <section class="content" id="content">
+        <section class="content" id="content" tabindex="-1">
             <div class="offline-banner" id="offlineBanner" role="alert">Нет связи с локальным сервером. Проверьте, что СТО CRM запущена, или нажмите «Обновить».</div>
             <div class="loading-state" role="status" aria-label="Загрузка данных CRM">
                 <div class="loading-mark" aria-hidden="true"></div>
                 <strong>Загружаем данные CRM...</strong>
                 <span class="muted">Готовим рабочее пространство смены</span>
             </div>
+            <noscript>
+                <div class="notice" role="alert">
+                    <strong>Для работы СТО CRM требуется JavaScript.</strong>
+                    <p>Включите JavaScript в браузере и обновите страницу локального приложения.</p>
+                </div>
+            </noscript>
         </section>
     </main>
 </div>

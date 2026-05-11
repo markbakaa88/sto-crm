@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """SQLite connection handling, schema creation and migrations."""
+
+from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
@@ -84,6 +84,7 @@ def init_db(seed_demo: bool = False) -> None:
                     plate TEXT NOT NULL DEFAULT '',
                     vin TEXT NOT NULL DEFAULT '',
                     mileage INTEGER NOT NULL DEFAULT 0,
+                    mileage_order_id INTEGER,
                     next_service_at TEXT NOT NULL DEFAULT '',
                     next_service_mileage INTEGER NOT NULL DEFAULT 0,
                     notes TEXT NOT NULL DEFAULT '',
@@ -310,6 +311,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "vehicles", "plate", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "vehicles", "vin", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "vehicles", "mileage", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(conn, "vehicles", "mileage_order_id", "INTEGER")
     ensure_column(conn, "vehicles", "next_service_at", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "vehicles", "next_service_mileage", "INTEGER NOT NULL DEFAULT 0")
     ensure_column(conn, "vehicles", "notes", "TEXT NOT NULL DEFAULT ''")
@@ -348,13 +350,13 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(orders)").fetchall()}
     if "closed_at" not in columns:
         conn.execute("ALTER TABLE orders ADD COLUMN closed_at TEXT NOT NULL DEFAULT ''")
-        conn.execute(
-            """
-            UPDATE orders
-            SET closed_at = COALESCE(NULLIF(updated_at, ''), created_at)
-            WHERE status = 'closed' AND closed_at = ''
-            """
-        )
+    conn.execute(
+        """
+        UPDATE orders
+        SET closed_at = COALESCE(NULLIF(updated_at, ''), created_at)
+        WHERE status = 'closed' AND COALESCE(closed_at, '') = ''
+        """
+    )
     ensure_column(conn, "order_items", "approval_status", "TEXT NOT NULL DEFAULT 'approved'")
     ensure_column(conn, "appointments", "scheduled_at", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "appointments", "duration_minutes", "INTEGER NOT NULL DEFAULT 60")
@@ -385,11 +387,6 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_closed_at ON orders(closed_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_follow_up_at ON orders(follow_up_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_vehicles_next_service ON vehicles(next_service_at, next_service_mileage)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_schedule ON appointments(deleted_at, scheduled_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_customer ON appointments(customer_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_inspections_vehicle ON inspections(deleted_at, vehicle_id, inspected_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_inspections_customer ON inspections(customer_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_inspection_items_inspection ON inspection_items(inspection_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_order_items_inventory ON order_items(inventory_id)")
     unique_indexes = (
         (

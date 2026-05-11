@@ -15,6 +15,7 @@ venv/
 backups/
 updates/
 *.bak.exe
+*.bak.*
 
 # Build artifacts
 build/

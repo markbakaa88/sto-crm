@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Local HTTP API and static UI server."""
+
+from __future__ import annotations
 
 import json
 import secrets
@@ -43,17 +43,20 @@ from .services import (
     update_vehicle,
 )
 from .updates import create_backup, install_update_from_github, update_status
-from .web import INDEX_HTML
+from .web import FAVICON_SVG, INDEX_HTML
 
 class CRMHandler(BaseHTTPRequestHandler):
     server_version = f"STO-CRM/{APP_VERSION}"
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        safe_log("%s - %s" % (self.log_date_time_string(), redact_sensitive_query(fmt % args)))
+        safe_log(f"{self.log_date_time_string()} - {redact_sensitive_query(fmt % args)}")
 
     def do_GET(self) -> None:
         self.handle_request("GET")
+
+    def do_HEAD(self) -> None:
+        self.handle_request("HEAD")
 
     def do_POST(self) -> None:
         self.handle_request("POST")
@@ -78,8 +81,26 @@ class CRMHandler(BaseHTTPRequestHandler):
             query = urllib.parse.parse_qs(parsed.query)
             self.validate_mutating_request(method)
 
+            if method == "HEAD" and path in {"/", "/app"}:
+                self.send_html(INDEX_HTML, write_body=False)
+                return
+            if method == "HEAD" and path == "/api/health":
+                self.validate_local_request_context()
+                self.send_json(
+                    {"ok": True, "version": APP_VERSION, "uptime": round(time.time() - _runtime.RUNTIME.start_time, 1)},
+                    write_body=False,
+                )
+                return
+
             if method == "GET" and path in {"/", "/app"}:
                 self.send_html(INDEX_HTML)
+                return
+            if method in {"GET", "HEAD"} and path in {"/favicon.ico", "/favicon.svg"}:
+                self.send_bytes(
+                    FAVICON_SVG.encode("utf-8"),
+                    "image/svg+xml; charset=utf-8",
+                    write_body=method != "HEAD",
+                )
                 return
             if method == "GET" and path.startswith("/print/order/"):
                 self.validate_local_request_context()
@@ -93,6 +114,7 @@ class CRMHandler(BaseHTTPRequestHandler):
                     self.send_html(print_order_html(get_order(conn, order_id)))
                 return
             if method == "GET" and path == "/api/health":
+                self.validate_local_request_context()
                 self.send_json({"ok": True, "version": APP_VERSION, "uptime": round(time.time() - _runtime.RUNTIME.start_time, 1)})
                 return
             if method == "GET" and path == "/api/bootstrap":
@@ -283,15 +305,15 @@ class CRMHandler(BaseHTTPRequestHandler):
             raise ValueError("Ожидался JSON-объект.")
         return data
 
-    def send_json(self, payload: Any, status: int = 200) -> None:
+    def send_json(self, payload: Any, status: int = 200, *, write_body: bool = True) -> None:
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        self.send_bytes(body, "application/json; charset=utf-8", status=status)
+        self.send_bytes(body, "application/json; charset=utf-8", status=status, write_body=write_body)
 
-    def send_html(self, content: str, status: int = 200) -> None:
-        self.send_bytes(content.encode("utf-8"), "text/html; charset=utf-8", status=status)
+    def send_html(self, content: str, status: int = 200, *, write_body: bool = True) -> None:
+        self.send_bytes(content.encode("utf-8"), "text/html; charset=utf-8", status=status, write_body=write_body)
 
     def send_error_json(self, status: int, message: str) -> None:
-        self.send_json({"ok": False, "error": message}, status=status)
+        self.send_json({"ok": False, "error": message}, status=status, write_body=self.command.upper() != "HEAD")
 
     def send_bytes(
         self,
@@ -299,6 +321,7 @@ class CRMHandler(BaseHTTPRequestHandler):
         content_type: str,
         status: int = 200,
         headers: dict[str, str] | None = None,
+        write_body: bool = True,
     ) -> None:
         self.close_connection = True
         self.send_response(status)
@@ -322,7 +345,8 @@ class CRMHandler(BaseHTTPRequestHandler):
         for key, value in (headers or {}).items():
             self.send_header(key, value)
         self.end_headers()
-        self.wfile.write(body)
+        if write_body:
+            self.wfile.write(body)
 
 
 class CRMServer(ThreadingHTTPServer):

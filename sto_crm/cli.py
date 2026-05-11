@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Command-line entrypoint and local server startup helpers."""
+
+from __future__ import annotations
 
 import argparse
 import secrets

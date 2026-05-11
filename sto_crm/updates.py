@@ -1,11 +1,12 @@
-from __future__ import annotations
-
 """Backup and GitHub release update workflow."""
+
+from __future__ import annotations
 
 import hashlib
 import json
 import re
 import sqlite3
+import secrets
 import subprocess
 import urllib.error
 import urllib.parse
@@ -20,7 +21,6 @@ from .config import (
     APP_VERSION,
     EXE_ASSET_RE,
     GITHUB_RELEASE_MANIFEST_NAME,
-    GITHUB_RELEASE_NOTES_NAME,
     GITHUB_UPDATE_MAX_ASSET_BYTES,
     GITHUB_UPDATE_MAX_JSON_BYTES,
     GITHUB_UPDATE_TIMEOUT,
@@ -55,7 +55,7 @@ def create_backup() -> dict[str, Any]:
             source.backup(destination)
     except sqlite3.Error as exc:
         raise RuntimeError(f"Не удалось создать резервную копию базы: {exc}") from exc
-    return {"path": str(target), "size": target.stat().st_size}
+    return {"path": str(target), "display_path": display_path(target), "filename": target.name, "size": target.stat().st_size}
 
 
 def semantic_version_tuple(version: str) -> tuple[int, ...]:
@@ -117,8 +117,7 @@ def github_headers(accept: str = "application/vnd.github+json") -> dict[str, str
     }
 
 
-def validate_update_download_url(url: str) -> str:
-    """Проверяет, что обновление скачивается только по доверенной HTTPS-ссылке GitHub."""
+def _parse_trusted_update_url(url: str) -> tuple[str, urllib.parse.ParseResult]:
     cleaned = clean_text(url, 1000)
     if not cleaned:
         raise RuntimeError("В релизе нет ссылки на файл обновления.")
@@ -131,8 +130,35 @@ def validate_update_download_url(url: str) -> str:
     except ValueError as exc:
         raise RuntimeError("Manifest обновления содержит некорректную ссылку на файл.") from exc
     host = (parsed.hostname or "").lower()
-    if parsed.scheme != "https" or host not in TRUSTED_UPDATE_DOWNLOAD_HOSTS or port not in {None, 443} or parsed.username or parsed.password:
+    if (
+        parsed.scheme != "https"
+        or host not in TRUSTED_UPDATE_DOWNLOAD_HOSTS
+        or port not in {None, 443}
+        or parsed.username
+        or parsed.password
+    ):
         raise RuntimeError("Manifest обновления содержит недоверенную ссылку на файл.")
+    return cleaned, parsed
+
+
+def validate_update_download_url(url: str) -> str:
+    """Проверяет, что обновление скачивается только по доверенной HTTPS-ссылке GitHub."""
+    cleaned, _parsed = _parse_trusted_update_url(url)
+    return cleaned
+
+
+def validate_manifest_asset_download_url(url: str, repository: str, tag: str) -> str:
+    """Validate manifest-provided executable URL against the expected release."""
+    cleaned, parsed = _parse_trusted_update_url(url)
+    expected_repo = normalize_github_repository(repository).strip("/")
+    expected_tag = clean_text(tag, 120)
+    host = (parsed.hostname or "").lower()
+    if host == "github.com":
+        expected_path = f"/{expected_repo}/releases/download/{expected_tag}/"
+        if not parsed.path.startswith(expected_path):
+            raise RuntimeError("Manifest обновления указывает файл вне ожидаемого GitHub Release.")
+    elif host == "api.github.com":
+        raise RuntimeError("Manifest обновления не должен указывать API GitHub как файл .exe.")
     return cleaned
 
 
@@ -164,10 +190,10 @@ def validate_sha256(value: Any, *, required: bool = True) -> str:
     digest = clean_text(value, 80).lower()
     if not digest:
         if required:
-            raise RuntimeError("В release-only manifest отсутствует SHA-256 файла обновления.")
+            raise RuntimeError("В manifest обновления отсутствует SHA-256 файла обновления.")
         return ""
     if not SHA256_RE.fullmatch(digest):
-        raise RuntimeError("В release-only manifest указан некорректный SHA-256 файла обновления.")
+        raise RuntimeError("В manifest обновления указан некорректный SHA-256 файла обновления.")
     return digest
 
 
@@ -178,16 +204,18 @@ def fetch_json(url: str, timeout: int = GITHUB_UPDATE_TIMEOUT, headers: dict[str
         with urllib.request.urlopen(request, timeout=timeout) as response:
             final_url = response.geturl() if hasattr(response, "geturl") else url
             validate_update_response_url(final_url)
-            charset = response.headers.get_content_charset() or "utf-8"
+            charset = (response.headers.get_content_charset() or "utf-8").lower()
+            if charset in {"utf-8", "utf8"}:
+                charset = "utf-8-sig"
             payload = json.loads(read_limited_response(response, GITHUB_UPDATE_MAX_JSON_BYTES, "Ответ GitHub/manifest").decode(charset))
             if not isinstance(payload, dict):
                 raise ValueError("GitHub вернул неожиданный ответ.")
             return payload
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
-            raise RuntimeError("Релиз GitHub не найден. Опубликуйте release-only билд STO_CRM.exe и latest.json.") from exc
+            raise RuntimeError("Релиз GitHub не найден. Опубликуйте билд STO_CRM.exe и latest.json в GitHub Release.") from exc
         if exc.code in {401, 403}:
-            raise RuntimeError(f"GitHub отклонил запрос ({exc.code}). Release-only репозиторий должен быть публичным.") from exc
+            raise RuntimeError(f"GitHub отклонил запрос ({exc.code}). Репозиторий обновлений должен быть публичным.") from exc
         raise RuntimeError(f"GitHub недоступен: HTTP {exc.code}.") from exc
     except (OSError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
         raise RuntimeError(f"Не удалось получить информацию об обновлении: {exc}") from exc
@@ -196,7 +224,7 @@ def fetch_json(url: str, timeout: int = GITHUB_UPDATE_TIMEOUT, headers: dict[str
 def fetch_asset_json(asset: dict[str, Any]) -> dict[str, Any]:
     url = clean_text(asset.get("browser_download_url") or asset.get("download_url"), 1000)
     if not url:
-        raise RuntimeError("В release-only билде нет ссылки на manifest latest.json.")
+        raise RuntimeError("В GitHub Release нет ссылки на manifest latest.json.")
     return fetch_json(url, headers=github_headers("application/octet-stream"))
 
 
@@ -205,30 +233,44 @@ def normalize_release_asset(
     manifest_asset: dict[str, Any] | None = None,
     *,
     require_sha256: bool = False,
+    repository: str | None = None,
+    tag: str | None = None,
 ) -> dict[str, Any] | None:
     if not asset:
         return None
     name = clean_text(asset.get("name") or (manifest_asset or {}).get("name") or "STO_CRM.exe", 180)
-    download_url = validate_update_download_url(
-        asset.get("download_url") or asset.get("browser_download_url") or (manifest_asset or {}).get("browser_download_url")
+    size = parse_int(asset.get("size") or (manifest_asset or {}).get("size"))
+    sha256 = validate_sha256(asset.get("sha256") or asset.get("hash") or "", required=require_sha256)
+    raw_download_url = asset.get("download_url") or asset.get("browser_download_url") or (manifest_asset or {}).get("browser_download_url")
+    download_url = (
+        validate_manifest_asset_download_url(raw_download_url, repository, tag)
+        if repository and tag
+        else validate_update_download_url(raw_download_url)
     )
     return {
         "name": name,
-        "size": parse_int(asset.get("size") or (manifest_asset or {}).get("size")),
-        "sha256": validate_sha256(asset.get("sha256") or asset.get("hash") or "", required=require_sha256),
+        "size": size,
+        "sha256": sha256,
         "download_url": download_url,
     }
 
 
 def release_info_from_manifest(release: dict[str, Any], manifest: dict[str, Any], manifest_asset: dict[str, Any]) -> dict[str, Any]:
     repository = normalize_github_repository()
-    asset = normalize_release_asset(manifest.get("asset") if isinstance(manifest.get("asset"), dict) else None, require_sha256=True)
-    version = clean_text(manifest.get("version") or manifest.get("tag") or release.get("tag_name") or "", 80).lstrip("vV")
+    manifest_tag = clean_text(manifest.get("tag") or "", 80)
+    tag = manifest_tag or clean_text(release.get("tag_name") or "", 80)
+    asset = normalize_release_asset(
+        manifest.get("asset") if isinstance(manifest.get("asset"), dict) else None,
+        require_sha256=True,
+        repository=repository if manifest_tag else None,
+        tag=tag if manifest_tag else None,
+    )
+    version = clean_text(manifest.get("version") or tag or release.get("tag_name") or "", 80).lstrip("vV")
     return {
         "repository": repository,
         "repository_url": github_repository_url(repository),
         "release_url": clean_text(manifest.get("release_url") or release.get("html_url") or github_latest_release_url(repository), 500),
-        "tag": clean_text(manifest.get("tag") or release.get("tag_name") or "", 80),
+        "tag": tag,
         "name": clean_text(manifest.get("name") or release.get("name") or "", 120),
         "version": version,
         "published_at": clean_text(manifest.get("published_at") or release.get("published_at") or "", 40),
@@ -344,7 +386,7 @@ def download_release_asset(asset: dict[str, Any], target: Path) -> dict[str, Any
             raise RuntimeError("GitHub вернул пустой файл обновления.")
         digest = sha256.hexdigest()
         if expected_sha != digest:
-            raise RuntimeError("SHA-256 скачанного обновления не совпадает с release-only manifest.")
+            raise RuntimeError("SHA-256 скачанного обновления не совпадает с manifest обновления.")
         tmp_target.replace(target)
     except urllib.error.HTTPError as exc:
         tmp_target.unlink(missing_ok=True)
@@ -368,13 +410,22 @@ def ensure_downloaded_executable(path: Path) -> None:
             raise RuntimeError("Скачанный файл не похож на Windows .exe.")
 
 
-def write_windows_update_script(script_path: Path, current_exe: Path, downloaded_exe: Path, backup_exe: Path, log_path: Path) -> None:
+def write_windows_update_script(
+    script_path: Path,
+    current_exe: Path,
+    downloaded_exe: Path,
+    backup_exe: Path,
+    log_path: Path,
+    expected_sha256: str,
+) -> None:
     ps = f"""
 $ErrorActionPreference = 'Stop'
 $Current = {json.dumps(str(current_exe))}
 $Downloaded = {json.dumps(str(downloaded_exe))}
 $Backup = {json.dumps(str(backup_exe))}
 $Log = {json.dumps(str(log_path))}
+$ScriptPath = $MyInvocation.MyCommand.Path
+$ExpectedSha256 = {json.dumps(expected_sha256)}
 function Write-UpdateLog([string]$Message) {{
     $dir = Split-Path -Parent $Log
     if ($dir) {{ New-Item -ItemType Directory -Force -Path $dir | Out-Null }}
@@ -382,13 +433,19 @@ function Write-UpdateLog([string]$Message) {{
 }}
 try {{
     Write-UpdateLog 'Ожидание завершения СТО CRM...'
+    $Unlocked = $false
     for ($i = 0; $i -lt 120; $i++) {{
         try {{
             $stream = [System.IO.File]::Open($Current, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
             $stream.Close()
+            $Unlocked = $true
             break
         }} catch {{ Start-Sleep -Milliseconds 500 }}
     }}
+    if (-not $Unlocked) {{ throw 'Не удалось дождаться завершения приложения.' }}
+    if (-not (Test-Path -LiteralPath $Downloaded)) {{ throw 'Скачанный файл обновления не найден.' }}
+    $ActualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $Downloaded).Hash.ToLowerInvariant()
+    if ($ActualSha256 -ne $ExpectedSha256) {{ throw 'SHA-256 файла обновления изменился перед установкой.' }}
     if (Test-Path -LiteralPath $Backup) {{ Remove-Item -LiteralPath $Backup -Force }}
     Move-Item -LiteralPath $Current -Destination $Backup -Force
     Move-Item -LiteralPath $Downloaded -Destination $Current -Force
@@ -400,14 +457,21 @@ try {{
         if ((Test-Path -LiteralPath $Backup) -and -not (Test-Path -LiteralPath $Current)) {{
             Move-Item -LiteralPath $Backup -Destination $Current -Force
         }}
-    }} catch {{ Write-UpdateLog ('Ошибка отката: ' + $_.Exception.Message) }}
+        if ((Test-Path -LiteralPath $Downloaded) -and (Test-Path -LiteralPath $Current)) {{
+            Remove-Item -LiteralPath $Downloaded -Force
+        }}
+    }} catch {{ Write-UpdateLog ('Ошибка отката/очистки: ' + $_.Exception.Message) }}
     throw
+}} finally {{
+    if ($ScriptPath -and (Test-Path -LiteralPath $ScriptPath)) {{
+        Remove-Item -LiteralPath $ScriptPath -Force -ErrorAction SilentlyContinue
+    }}
 }}
 """.strip()
     script_path.write_text(ps, encoding="utf-8")
 
 
-def schedule_windows_update(downloaded_exe: Path) -> None:
+def schedule_windows_update(downloaded_exe: Path, expected_sha256: str) -> None:
     current_exe = app_executable_path()
     if not current_exe.exists():
         raise RuntimeError("Текущий исполняемый файл не найден.")
@@ -416,8 +480,8 @@ def schedule_windows_update(downloaded_exe: Path) -> None:
     update_dir = user_data_dir() / "updates"
     update_dir.mkdir(parents=True, exist_ok=True)
     backup_exe = update_dir / f"{current_exe.stem}-{APP_VERSION}-{datetime.now().strftime('%Y%m%d%H%M%S')}.bak.exe"
-    script_path = update_dir / "apply_update.ps1"
-    write_windows_update_script(script_path, current_exe, downloaded_exe, backup_exe, updater_log_path())
+    script_path = update_dir / f"apply_update_{datetime.now().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(8)}.ps1"
+    write_windows_update_script(script_path, current_exe, downloaded_exe, backup_exe, updater_log_path(), expected_sha256)
     command = [
         "powershell.exe",
         "-NoProfile",
@@ -448,7 +512,7 @@ def install_update_from_github() -> dict[str, Any]:
     details = download_release_asset(asset, downloaded)
     ensure_downloaded_executable(downloaded)
     append_updater_log(f"Скачано обновление {version}: {details['size']} байт, sha256={details['sha256']}.")
-    schedule_windows_update(downloaded)
+    schedule_windows_update(downloaded, details["sha256"])
     return {
         "ok": True,
         "updated": True,

@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Optional demonstration data seeding."""
+
+from __future__ import annotations
 
 from datetime import datetime, timedelta
 

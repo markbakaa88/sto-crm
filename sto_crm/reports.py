@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Executive dashboard and CRM action-plan report builders."""
+
+from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -16,7 +16,7 @@ from .config import (
 from .runtime import clean_text, money, parse_float, parse_int
 from .validation import item_is_billable
 
-def orderVehicleText(order: dict[str, Any]) -> str:
+def order_vehicle_text(order: dict[str, Any]) -> str:
     return " ".join(
         str(part)
         for part in [
@@ -59,7 +59,7 @@ def build_reports(
             "customer_id": order.get("customer_id"),
             "customer_name": order.get("customer_name"),
             "customer_phone": order.get("customer_phone"),
-            "vehicle": orderVehicleText(order),
+            "vehicle": order_vehicle_text(order),
             "promised_at": order.get("promised_at"),
             "advisor": order.get("advisor"),
             "mechanic": order.get("mechanic"),
@@ -81,10 +81,15 @@ def build_reports(
     conversion_rate = (len(conversion_won) / len(conversion_base) * 100) if conversion_base else 0
     pipeline_value = sum(parse_float(o.get("total")) for o in active_orders)
     pipeline_due = sum(parse_float(o.get("due")) for o in active_orders)
-    status_counts = {status: 0 for status in ORDER_STATUSES}
+    status_counts = dict.fromkeys(ORDER_STATUSES, 0)
     for order in orders:
         status_counts[str(order.get("status"))] = status_counts.get(str(order.get("status")), 0) + 1
-    low_stock = [p for p in inventory if parse_float(p.get("quantity")) <= parse_float(p.get("min_quantity"))]
+    low_stock = [
+        p
+        for p in inventory
+        if parse_float(p.get("min_quantity")) > 0
+        and parse_float(p.get("quantity")) <= parse_float(p.get("min_quantity"))
+    ]
     inventory_value = sum(parse_float(p.get("quantity")) * parse_float(p.get("cost")) for p in inventory)
     promised_today = []
     overdue_orders = []
@@ -136,7 +141,7 @@ def build_reports(
                         "order_number": order.get("number"),
                         "customer_name": order.get("customer_name"),
                         "customer_phone": order.get("customer_phone"),
-                        "vehicle": orderVehicleText(order),
+                        "vehicle": order_vehicle_text(order),
                         "title": item.get("title"),
                         "approval_status": approval_status,
                         "amount": round(parse_float(item.get("quantity")) * parse_float(item.get("unit_price")), 2),
@@ -187,7 +192,7 @@ def build_reports(
                     "inspection_id": inspection.get("id"),
                     "customer_name": inspection.get("customer_name"),
                     "customer_phone": inspection.get("customer_phone"),
-                    "vehicle": orderVehicleText(inspection),
+                    "vehicle": order_vehicle_text(inspection),
                     "inspected_at": inspection.get("inspected_at"),
                     "area": item.get("area"),
                     "title": item.get("title"),
@@ -392,7 +397,7 @@ def build_reports(
             "Открыть заказ",
             str(order.get("customer_name") or ""),
             str(order.get("customer_phone") or ""),
-            orderVehicleText(order),
+            order_vehicle_text(order),
             order.get("due"),
             str(order.get("promised_at") or ""),
         )
@@ -429,7 +434,7 @@ def build_reports(
             "Согласовать",
             str(order.get("customer_name") or ""),
             str(order.get("customer_phone") or ""),
-            orderVehicleText(order),
+            order_vehicle_text(order),
             order.get("total"),
             str(order.get("updated_at") or ""),
         )
@@ -447,7 +452,7 @@ def build_reports(
             "Открыть клиента",
             str(order.get("customer_name") or ""),
             str(order.get("customer_phone") or ""),
-            orderVehicleText(order),
+            order_vehicle_text(order),
             0,
             str(order.get("follow_up_at") or ""),
         )

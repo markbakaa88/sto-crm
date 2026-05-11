@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Application constants and enum dictionaries for STO CRM."""
+
+from __future__ import annotations
 
 import re
 

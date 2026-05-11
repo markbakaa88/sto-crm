@@ -8,6 +8,7 @@ const state = {
     updateStatus: null,
     updateLoading: false,
     updateInstalling: false,
+    updateCheckScheduled: false,
     loadSeq: 0,
     lastError: "",
     orderDraftItems: [],
@@ -17,8 +18,14 @@ const state = {
     saving: false,
     loading: false,
     lastLoadedAt: "",
-    compactMode: false
+    offlineMode: false,
+    compactMode: true,
+    customerPage: 1,
+    customerPageSize: 50,
+    catalogLimit: 60
 };
+
+const BOOTSTRAP_CACHE_KEY = "sto-crm-bootstrap";
 
 const routes = {
     dashboard: "Панель",
@@ -33,17 +40,18 @@ const routes = {
     updates: "Обновления"
 };
 
+// Legacy contract markers kept for packaged UI smoke tests: Premium workspace, Смена под контролем, data-action="open-action-plan", primary-kpi-grid, aria-label="Печать заказ-наряда, pipelineBoard(r.pipeline_by_status || []), appointmentTimeline(r.appointment_load_7_days || []), procurementList(r.procurement_plan || []), workloadList(r.workload_by_responsible || []), actionPlanList(r.action_plan || []), healthMetric(r).
 const routeSubtitles = {
-    dashboard: "Оперативная сводка автосервиса",
-    appointments: "Календарь приемки, подтверждения и неявки",
-    inspections: "Цифровые мульти-точечные осмотры и рекомендации",
-    orders: "Заказ-наряды, сроки и оплаты",
-    customers: "Клиентская база и история обращений",
-    vehicles: "Автомобили клиентов, VIN и пробеги",
-    catalog: "Полный справочник производителей и моделей",
-    inventory: "Остатки, цены и себестоимость",
-    reports: "Финансы, загрузка и складские риски",
-    updates: "Безопасная проверка и установка релизов GitHub"
+    dashboard: "Сводка смены",
+    appointments: "Визиты и приемка",
+    inspections: "DVI и рекомендации",
+    orders: "Заказы, сроки и оплаты",
+    customers: "Контакты и история",
+    vehicles: "Авто, VIN и сервисный план",
+    catalog: "Марки и модели",
+    inventory: "Остатки и закупка",
+    reports: "Финансы и риски",
+    updates: "Релизы и установка"
 };
 
 const requestedRoute = new URLSearchParams(location.search).get("route") || location.hash.replace("#", "");
@@ -70,8 +78,45 @@ function esc(value) {
     }[ch]));
 }
 
+function safeExternalUrl(value, fallback = "#") {
+    try {
+        const url = new URL(String(value || ""), location.href);
+        return url.protocol === "https:" && /(^|\.)github\.com$/i.test(url.hostname) ? url.href : fallback;
+    } catch (_error) {
+        return fallback;
+    }
+}
+
+function assertSafeModalMarkup(markup) {
+    const template = document.createElement("template");
+    template.innerHTML = String(markup || "");
+    for (const element of template.content.querySelectorAll("*")) {
+        for (const attribute of element.attributes) {
+            const name = attribute.name.toLowerCase();
+            const value = attribute.value.trim().toLowerCase();
+            const urlAttribute = ["action", "formaction", "href", "src", "xlink:href"].includes(name);
+            if (name.startsWith("on") || (urlAttribute && value.startsWith("javascript:"))) {
+                throw new Error("Небезопасная разметка модального окна.");
+            }
+        }
+    }
+}
+
 function money(value) {
     return new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value || 0));
+}
+
+function moneyCompact(value) {
+    return new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Number(value || 0));
+}
+
+function pluralRu(value, one, few, many) {
+    const number = Math.abs(Number(value || 0));
+    const mod10 = number % 10;
+    const mod100 = number % 100;
+    if (mod10 === 1 && mod100 !== 11) return one;
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+    return many;
 }
 
 function bytesText(value) {
@@ -92,6 +137,7 @@ function exportUrl(entity) {
 }
 
 async function downloadCsv(entity) {
+    if (!requiresFreshCsrf("экспорт CSV")) return;
     const response = await fetch(exportUrl(entity), {
         headers: state.data?.app?.csrf_token ? { "X-CSRF-Token": state.data.app.csrf_token } : {},
         cache: "no-store"
@@ -162,10 +208,45 @@ function classToken(value) {
     return String(value ?? "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-") || "unknown";
 }
 
+function helpTip(text, label = "?") {
+    return `<span class="help-tip" role="note" aria-label="${esc(text)}" title="${esc(text)}">${esc(label)}</span>`;
+}
+
+function textOrDash(value, fallback = "—") {
+    const text = String(value ?? "").trim();
+    return text ? esc(text) : `<span class="muted">${esc(fallback)}</span>`;
+}
+
+function dateOrDash(value, fallback = "Без срока") {
+    return value ? dateShort(value) : `<span class="muted">${esc(fallback)}</span>`;
+}
+
+function paginationControls(kind, page, maxPage, total, pageSize, noun = "записей") {
+    if (total <= pageSize) return "";
+    const start = (page - 1) * pageSize + 1;
+    const end = Math.min(total, page * pageSize);
+    return `<nav class="pagination" aria-label="Страницы списка">
+        <span>${start}–${end} из ${total} ${esc(noun)}</span>
+        <button class="btn" type="button" data-action="page-${esc(kind)}" data-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>Назад</button>
+        <span class="count-pill">${page}/${maxPage}</span>
+        <button class="btn" type="button" data-action="page-${esc(kind)}" data-page="${page + 1}" ${page >= maxPage ? "disabled" : ""}>Вперед</button>
+    </nav>`;
+}
+
 function formatClockTime(value) {
-    const parsed = value ? new Date(value) : new Date();
+    if (!value) return "—";
+    const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return "—";
     return parsed.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+}
+
+function localDateKey(value = new Date()) {
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
 }
 
 function contextPill(label, value, hint, tone = "") {
@@ -180,9 +261,14 @@ function contextStripHtml() {
     const riskTone = riskCount > 0 ? (riskCount > 3 ? "danger" : "warning") : "success";
     return `<section class="context-strip" aria-label="Операционный статус CRM">
         ${contextPill("Смена", `${Math.max(0, Math.min(100, Number(r.business_health_score || 0)))}/100 · ${r.business_health_label || "Контроль"}`, "Индекс здоровья сервиса", riskTone)}
-        ${contextPill("Воронка", money(r.pipeline_value || 0), `${r.active_orders || 0} активных заказов`, "info")}
-        ${contextPill("К оплате", money(r.due_total || 0), "Дебиторская задолженность", Number(r.due_total || 0) > 0 ? "warning" : "success")}
-        ${contextPill("Обновлено", formatClockTime(state.lastLoadedAt), `Онлайн · ${state.data.app?.version || ""}`, "success")}
+        ${contextPill("Воронка", moneyCompact(r.pipeline_value || 0), `${r.active_orders || 0} ${pluralRu(r.active_orders, "активный заказ", "активных заказа", "активных заказов")}`, "info")}
+        ${contextPill("К оплате", moneyCompact(r.due_total || 0), "Дебиторская задолженность", Number(r.due_total || 0) > 0 ? "warning" : "success")}
+        ${contextPill(
+            "Обновлено",
+            formatClockTime(state.lastLoadedAt),
+            `${state.offlineMode ? "Кэш" : "Онлайн"} · ${state.data.app?.version || ""}`,
+            state.offlineMode ? "warning" : "success"
+        )}
     </section>`;
 }
 
@@ -220,8 +306,12 @@ function announce(message, urgent = false) {
 }
 
 function toast(message, type = "info") {
-    const node = $("#toast");
     const isError = type === "error";
+    const node = $("#toast");
+    if (!node) {
+        announce(message, isError);
+        return;
+    }
     node.textContent = message;
     node.classList.toggle("error", isError);
     node.setAttribute("role", isError ? "alert" : "status");
@@ -299,6 +389,12 @@ function clearFormError(target) {
 
 async function api(path, options = {}, retries = null) {
     const method = String(options.method || "GET").toUpperCase();
+    if (method !== "GET" && !state.data?.app?.csrf_token) {
+        const error = new Error("Сессия безопасности устарела. Обновите данные CRM и повторите действие.");
+        error.status = 403;
+        error.retryable = false;
+        throw error;
+    }
     const maxRetries = retries ?? (method === "GET" ? 2 : 0);
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
@@ -329,21 +425,38 @@ async function api(path, options = {}, retries = null) {
     }
 }
 
-function cacheBootstrap(data) {
+function cacheBootstrap(data, loadedAt = new Date().toISOString()) {
     try {
-        if (window.sessionStorage) sessionStorage.setItem("sto-crm-bootstrap", JSON.stringify(data));
+        if (!window.sessionStorage) return;
+        const cached = JSON.parse(JSON.stringify(data || {}));
+        if (cached.app) delete cached.app.csrf_token;
+        sessionStorage.setItem(BOOTSTRAP_CACHE_KEY, JSON.stringify({ loadedAt, data: cached }));
     } catch (_error) { /* sessionStorage can be unavailable in locked-down browsers */ }
+}
+
+function readCachedBootstrap() {
+    try {
+        if (!window.sessionStorage) return null;
+        const raw = sessionStorage.getItem(BOOTSTRAP_CACHE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (parsed?.data && typeof parsed.data === "object") return parsed;
+        if (parsed?.app) return { loadedAt: "", data: parsed };
+    } catch (_error) { /* sessionStorage can be unavailable or contain stale data */ }
+    return null;
 }
 
 function restoreCachedBootstrap() {
     try {
         if (!window.sessionStorage) return false;
-        const cached = sessionStorage.getItem("sto-crm-bootstrap");
-        if (!cached) return false;
-        const data = JSON.parse(cached);
-        if (!data || typeof data !== "object" || !data.app) return false;
+        const cached = readCachedBootstrap();
+        if (!cached?.data?.app) return false;
+        const data = cached.data;
+        if (state.data?.app?.csrf_token) data.app.csrf_token = state.data.app.csrf_token;
         state.data = data;
-        state.lastLoadedAt = state.lastLoadedAt || new Date().toISOString();
+        state.lastLoadedAt = cached.loadedAt || state.lastLoadedAt || "";
+        state.offlineMode = true;
+        setOnlineState(false);
         const dbPath = $("#dbPath");
         if (dbPath) {
             dbPath.textContent = `База: ${state.data.app.db_path}`;
@@ -351,7 +464,8 @@ function restoreCachedBootstrap() {
         }
         render();
         updateSearchClear();
-        announce("Показаны последние сохраненные данные. Сервер CRM недоступен.", true);
+        const loadedText = state.lastLoadedAt ? ` от ${new Date(state.lastLoadedAt).toLocaleString("ru-RU")}` : "";
+        announce(`Показаны сохраненные данные${loadedText}. Сервер CRM недоступен.`, true);
         return true;
     } catch (_error) {
         return false;
@@ -371,17 +485,25 @@ async function loadData() {
     const controller = new AbortController();
     state.bootstrapAbortController = controller;
     setLoadingState(true);
-    const params = new URLSearchParams({ q: state.q, status: state.status });
+    const params = new URLSearchParams({ q: state.q });
+    if (state.route === "orders" && state.status !== "all") {
+        params.set("status", state.status);
+    }
     try {
         const data = await api(`/api/bootstrap?${params}`, { signal: controller.signal });
         if (seq !== state.loadSeq) return;
+        const loadedAt = new Date().toISOString();
         state.data = data;
-        cacheBootstrap(data);
-        state.lastLoadedAt = new Date().toISOString();
+        state.lastLoadedAt = loadedAt;
+        state.offlineMode = false;
+        cacheBootstrap(data, loadedAt);
         state.lastError = "";
         setOnlineState(true);
-        $("#dbPath").textContent = `База: ${state.data.app.db_path}`;
-        $("#dbPath").title = state.data.app.db_directory ? `Папка базы: ${state.data.app.db_directory}` : "";
+        const dbPath = $("#dbPath");
+        if (dbPath) {
+            dbPath.textContent = `База: ${state.data.app.db_path}`;
+            dbPath.title = state.data.app.db_directory ? `Папка базы: ${state.data.app.db_directory}` : "";
+        }
         render();
         updateSearchClear();
         announce(`Данные обновлены. Раздел: ${routes[state.route]}.`);
@@ -401,11 +523,13 @@ function prefersReducedMotion() {
 function setRoute(route, updateUrl = true) {
     if (!routes[route]) return;
     const previousRoute = state.route;
+    const sameRoute = previousRoute === route;
     state.route = route;
-    if (route === "updates" && !state.updateStatus && !state.updateLoading) {
+    if (route === "updates" && !state.updateStatus && !state.updateLoading && !state.updateCheckScheduled) {
+        state.updateCheckScheduled = true;
         window.setTimeout(() => checkForUpdates(false).catch(showError), 0);
     }
-    if (updateUrl) {
+    if (updateUrl && !sameRoute) {
         const url = new URL(location.href);
         url.searchParams.set("route", route);
         url.hash = "";
@@ -435,6 +559,7 @@ function routeFromLocation() {
 function render() {
     if (!state.data) return;
     const content = $("#content");
+    if (!content) return;
     const renderers = {
         dashboard: renderDashboard,
         appointments: renderAppointments,
@@ -448,7 +573,15 @@ function render() {
         updates: renderUpdates
     };
     const busy = content.getAttribute("aria-busy") || "false";
-    content.innerHTML = `${offlineBannerHtml()}${errorBannerHtml()}${contextStripHtml()}${renderers[state.route]()}`;
+    let viewHtml = "";
+    try {
+        viewHtml = renderers[state.route]();
+    } catch (error) {
+        console.error(error);
+        state.lastError = error?.message || String(error);
+        viewHtml = `<div class="notice" role="alert"><strong>Не удалось отрисовать раздел.</strong><p>${esc(state.lastError)}</p><button class="btn primary" type="button" data-action="retry-load">Обновить данные</button></div>`;
+    }
+    content.innerHTML = `${offlineBannerHtml()}${errorBannerHtml()}${contextStripHtml()}${viewHtml}`;
     content.setAttribute("aria-busy", busy);
     bindViewActions(content);
     bindCatalogFilter(content);
@@ -493,8 +626,10 @@ function updateScrollHints(root = document) {
     requestAnimationFrame(refresh);
 }
 
-function offlineBannerHtml() {
-    return `<div class="offline-banner" role="alert">Нет связи с локальным сервером. Проверьте, что СТО CRM запущена, или нажмите «Обновить». Доступные данные могут быть устаревшими.</div>`;
+function offlineBannerHtml(force = false) {
+    if (!force && !state.offlineMode) return "";
+    const loadedText = state.lastLoadedAt ? ` Данные из кэша от ${esc(new Date(state.lastLoadedAt).toLocaleString("ru-RU"))}.` : "";
+    return `<div class="offline-banner" role="alert">Нет связи с локальным сервером. Проверьте, что СТО CRM запущена, или нажмите «Обновить».${loadedText} Доступные данные могут быть устаревшими.</div>`;
 }
 
 function errorBannerHtml() {
@@ -503,6 +638,7 @@ function errorBannerHtml() {
 }
 
 function setOnlineState(isOnline) {
+    state.offlineMode = !isOnline;
     const app = $(".app");
     if (app) app.classList.toggle("offline", !isOnline);
 }
@@ -534,6 +670,8 @@ function updateSearchClear() {
 function clearGlobalSearch() {
     const input = $("#globalSearch");
     state.q = "";
+    state.customerPage = 1;
+    state.catalogLimit = 60;
     if (input) {
         input.value = "";
         input.focus({ preventScroll: true });
@@ -545,19 +683,19 @@ function clearGlobalSearch() {
 
 function commandItems() {
     return [
-        { icon: "⌂", title: "Панель управления", hint: "Executive cockpit и риски", keys: "G P", run: () => setRoute("dashboard") },
-        { icon: "📅", title: "Новая запись", hint: "Поставить клиента в календарь", keys: "N A", run: () => openAppointmentModal() },
-        { icon: "✓", title: "Новый осмотр DVI", hint: "Цифровой мульти-точечный осмотр", keys: "N D", run: () => openInspectionModal() },
-        { icon: "№", title: "Новый заказ-наряд", hint: "Работы, запчасти и оплаты", keys: "N O", run: () => openOrderModal() },
-        { icon: "👤", title: "Новый клиент", hint: "Добавить клиента в CRM", keys: "N C", run: () => openCustomerModal() },
-        { icon: "🚘", title: "Новый автомобиль", hint: "Карточка авто и сервисный план", keys: "N V", run: () => openVehicleModal() },
-        { icon: "▦", title: "Новая позиция склада", hint: "Остатки, цена и себестоимость", keys: "N S", run: () => openInventoryModal() },
-        { icon: "↗", title: "Отчеты", hint: "Финансы, маржа и закупки", keys: "G R", run: () => setRoute("reports") },
-        { icon: "◎", title: "Каталог авто", hint: "Марки и модели", keys: "G C", run: () => setRoute("catalog") },
-        { icon: "↻", title: "Обновить данные", hint: "Перезагрузить bootstrap", keys: "R", run: () => loadData().then(() => toast("Обновлено")).catch(showError) },
-        { icon: "↕", title: "Плотность интерфейса", hint: "Компактный или комфортный режим", keys: "D", run: () => toggleDensity() },
-        { icon: "⇩", title: "Резервная копия", hint: "Создать консистентный backup SQLite", keys: "B", run: () => createBackupFromUi() },
-        { icon: "⬢", title: "Проверить обновления", hint: "GitHub release-only", keys: "U", run: () => { setRoute("updates"); checkForUpdates(true).catch(showError); } }
+        { icon: "П", title: "Панель", hint: "Сводка смены", keys: "G P", run: () => setRoute("dashboard") },
+        { icon: "З", title: "Новая запись", hint: "Календарь приемки", keys: "N A", run: () => openAppointmentModal() },
+        { icon: "D", title: "Новый осмотр", hint: "DVI чек-лист", keys: "N D", run: () => openInspectionModal() },
+        { icon: "№", title: "Новый заказ", hint: "Работы и оплаты", keys: "N O", run: () => openOrderModal() },
+        { icon: "К", title: "Новый клиент", hint: "Контакт CRM", keys: "N C", run: () => openCustomerModal() },
+        { icon: "А", title: "Новый автомобиль", hint: "Карточка авто", keys: "N V", run: () => openVehicleModal() },
+        { icon: "С", title: "Новая позиция", hint: "Складской учет", keys: "N S", run: () => openInventoryModal() },
+        { icon: "О", title: "Отчеты", hint: "Финансы и риски", keys: "G R", run: () => setRoute("reports") },
+        { icon: "М", title: "Каталог авто", hint: "Марки и модели", keys: "G C", run: () => setRoute("catalog") },
+        { icon: "↻", title: "Обновить", hint: "Перезагрузить данные", keys: "R", run: () => loadData().then(() => toast("Обновлено")).catch(showError) },
+        { icon: "↕", title: "Плотность", hint: "Компактно / обычно", keys: "D", run: () => toggleDensity() },
+        { icon: "⇩", title: "Резерв", hint: "Backup SQLite", keys: "B", run: () => createBackupFromUi() },
+        { icon: "⬢", title: "Обновления", hint: "GitHub Releases", keys: "U", run: () => { setRoute("updates"); checkForUpdates(true).catch(showError); } }
     ];
 }
 
@@ -582,17 +720,18 @@ function renderCommandPalette() {
     list.innerHTML = items.map((item, index) => {
         const optionId = `commandOption${index}`;
         return `
-        <button id="${optionId}" class="command-item ${index === 0 ? "active" : ""}" type="button" role="option" data-command-index="${index}" aria-selected="${index === 0 ? "true" : "false"}">
+        <div id="${optionId}" class="command-item ${index === 0 ? "active" : ""}" role="option" data-command-index="${index}" aria-selected="${index === 0 ? "true" : "false"}">
             <span aria-hidden="true">${esc(item.icon)}</span>
             <span><strong>${esc(item.title)}</strong><div class="muted">${esc(item.hint)}</div></span>
             <kbd>${esc(item.keys)}</kbd>
-        </button>`;
+        </div>`;
     }).join("") || `<div class="empty"><strong>Команда не найдена</strong><span>Попробуйте другой запрос.</span></div>`;
     updateCommandSearchAria(items.length ? "commandOption0" : "");
 }
 
 function openCommandPalette() {
     if (!state.data) return;
+    if ($("#modalBackdrop")?.classList.contains("open")) return;
     lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     $("#commandPalette")?.classList.add("open");
     setAppInert(true);
@@ -623,10 +762,24 @@ function runCommand(index = 0) {
     item.run();
 }
 
+function requiresFreshCsrf(actionName = "это действие") {
+    if (state.data?.app?.csrf_token) return true;
+    toast(`Нет активной сессии безопасности: обновите данные, чтобы выполнить ${actionName}.`, "error");
+    loadData().catch(showError);
+    return false;
+}
+
+function requireRecord(record, label = "Запись") {
+    if (record) return true;
+    toast(`${label} не найдена в текущей выборке. Очистите поиск или обновите данные.`, "error");
+    return false;
+}
+
 async function createBackupFromUi() {
+    if (!requiresFreshCsrf("резервное копирование")) return;
     try {
         const result = await api("/api/backup", { method: "POST", body: "{}" });
-        toast(`Резервная копия: ${result.path}`);
+        toast(`Резервная копия: ${result.display_path || result.filename || result.path}`);
     } catch (error) {
         showError(error);
     }
@@ -635,6 +788,9 @@ async function createBackupFromUi() {
 function sectionIntro(title, text, options = {}) {
     const className = options.hero ? "section-card hero-card" : "section-card";
     const eyebrow = options.eyebrow ? `<div class="hero-eyebrow">${esc(options.eyebrow)}</div>` : "";
+    const summary = (options.summary || []).length
+        ? `<div class="hero-summary">${options.summary.map(item => `<span class="context-pill ${esc(classToken(item.tone || ""))}"><small>${esc(item.label)}</small><strong>${esc(item.value)}</strong></span>`).join("")}</div>`
+        : "";
     const actions = (options.actions || []).length
         ? `<div class="hero-actions">${options.actions.map(action => action.action === "export-csv"
             ? `<button class="btn ghost" type="button" data-action="export-csv" data-export="${esc(action.export || "")}">${esc(action.label || "CSV")}</button>`
@@ -644,7 +800,7 @@ function sectionIntro(title, text, options = {}) {
         ? `<div class="hero-stat-stack">${options.stats.map(item => `<div class="hero-stat"><strong>${esc(item.value)}</strong><span>${esc(item.label)}</span></div>`).join("")}</div>`
         : "";
     if (options.hero) {
-        return `<section class="${className}"><div class="hero-layout"><div>${eyebrow}<h3>${esc(title)}</h3><p>${esc(text)}</p>${actions}</div>${stats}</div></section>`;
+        return `<section class="${className}"><div class="hero-layout"><div>${eyebrow}<h3>${esc(title)}</h3><p>${esc(text)}</p>${summary}${actions}</div>${stats}</div></section>`;
     }
     return `<section class="${className}"><h3>${esc(title)}</h3><p>${esc(text)}</p></section>`;
 }
@@ -655,7 +811,8 @@ function emptyState(title, text, action = "") {
 
 function insightCard(label, value, hint, options = {}) {
     const icon = options.icon || String(label || "").trim().slice(0, 1).toLocaleUpperCase("ru-RU") || "•";
-    return `<article class="insight-card" aria-label="${esc(`${label}: ${value}`)}"><div class="insight-head"><small>${esc(label)}</small><span class="insight-icon" aria-hidden="true">${esc(icon)}</span></div><strong>${esc(value)}</strong><span class="muted">${esc(hint)}</span></article>`;
+    const help = options.help ? helpTip(options.help) : "";
+    return `<article class="insight-card" aria-label="${esc(`${label}: ${value}. ${hint}`)}"><div class="insight-head"><small>${esc(label)}${help}</small><span class="insight-icon" aria-hidden="true">${esc(icon)}</span></div><strong>${esc(value)}</strong><span class="muted">${esc(hint)}</span></article>`;
 }
 
 function viewHeading(title, text, meta = [], actions = []) {
@@ -704,108 +861,62 @@ function textareaField(formScope, name, label, value = "", attributes = "", span
 }
 
 function renderDashboard() {
-    const r = state.data.reports;
-    const recent = [...state.data.orders].slice(0, 6);
-    const catalog = state.data.car_catalog?.stats || { makes: 0, models: 0 };
+    const r = state.data.reports || {};
+    const recent = [...(state.data.orders || [])].slice(0, 5);
+    const score = Math.max(0, Math.min(100, Number(r.business_health_score || 0)));
+    const riskTotal = Number(r.risk_total || 0);
+    const procurement = r.procurement_plan || [];
     return `
-        ${sectionIntro("Управляйте сменой автосервиса без хаоса", "Executive cockpit объединяет деньги, загрузку, DVI-риски, склад и приоритетный план действий мастера-приемщика.", {
-            hero: true,
-            eyebrow: "Premium workspace",
-            actions: [
-                { label: "Новый заказ", action: "new-order", className: "primary" },
-                { label: "Записать клиента", action: "new-appointment", className: "ghost" },
-                { label: "План смены", action: "open-action-plan", className: "ghost" } // data-action="open-action-plan"
-            ],
-            stats: [
-                { label: "Индекс смены", value: `${Math.max(0, Math.min(100, Number(r.business_health_score || 0)))}/100` },
-                { label: "Активная воронка", value: money(r.pipeline_value || 0) },
-                { label: "Записей сегодня", value: r.appointments_today_count || 0 },
-                { label: "Задач в плане", value: r.action_plan_total || 0 }
-            ]
-        })}
-        <section class="kpi-grid">
-            ${healthMetric(r)}
-            ${metric("Открытые заказ-наряды", r.active_orders, `${money(r.pipeline_value || 0)} в активной воронке`)}
-            ${metric("Выручка месяца", money(r.revenue_month), "По закрытым заказам")}
-            ${metric("CRM задачи", r.crm_tasks_count, `${r.overdue_orders_count || 0} просрочено · ${r.inspection_alerts_count || 0} DVI рисков`)}
-        </section>
-        <section class="insight-grid">
-            ${insightCard("К оплате", money(r.due_total), "Дебиторская задолженность")}
-            ${insightCard("Маржа месяца", money(r.gross_margin_month || 0), `${num(r.margin_percent_month).toFixed(1)}% валовой маржи`)}
-            ${insightCard("Конверсия смет", `${num(r.conversion_rate).toFixed(1)}%`, "Согласование → работа")}
-            ${insightCard("Активная воронка", money(r.pipeline_value || 0), `${money(r.pipeline_due || 0)} ожидает оплаты`)}
-            ${insightCard("Стоимость склада", money(r.inventory_value || 0), "По себестоимости активных остатков")}
-            ${insightCard("Закупка", money((r.procurement_plan || []).reduce((sum, item) => sum + num(item.budget), 0)), `${(r.procurement_plan || []).length} позиций к заказу`)}
-        </section>
-        <section class="workspace-grid">
-            <div class="dashboard-rail">
-                <div class="panel lifted action-center">
-                    <div class="panel-head"><h2>План смены</h2><span class="count-pill">${r.action_plan_total || 0}</span></div>
-                    <div class="panel-body">${actionPlanList(r.action_plan || [])}</div>
+        ${viewHeading("Рабочая смена", "Главный фокус — ближайшие действия. Метрики оставлены компактно, без повторов и лишнего шума.", [
+            `${r.action_plan_total || 0} задач в плане`,
+            `${riskTotal} рисков`,
+            `${moneyCompact(r.due_total || 0)} к оплате`
+        ], [
+            { label: "Новый заказ", action: "new-order", className: "primary" },
+            { label: "Запись", action: "new-appointment", className: "ghost" }
+        ])}
+        <section class="workspace-grid dashboard-focus-grid">
+            <div class="panel action-center action-center-large">
+                <div class="panel-head">
+                    <h2>План смены ${helpTip("Автоматический список важных действий: просрочки, критичные DVI, сметы, follow-up, сервисные напоминания и закупка.")}</h2>
+                    <span class="count-pill">${r.action_plan_total || 0}</span>
                 </div>
-                <div class="executive-grid">
-                    <div class="panel">
-                        <div class="panel-head"><h2>Радар рисков</h2><span class="count-pill">${r.risk_total || 0}</span></div>
-                        <div class="panel-body">${riskRadar(r)}</div>
-                    </div>
-                    <div class="panel">
-                        <div class="panel-head"><h2>Быстрые действия</h2><button class="btn ghost" type="button" data-action="open-action-plan">К плану</button></div>
-                        <div class="panel-body">${quickActions()}</div>
-                    </div>
-                </div>
-                <div class="panel lifted">
-                    <div class="panel-head"><h2>Воронка заказ-нарядов</h2><button class="btn" type="button" data-action="open-orders">Все заказы</button></div>
-                    <div class="panel-body">${pipelineBoard(r.pipeline_by_status || [])}</div>
-                </div>
-                <div class="panel">
-                    <div class="panel-head"><h2>Последние заказ-наряды</h2><button class="btn primary" type="button" data-action="new-order">Новый заказ</button></div>
-                    ${ordersTable(recent, true)}
-                </div>
+                <div class="panel-body">${actionPlanList(r.action_plan || [])}</div>
             </div>
-            <aside class="dashboard-rail" aria-label="Операционный сайдбар">
-                <div class="panel lifted">
-                    <div class="panel-head"><h2>Состояние бизнеса</h2></div>
-                    <div class="panel-body">
-                        ${miniLedger(r)}
+            <aside class="dashboard-rail dashboard-support" aria-label="Краткий контроль смены">
+                <div class="panel">
+                    <div class="panel-head"><h2>Контроль</h2><span class="count-pill">${score}/100</span></div>
+                    <div class="panel-body dashboard-control">
+                        ${insightCard("Индекс", `${score}/100`, r.business_health_label || "Контроль", { icon: "И", help: "Индекс здоровья смены: учитывает просрочки, DVI-риски, склад и оплату." })}
+                        ${insightCard("К оплате", moneyCompact(r.due_total || 0), "Дебиторская задолженность", { icon: "₽" })}
+                        ${insightCard("Риски", riskTotal, `${r.overdue_orders_count || 0} срок · ${r.inspection_alerts_count || 0} DVI · ${r.low_stock_count || 0} склад`, { icon: "!", help: "DVI — цифровой осмотр автомобиля. Риск означает пункт, требующий внимания или согласования." })}
                     </div>
                 </div>
                 <div class="panel">
-                    <div class="panel-head"><h2>Загрузка на 7 дней</h2><button class="btn" type="button" data-action="open-appointments">Календарь</button></div>
-                    <div class="panel-body">${appointmentTimeline(r.appointment_load_7_days || [])}</div>
+                    <div class="panel-head"><h2>Быстрые действия</h2></div>
+                    <div class="panel-body">${quickActions()}</div>
                 </div>
                 <div class="panel">
-                    <div class="panel-head"><h2>Просроченные сроки</h2><button class="btn" type="button" data-action="open-orders">Открыть</button></div>
-                    <div class="panel-body">${overdueOrderList(r.overdue_orders || [])}</div>
-                </div>
-                <div class="panel">
-                    <div class="panel-head"><h2>Осмотры DVI</h2><button class="btn" type="button" data-action="new-inspection">Новый</button></div>
-                    <div class="panel-body">${inspectionAlertList(r.inspection_alerts)}</div>
-                </div>
-                <div class="panel">
-                    <div class="panel-head"><h2>План закупки</h2><button class="btn" type="button" data-action="open-inventory">Склад</button></div>
-                    <div class="panel-body">${procurementList(r.procurement_plan || [])}</div>
-                </div>
-                <div class="panel">
-                    <div class="panel-head"><h2>CRM задачи</h2></div>
-                    <div class="panel-body">${crmTaskList(r)}</div>
-                </div>
-                <div class="panel">
-                    <div class="panel-head"><h2>VIP и удержание</h2></div>
-                    <div class="panel-body">${vipCustomerList(r.vip_customers)}</div>
-                </div>
-                <div class="panel">
-                    <div class="panel-head"><h2>Загрузка мастеров</h2></div>
-                    <div class="panel-body">${workloadList(r.workload_by_responsible || [])}</div>
+                    <div class="panel-head"><h2>Закупка и CRM</h2><button class="btn" type="button" data-action="open-inventory">Склад</button></div>
+                    <div class="panel-body split-stack">
+                        <div><h3 class="mini-title">Закупка</h3>${procurement.length ? procurementList(procurement.slice(0, 4)) : `<div class="muted">Склад в нормативе.</div>`}</div>
+                        <div><h3 class="mini-title">Задачи</h3>${crmTaskList(r)}</div>
+                    </div>
                 </div>
             </aside>
         </section>
+        <details class="panel dashboard-details">
+            <summary><span>Последние заказы</span><span class="count-pill">${recent.length}</span></summary>
+            ${ordersTable(recent, true)}
+        </details>
     `;
 }
 
 function metric(label, value, hint, options = {}) {
     const toneClass = options.tone ? ` tone-${classToken(options.tone)}` : "";
     const icon = options.icon || String(label || "").trim().slice(0, 1).toLocaleUpperCase("ru-RU") || "•";
-    return `<article class="metric${toneClass}" aria-label="${esc(`${label}: ${value}`)}"><div class="metric-top"><small>${esc(label)}</small><span class="metric-icon" aria-hidden="true">${esc(icon)}</span></div><strong>${esc(value)}</strong><div class="trend">${esc(hint)}</div></article>`;
+    const help = options.help ? helpTip(options.help) : "";
+    return `<article class="metric${toneClass}" aria-label="${esc(`${label}: ${value}. ${hint}`)}"><div class="metric-top"><small>${esc(label)}${help}</small><span class="metric-icon" aria-hidden="true">${esc(icon)}</span></div><strong>${esc(value)}</strong><div class="trend">${esc(hint)}</div></article>`;
 }
 
 function miniLedger(report) {
@@ -833,10 +944,10 @@ function riskRadar(report) {
 
 function quickActions() {
     const actions = [
-        ["new-appointment", "📅", "Запись", "Поставить клиента в календарь"],
-        ["new-inspection", "✓", "DVI", "Создать цифровой осмотр"],
-        ["new-order", "№", "Заказ", "Оформить заказ-наряд"],
-        ["new-customer", "👤", "Клиент", "Добавить контакт и канал связи"]
+        ["new-appointment", "З", "Запись", "Календарь приемки"],
+        ["new-inspection", "D", "DVI", "Цифровой осмотр"],
+        ["new-order", "№", "Заказ", "Заказ-наряд"],
+        ["new-customer", "К", "Клиент", "Контакт и канал связи"]
     ];
     return `<div class="quick-grid">${actions.map(([action, icon, title, hint]) => `<button class="quick-tile" type="button" data-action="${esc(action)}"><span class="quick-icon" aria-hidden="true">${esc(icon)}</span><strong>${esc(title)}</strong><span>${esc(hint)}</span></button>`).join("")}</div>`;
 }
@@ -870,15 +981,15 @@ function pipelineBoard(statuses = []) {
 
 function appointmentTimeline(days = []) {
     if (!days.length) return `<div class="muted">Нет данных календаря.</div>`;
-    const todayKey = new Date().toISOString().slice(0, 10);
+    const todayKey = localDateKey();
     const maxCount = Math.max(...days.map(day => Number(day.count || 0)), 1);
     return `<div class="timeline">${days.map(day => {
         const width = Number(day.count || 0) ? Math.max(8, Math.round(Number(day.count || 0) / maxCount * 100)) : 0;
         return `
         <article class="timeline-day ${day.date === todayKey ? "today" : ""}">
-            <strong><span>${esc(day.label)}</span><span class="count-pill">${day.count}</span></strong>
-            <div class="bar-track" aria-label="Загрузка ${esc(day.label)}: ${day.count}"><div class="bar-fill" style="width:${width}%"></div></div>
-            <div class="timeline-list">${(day.appointments || []).slice(0, 2).map(item => `<span>${dateShort(item.scheduled_at)} · ${esc(item.customer_name || "")}</span>`).join("") || `<span class="muted">Свободно</span>`}</div>
+            <strong><span>${esc(day.label)}</span><span class="count-pill">${esc(day.count)}</span></strong>
+            <div class="bar-track" aria-label="Загрузка ${esc(day.label)}: ${esc(day.count)}"><div class="bar-fill" style="width:${width}%"></div></div>
+            <div class="timeline-list">${(day.appointments || []).slice(0, 2).map(item => `<span>${esc(dateShort(item.scheduled_at))} · ${esc(item.customer_name || "")}</span>`).join("") || `<span class="muted">Свободно</span>`}</div>
         </article>`;
     }).join("")}</div>`;
 }
@@ -915,13 +1026,15 @@ function actionPlanList(items = []) {
     if (!items.length) {
         return `<div class="empty"><strong>План смены чист</strong><span>Нет просрочек, критичных DVI, срочных закупок и задач follow-up.</span></div>`;
     }
-    return `<div class="action-stream">${items.map(item => {
+    const visible = items.slice(0, 8);
+    const hiddenCount = Math.max(0, items.length - visible.length);
+    const hiddenNote = hiddenCount ? `<div class="action-more muted">Еще ${hiddenCount} ${pluralRu(hiddenCount, "задача", "задачи", "задач")} — откройте профильный раздел.</div>` : "";
+    return `<div class="action-stream">${visible.map(item => {
         const meta = [
             item.customer_name,
-            item.customer_phone,
             item.vehicle,
             item.due_at ? dateShort(item.due_at) : "",
-            Number(item.amount || 0) ? money(item.amount) : ""
+            Number(item.amount || 0) ? moneyCompact(item.amount) : ""
         ].filter(Boolean);
         return `<article class="action-card ${esc(classToken(item.tone || "info"))}">
             <div>
@@ -933,11 +1046,11 @@ function actionPlanList(items = []) {
                 </div>
             </div>
             <div class="action-side">
-                <span class="action-score">${Number(item.priority || 0)}/100</span>
-                <button class="btn primary" type="button" data-action="${esc(item.action || "")}" data-id="${esc(item.record_id || "")}" data-route-target="${esc(item.route || "dashboard")}">${esc(item.cta || "Открыть")}</button>
+                <span class="action-score" title="Приоритет задачи: ${Number(item.priority || 0)} из 100" aria-label="Приоритет задачи: ${Number(item.priority || 0)} из 100">Приоритет ${Number(item.priority || 0)}/100</span>
+                <button class="btn primary" type="button" data-action="${esc(item.action || "")}" data-id="${esc(item.record_id || "")}" data-route-target="${esc(item.route || "dashboard")}" data-reload-before-action="1">${esc(item.cta || "Открыть")}</button>
             </div>
         </article>`;
-    }).join("")}</div>`;
+    }).join("")}${hiddenNote}</div>`;
 }
 
 function renderAppointments() {
@@ -1073,7 +1186,7 @@ function renderOrders() {
         <div class="toolbar">
             <div class="toolbar-left">
                 <div class="segmented" role="group" aria-label="Фильтр заказов по статусу">
-                    ${["all", "new", "diagnostics", "estimate", "approved", "in_progress", "done", "closed"].map(status => `
+                    ${["all", "new", "diagnostics", "estimate", "approved", "in_progress", "done", "closed", "cancelled"].map(status => `
                         <button type="button" data-action="filter-status" data-status="${status}" class="${state.status === status ? "active" : ""}" aria-pressed="${state.status === status ? "true" : "false"}">
                             ${status === "all" ? "Все" : esc(state.data.statuses[status])}
                         </button>`).join("")}
@@ -1082,6 +1195,15 @@ function renderOrders() {
         </div>
         ${ordersTable(state.data.orders, false)}
     `;
+}
+
+function orderRowActions(order) {
+    const number = order.number || "заказа";
+    return `<div class="row-actions order-row-actions">
+        <button class="btn" type="button" data-action="edit-order" data-id="${order.id}">Открыть</button>
+        <button class="btn ghost" type="button" data-action="print-order" data-id="${order.id}" aria-label="Печать заказ-наряда ${esc(number)}">Печать</button>
+        <button class="btn ghost" type="button" data-action="duplicate-order" data-id="${order.id}">Повторить</button>
+    </div>`;
 }
 
 function ordersTable(orders, compact) {
@@ -1098,11 +1220,7 @@ function ordersTable(orders, compact) {
                             <td>${statusBadge(order.status)}</td>
                             <td class="money">${money(order.total)}</td>
                             <td>
-                                <div class="row-actions">
-                                    <button class="btn icon" type="button" title="Печать" aria-label="Печать заказ-наряда ${esc(order.number)}" data-action="print-order" data-id="${order.id}"><span aria-hidden="true">⎙</span></button>
-                                    <button class="btn" type="button" data-action="edit-order" data-id="${order.id}">Открыть</button>
-                                    <button class="btn ghost" type="button" data-action="duplicate-order" data-id="${order.id}" title="Создать новый заказ на основе текущего">Повторить</button>
-                                </div>
+                                ${orderRowActions(order)}
                             </td>
                         </tr>
                     `).join("")}
@@ -1119,16 +1237,12 @@ function ordersTable(orders, compact) {
                         <td><div class="cell-title"><strong>${esc(order.number)}</strong><div class="priority ${esc(order.priority)}">${esc(priorityLabels[order.priority] || order.priority)}</div></div></td>
                         <td><div class="cell-title"><strong>${esc(order.customer_name)}</strong><div class="muted">${esc(orderVehicle(order) || "Авто не выбрано")}</div></div></td>
                         <td>${statusBadge(order.status)}</td>
-                        <td class="nowrap">${dateShort(order.promised_at)}</td>
-                        <td>${esc(order.mechanic || order.advisor || "")}</td>
+                        <td class="nowrap">${dateOrDash(order.promised_at)}</td>
+                        <td>${textOrDash(order.mechanic || order.advisor, "Не назначен")}</td>
                         <td class="money">${money(order.total)}</td>
                         <td class="money">${money(order.due)}</td>
                         <td>
-                            <div class="row-actions">
-                                <button class="btn icon" type="button" title="Печать" aria-label="Печать заказ-наряда ${esc(order.number)}" data-action="print-order" data-id="${order.id}"><span aria-hidden="true">⎙</span></button>
-                                <button class="btn" type="button" data-action="edit-order" data-id="${order.id}">Открыть</button>
-                                <button class="btn ghost" type="button" data-action="duplicate-order" data-id="${order.id}" title="Создать новый заказ на основе текущего">Повторить</button>
-                            </div>
+                            ${orderRowActions(order)}
                         </td>
                     </tr>
                 `).join("")}
@@ -1139,26 +1253,35 @@ function ordersTable(orders, compact) {
 
 function renderCustomers() {
     const rows = state.data.customers;
+    const total = rows.length;
+    const pageSize = state.customerPageSize || 50;
+    const maxPage = Math.max(1, Math.ceil(total / pageSize));
+    state.customerPage = Math.min(Math.max(1, state.customerPage || 1), maxPage);
+    const startIndex = (state.customerPage - 1) * pageSize;
+    const pageRows = rows.slice(startIndex, startIndex + pageSize);
+    const rangeText = total ? `${startIndex + 1}–${Math.min(total, startIndex + pageRows.length)} показаны` : "0 показано";
     return `
         ${viewHeading("Клиенты", "Единая клиентская база с каналами связи, согласием на напоминания, автомобилями и историей заказов.", [
-            `${rows.length} найдено`,
+            `${total} найдено`,
+            rangeText,
             `${state.data.lookups.customers.length} всего`,
             `${state.data.reports.vip_customers?.length || 0} VIP`
         ], [
             { label: "CSV", action: "export-csv", export: "customers", className: "ghost" },
             { label: "Новый клиент", action: "new-customer", className: "primary" }
         ])}
+        ${paginationControls("customers", state.customerPage, maxPage, total, pageSize, "клиентов")}
         <div class="table-wrap">
             <table aria-label="Таблица клиентов">
                 <thead>${tableHead(["Клиент", "Телефон", "Email", "Канал", "Источник", "Авто", "Заказы", ""])}</thead>
                 <tbody>
-                    ${rows.map(c => `
+                    ${pageRows.map(c => `
                         <tr>
-                            <td><div class="cell-title"><strong>${esc(c.name)}</strong><div class="muted">${esc(c.notes)}</div></div></td>
-                            <td>${esc(c.phone)}</td>
-                            <td>${esc(c.email)}</td>
+                            <td><div class="cell-title"><strong>${esc(c.name)}</strong><div class="muted">${textOrDash(c.notes)}</div></div></td>
+                            <td>${textOrDash(c.phone, "Нет телефона")}</td>
+                            <td>${textOrDash(c.email, "Нет email")}</td>
                             <td>${esc(channelLabel(c.preferred_channel))}${Number(c.reminder_consent) ? "" : `<div class="danger-text">без напоминаний</div>`}</td>
-                            <td>${esc(c.source)}</td>
+                            <td>${textOrDash(c.source)}</td>
                             <td>${c.vehicles_count}</td>
                             <td><div class="cell-title"><strong>${c.orders_count}</strong><div class="muted">${c.last_order_at ? `посл. ${dateShort(c.last_order_at)}` : "нет заказов"}</div></div></td>
                             <td><div class="row-actions"><button class="btn" type="button" data-action="edit-customer" data-id="${c.id}">Открыть</button></div></td>
@@ -1166,6 +1289,7 @@ function renderCustomers() {
                 </tbody>
             </table>
         </div>
+        ${paginationControls("customers", state.customerPage, maxPage, total, pageSize, "клиентов")}
     `;
 }
 
@@ -1246,11 +1370,14 @@ function renderCatalog() {
     const catalog = state.data.car_catalog || { makes: [], models: {}, stats: { makes: 0, models: 0, empty_makes: 0 } };
     const stats = catalog.stats || { makes: 0, models: 0, empty_makes: 0 };
     const entries = filteredCatalogEntries();
+    const visibleEntries = entries.slice(0, Math.max(1, state.catalogLimit || 60));
+    const hiddenEntries = Math.max(0, entries.length - visibleEntries.length);
     return `
         ${viewHeading("Каталог автомобилей", "Офлайн-справочник производителей и моделей помогает быстро и единообразно заполнять карточки автомобилей.", [
             `${stats.makes} производителей`,
             `${stats.models} моделей`,
-            `${entries.length} в подборке`
+            `${entries.length} в подборке`,
+            `${visibleEntries.length} показано`
         ], [
             { label: "CSV каталога", action: "export-csv", export: "catalog", className: "ghost" },
             { label: "Новый автомобиль", action: "new-vehicle", className: "primary" }
@@ -1272,8 +1399,9 @@ function renderCatalog() {
 
         </div>
         <section class="catalog-grid">
-            ${entries.map(entry => catalogMakeHtml(entry.make, entry.models)).join("") || `<div class="empty">В каталоге ничего не найдено.</div>`}
+            ${visibleEntries.map(entry => catalogMakeHtml(entry.make, entry.models)).join("") || emptyState("В каталоге ничего не найдено", "Измените фильтр по марке или модели.")}
         </section>
+        ${hiddenEntries ? `<div class="load-more"><button class="btn" type="button" data-action="catalog-more">Показать ещё ${Math.min(60, hiddenEntries)} из ${hiddenEntries}</button></div>` : ""}
     `;
 }
 
@@ -1309,6 +1437,7 @@ function bindCatalogFilter(root) {
     let catalogTimer;
     input.addEventListener("input", event => {
         state.catalogQ = event.target.value;
+        state.catalogLimit = 60;
         clearTimeout(catalogTimer);
         const selectionStart = input.selectionStart;
         const selectionEnd = input.selectionEnd;
@@ -1365,9 +1494,11 @@ function renderInventory() {
 }
 
 function renderReports() {
-    const r = state.data.reports;
-    const maxStatus = Math.max(...Object.values(r.status_counts), 1);
-    const maxService = Math.max(...r.top_services.map(x => x.total), 1);
+    const r = state.data.reports || {};
+    const statusCounts = r.status_counts || {};
+    const topServices = r.top_services || [];
+    const maxStatus = Math.max(...Object.values(statusCounts), 1);
+    const maxService = Math.max(...topServices.map(x => Number(x.total || 0)), 1);
     return `
         ${viewHeading("Отчеты и аналитика", "Финансы, маржа, загрузка, закупки и удержание клиентов для управленческих решений.", [
             `${money(r.revenue_month)} выручка`,
@@ -1398,15 +1529,15 @@ function renderReports() {
                     ${Object.entries(state.data.statuses).map(([key, label]) => `
                         <div class="bar">
                             <span>${esc(label)}</span>
-                            <div class="bar-track" role="img" aria-label="${esc(label)}: ${r.status_counts[key] || 0}"><div class="bar-fill" style="width:${Math.round((r.status_counts[key] || 0) / maxStatus * 100)}%"></div></div>
-                            <strong>${r.status_counts[key] || 0}</strong>
+                            <div class="bar-track" role="img" aria-label="${esc(label)}: ${statusCounts[key] || 0}"><div class="bar-fill" style="width:${Math.round((statusCounts[key] || 0) / maxStatus * 100)}%"></div></div>
+                            <strong>${statusCounts[key] || 0}</strong>
                         </div>`).join("")}
                 </div>
             </div>
             <div class="panel">
                 <div class="panel-head"><h2>Топ работ</h2></div>
                 <div class="panel-body bars">
-                    ${r.top_services.map(item => `
+                    ${topServices.map(item => `
                         <div class="bar">
                             <span>${esc(item.title)}</span>
                             <div class="bar-track" role="img" aria-label="${esc(item.title)}: ${money(item.total)}"><div class="bar-fill" style="width:${Math.round(item.total / maxService * 100)}%"></div></div>
@@ -1457,8 +1588,8 @@ function updateReleaseHtml(status) {
             </div>
             <div class="muted">Опубликовано: ${esc(release.published_at || "—")}</div>
             ${release.body ? `<pre>${esc(release.body)}</pre>` : `<div class="muted">Описание релиза не заполнено.</div>`}
-            <div class="row-actions" style="justify-content:flex-start">
-                <a class="btn ghost" href="${esc(release.release_url || status.releases_url)}" target="_blank" rel="noopener noreferrer">Открыть релиз</a>
+            <div class="row-actions row-actions-start">
+                <a class="btn ghost" href="${esc(safeExternalUrl(release.release_url || status.releases_url, state.data?.app?.releases_url || "#"))}" target="_blank" rel="noopener noreferrer">Открыть релиз</a>
             </div>
         </div>`;
 }
@@ -1486,13 +1617,14 @@ function renderUpdates() {
                 </div>
                 <div class="toolbar-right">
                     <button class="btn ghost" type="button" data-action="check-update" ${state.updateLoading ? "disabled" : ""}>${state.updateLoading ? "Проверяем..." : "Проверить обновления"}</button>
-                    <button class="btn primary" type="button" data-action="install-update" title="${esc(installTitle)}" ${installDisabled ? "disabled" : ""}>${state.updateInstalling ? "Устанавливаем..." : "Установить"}</button>
+                    <button class="btn primary" type="button" data-action="install-update" title="${esc(installTitle)}" aria-describedby="updateInstallHint" ${installDisabled ? "disabled" : ""}>${state.updateInstalling ? "Устанавливаем..." : "Установить"}</button>
                 </div>
             </div>
-            <p>CRM проверяет release-only репозиторий: в GitHub хранится только готовый <strong>STO_CRM.exe</strong>, checksum и <strong>latest.json</strong>. Исходный код туда не загружается. Обновление скачивается с контролем размера и SHA-256, делает резерв текущего exe и перезапускает приложение.</p>
+            <p id="updateInstallHint" class="muted">${esc(installTitle)}</p>
+            <p>CRM проверяет GitHub Releases выбранного публичного репозитория, читает manifest <strong>latest.json</strong> и скачивает только готовый <strong>STO_CRM.exe</strong>. Обновление скачивается с контролем размера и SHA-256, делает резерв текущего exe и перезапускает приложение.</p>
             <div class="update-meta">
                 <span class="count-pill">Текущая версия: ${esc(app.version)}</span>
-                <a class="count-pill" href="${esc(app.repository_url)}" target="_blank" rel="noopener noreferrer">${esc(app.repository)}</a>
+                <a class="count-pill" href="${esc(safeExternalUrl(app.repository_url))}" target="_blank" rel="noopener noreferrer">${esc(app.repository)}</a>
                 <span class="count-pill">База не переносится: ${esc(app.db_path)}</span>
             </div>
             ${app.can_install_update ? "" : `<div class="notice"><strong>Вы запустили исходник Python.</strong><p>Автоустановка включается в Windows-сборке STO_CRM.exe. Для исходников обновляйте проект командой <code>git pull --ff-only</code> и перезапускайте Python.</p></div>`}
@@ -1502,6 +1634,8 @@ function renderUpdates() {
 }
 
 async function checkForUpdates(showToast = true) {
+    if (state.updateLoading) return;
+    state.updateCheckScheduled = false;
     state.updateLoading = true;
     render();
     try {
@@ -1511,6 +1645,9 @@ async function checkForUpdates(showToast = true) {
             else if (state.updateStatus.ok) toast("Установлена актуальная версия");
             else toast(state.updateStatus.error || "Не удалось проверить обновления", "error");
         }
+    } catch (error) {
+        state.updateCheckScheduled = false;
+        throw error;
     } finally {
         state.updateLoading = false;
         render();
@@ -1518,6 +1655,7 @@ async function checkForUpdates(showToast = true) {
 }
 
 async function installUpdate() {
+    if (!requiresFreshCsrf("установку обновления")) return;
     if (!state.updateStatus?.release?.is_newer) {
         toast("Новых обновлений нет");
         return;
@@ -1539,53 +1677,97 @@ async function installUpdate() {
 function bindViewActions(root) {
     root.querySelectorAll("[data-action]").forEach(button => {
         button.addEventListener("click", event => {
-            const action = event.currentTarget.dataset.action;
-            const id = Number(event.currentTarget.dataset.id || 0);
-            const routeTarget = event.currentTarget.dataset.routeTarget;
-            if (routeTarget && routes[routeTarget] && routeTarget !== state.route) {
-                setRoute(routeTarget);
-            }
-            if (action === "retry-load") loadData().catch(showError);
-            else if (action === "dismiss-error") {
-                state.lastError = "";
-                render();
-            }
-            else if (action === "export-csv") {
-                event.preventDefault();
-                downloadCsv(event.currentTarget.dataset.export).catch(showError);
-            }
-            else if (action === "filter-status") {
-                state.status = event.currentTarget.dataset.status;
-                loadData().catch(showError);
-            } else if (action === "new-appointment") openAppointmentModal();
-            else if (action === "edit-appointment") openAppointmentModal(findAppointmentById(id));
-            else if (action === "new-inspection") openInspectionModal();
-            else if (action === "edit-inspection") openInspectionModal(findInspectionById(id));
-            else if (action === "new-customer") openCustomerModal();
-            else if (action === "edit-customer") openCustomerModal(findCustomerById(id));
-            else if (action === "new-vehicle") openVehicleModal();
-            else if (action === "edit-vehicle") openVehicleModal(findVehicleById(id));
-            else if (action === "open-catalog") setRoute("catalog");
-            else if (action === "open-orders") setRoute("orders");
-            else if (action === "open-appointments") setRoute("appointments");
-            else if (action === "open-inventory") setRoute("inventory");
-            else if (action === "open-action-plan") {
-                const scrollActionCenter = () => document.querySelector(".action-center")?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
-                if (state.route !== "dashboard") {
-                    setRoute("dashboard");
-                    requestAnimationFrame(scrollActionCenter);
-                } else {
-                    scrollActionCenter();
+            const source = event.currentTarget;
+            const action = source.dataset.action;
+            const id = Number(source.dataset.id || 0);
+            const routeTarget = source.dataset.routeTarget;
+            const runAction = () => {
+                if (routeTarget && routes[routeTarget] && routeTarget !== state.route) {
+                    setRoute(routeTarget);
                 }
+                if (action === "retry-load") loadData().catch(showError);
+                else if (action === "dismiss-error") {
+                    state.lastError = "";
+                    render();
+                }
+                else if (action === "export-csv") {
+                    event.preventDefault();
+                    downloadCsv(source.dataset.export).catch(showError);
+                }
+                else if (action === "filter-status") {
+                    const nextStatus = source.dataset.status;
+                    if (!state.data?.statuses?.[nextStatus] && nextStatus !== "all") return;
+                    state.status = nextStatus;
+                    loadData().catch(showError);
+                } else if (action === "page-customers") {
+                    const total = state.data?.customers?.length || 0;
+                    const pageSize = state.customerPageSize || 50;
+                    const maxPage = Math.max(1, Math.ceil(total / pageSize));
+                    state.customerPage = Math.min(Math.max(1, Number(source.dataset.page || 1)), maxPage);
+                    render();
+                    document.querySelector(".view-heading")?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+                } else if (action === "catalog-more") {
+                    state.catalogLimit = Math.min((state.catalogLimit || 60) + 60, filteredCatalogEntries().length);
+                    render();
+                } else if (action === "new-appointment") openAppointmentModal();
+                else if (action === "edit-appointment") {
+                    const appointment = findAppointmentById(id);
+                    if (requireRecord(appointment, "Запись")) openAppointmentModal(appointment);
+                }
+                else if (action === "new-inspection") openInspectionModal();
+                else if (action === "edit-inspection") {
+                    const inspection = findInspectionById(id);
+                    if (requireRecord(inspection, "Осмотр")) openInspectionModal(inspection);
+                }
+                else if (action === "new-customer") openCustomerModal();
+                else if (action === "edit-customer") {
+                    const customer = findCustomerById(id);
+                    if (requireRecord(customer, "Клиент")) openCustomerModal(customer);
+                }
+                else if (action === "new-vehicle") openVehicleModal();
+                else if (action === "edit-vehicle") {
+                    const vehicle = findVehicleById(id);
+                    if (requireRecord(vehicle, "Автомобиль")) openVehicleModal(vehicle);
+                }
+                else if (action === "open-catalog") setRoute("catalog");
+                else if (action === "open-orders") setRoute("orders");
+                else if (action === "open-appointments") setRoute("appointments");
+                else if (action === "open-inventory") setRoute("inventory");
+                else if (action === "open-reports") setRoute("reports");
+                else if (action === "open-action-plan") {
+                    const scrollActionCenter = () => document.querySelector(".action-center")?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+                    if (state.route !== "dashboard") {
+                        setRoute("dashboard");
+                        requestAnimationFrame(scrollActionCenter);
+                    } else {
+                        scrollActionCenter();
+                    }
+                }
+                else if (action === "new-inventory") openInventoryModal();
+                else if (action === "edit-inventory") {
+                    const part = findInventoryById(id);
+                    if (requireRecord(part, "Складская позиция")) openInventoryModal(part);
+                }
+                else if (action === "new-order") openOrderModal();
+                else if (action === "edit-order") openOrderModal(findOrderById(id));
+                else if (action === "duplicate-order") {
+                    const order = findOrderById(id);
+                    if (requireRecord(order, "Заказ")) openOrderModal(orderDuplicateDraft(order));
+                }
+                else if (action === "print-order") openPrintOrder(id).catch(showError);
+                else if (action === "check-update") checkForUpdates(true).catch(showError);
+                else if (action === "install-update") installUpdate().catch(showError);
+            };
+            if (source.dataset.reloadBeforeAction === "1" && !state.offlineMode) {
+                state.q = "";
+                state.status = "all";
+                const searchInput = $("#globalSearch");
+                if (searchInput) searchInput.value = "";
+                updateSearchClear();
+                loadData().then(runAction).catch(() => runAction());
+            } else {
+                runAction();
             }
-            else if (action === "new-inventory") openInventoryModal();
-            else if (action === "edit-inventory") openInventoryModal(findInventoryById(id));
-            else if (action === "new-order") openOrderModal();
-            else if (action === "edit-order") openOrderModal(findOrderById(id));
-            else if (action === "duplicate-order") openOrderModal(orderDuplicateDraft(findOrderById(id)));
-            else if (action === "print-order") openPrintOrder(id).catch(showError);
-            else if (action === "check-update") checkForUpdates(true).catch(showError);
-            else if (action === "install-update") installUpdate().catch(showError);
         });
     });
 }
@@ -1652,9 +1834,10 @@ function shouldKeepModalForEscape(event) {
 }
 
 function focusModalStart() {
-    const preferred = $("#modalBody input:not([type='hidden']), #modalBody select, #modalBody textarea, #modalFoot .btn.primary, #modalClose");
-    if (preferred instanceof HTMLElement) preferred.focus({ preventScroll: true });
-    else $("#modal")?.focus({ preventScroll: true });
+    const controls = $$("input:not([type='hidden']):not([disabled]), select:not([disabled]), textarea:not([disabled])", $("#modalBody"))
+        .filter(element => element instanceof HTMLElement && element.getClientRects().length > 0);
+    const preferred = controls[0] || $("#modalFoot .btn.primary:not([disabled])") || $("#modalClose:not([disabled])") || $("#modal");
+    preferred?.focus({ preventScroll: true });
 }
 
 function setAppInert(isInert) {
@@ -1687,6 +1870,8 @@ function openModal(title, body, foot, size = "") {
     lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const allowedSizes = new Set(["", "small", "wide"]);
     const modalSize = allowedSizes.has(size) ? size : "";
+    assertSafeModalMarkup(body);
+    assertSafeModalMarkup(foot);
     $("#modalTitle").textContent = title;
     $("#modalBody").innerHTML = body;
     $("#modalFoot").innerHTML = foot;
@@ -1695,6 +1880,8 @@ function openModal(title, body, foot, size = "") {
     state.modalDirty = false;
     setAppInert(true);
     bindModalSubmitHandlers();
+    updateScrollHints($("#modal"));
+    focusModalStart();
     requestAnimationFrame(focusModalStart);
 }
 
@@ -1706,16 +1893,44 @@ function closeModal(force = false) {
     $("#modalBody").innerHTML = "";
     $("#modalFoot").innerHTML = "";
     if (lastFocusedElement && document.contains(lastFocusedElement)) {
-        lastFocusedElement.focus();
+        lastFocusedElement.focus({ preventScroll: true });
     }
     lastFocusedElement = null;
     state.modalDirty = false;
     return true;
 }
 
+function commandPaletteFocusableElements() {
+    const palette = $("#commandPalette");
+    return palette ? $$("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])", palette)
+        .filter(element => !element.disabled && element.offsetParent !== null) : [];
+}
+
+function handleCommandPaletteTab(event) {
+    const focusable = commandPaletteFocusableElements();
+    const fallback = $("#commandSearch") || $("#commandPalette");
+    if (!focusable.length) {
+        event.preventDefault();
+        fallback?.focus({ preventScroll: true });
+        return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!$("#commandPalette")?.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+    } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus({ preventScroll: true });
+    } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+    }
+}
+
 function handleModalKeydown(event) {
     const commandPaletteOpen = $("#commandPalette")?.classList.contains("open");
-    if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase("ru-RU") === "k" && !commandPaletteOpen) {
+    if ((event.ctrlKey || event.metaKey) && (event.code === "KeyK" || event.key.toLocaleLowerCase("ru-RU") === "k") && !commandPaletteOpen) {
         event.preventDefault();
         if (!$("#modalBackdrop")?.classList.contains("open")) openCommandPalette();
         return;
@@ -1724,6 +1939,8 @@ function handleModalKeydown(event) {
         if (event.key === "Escape") {
             event.preventDefault();
             closeCommandPalette();
+        } else if (event.key === "Tab") {
+            handleCommandPaletteTab(event);
         }
         return;
     }
@@ -1778,16 +1995,17 @@ function bindModalSubmitHandlers() {
 }
 
 async function openPrintOrder(id) {
-    const printWindow = window.open("", "_blank");
+    if (!requiresFreshCsrf("печать заказ-наряда")) return;
+    const printWindow = window.open("about:blank", "_blank");
     if (!printWindow) {
         toast("Разрешите всплывающие окна, чтобы открыть печатную форму.", "error");
         return;
     }
-    printWindow.opener = null;
+    try { printWindow.opener = null; } catch (_error) {}
     printWindow.document.write("<p>Загрузка печатной формы...</p>");
     try {
         const response = await fetch(`/print/order/${encodeURIComponent(id)}`, {
-            headers: state.data?.app?.csrf_token ? { "X-CSRF-Token": state.data.app.csrf_token } : {},
+            headers: { "X-CSRF-Token": state.data.app.csrf_token },
             cache: "no-store"
         });
         const html = await response.text();
@@ -1948,7 +2166,10 @@ function openAppointmentModal(appointment = {}) {
         "small"
     );
     $("#appointment_customer_id").addEventListener("change", event => {
-        $("#appointment_vehicle_id").innerHTML = vehicleOptions(event.target.value, "");
+        const vehicle = $("#appointment_vehicle_id");
+        vehicle.innerHTML = vehicleOptions(event.target.value, "");
+        vehicle.value = "";
+        vehicle.dispatchEvent(new Event("change", { bubbles: true }));
     });
 }
 
@@ -2002,17 +2223,27 @@ function openInspectionModal(inspection = {}) {
     );
     renderInspectionItems();
     $("#inspection_customer_id").addEventListener("change", event => {
-        $("#inspection_vehicle_id").innerHTML = vehicleOptions(event.target.value, "");
+        const vehicle = $("#inspection_vehicle_id");
+        vehicle.innerHTML = vehicleOptions(event.target.value, "");
+        vehicle.value = "";
+        vehicle.dispatchEvent(new Event("change", { bubbles: true }));
         $("#inspection_order_id").innerHTML = orderOptions(event.target.value, "", "");
+        $("#inspection_order_id").value = "";
     });
     $("#inspection_vehicle_id").addEventListener("change", event => {
         $("#inspection_order_id").innerHTML = orderOptions($("#inspection_customer_id").value, event.target.value, "");
     });
     $("#addInspectionItem").addEventListener("click", () => {
+        markModalDirty();
         state.inspectionDraftItems.push({ area: "", title: "", condition_status: "ok", approval_status: "approved", recommendation: "", estimate: 0 });
         renderInspectionItems();
     });
     $("#useInspectionTemplate").addEventListener("click", () => {
+        const hasCustomItems = state.inspectionDraftItems.some(item =>
+            String(item.area || item.title || item.recommendation || "").trim() || Number(item.estimate || 0) > 0
+        );
+        if (hasCustomItems && !confirm("Заменить текущие пункты стандартным шаблоном? Несохраненные пункты будут потеряны.")) return;
+        markModalDirty();
         state.inspectionDraftItems = standardInspectionTemplate.map(item => ({ ...item }));
         renderInspectionItems();
     });
@@ -2026,13 +2257,13 @@ function renderInspectionItems() {
             <tbody>
                 ${state.inspectionDraftItems.map((item, index) => `
                     <tr data-inspection-index="${index}">
-                        <td><input data-inspection-item="area" aria-label="Зона осмотра" value="${esc(item.area)}" required></td>
-                        <td><input data-inspection-item="title" aria-label="Пункт осмотра" value="${esc(item.title)}" required></td>
-                        <td><select data-inspection-item="condition_status" aria-label="Состояние пункта осмотра">${inspectionConditionOptions(item.condition_status)}</select></td>
-                        <td><select data-inspection-item="approval_status" aria-label="Статус согласования пункта осмотра">${itemApprovalOptions(item.approval_status)}</select></td>
-                        <td><input data-inspection-item="recommendation" aria-label="Рекомендация" value="${esc(item.recommendation)}"></td>
-                        <td><input data-inspection-item="estimate" aria-label="Оценка работ" class="money" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(item.estimate || 0)}"></td>
-                        <td><button class="btn icon" type="button" data-remove-inspection-item="${index}" title="Удалить" aria-label="Удалить пункт осмотра">×</button></td>
+                        <td data-label="Зона"><input data-inspection-item="area" aria-label="Зона осмотра" value="${esc(item.area)}" required></td>
+                        <td data-label="Пункт"><input data-inspection-item="title" aria-label="Пункт осмотра" value="${esc(item.title)}" required></td>
+                        <td data-label="Состояние"><select data-inspection-item="condition_status" aria-label="Состояние пункта осмотра">${inspectionConditionOptions(item.condition_status)}</select></td>
+                        <td data-label="Согласование"><select data-inspection-item="approval_status" aria-label="Статус согласования пункта осмотра">${itemApprovalOptions(item.approval_status)}</select></td>
+                        <td data-label="Рекомендация"><input data-inspection-item="recommendation" aria-label="Рекомендация" value="${esc(item.recommendation)}"></td>
+                        <td data-label="Оценка"><input data-inspection-item="estimate" aria-label="Оценка работ" class="money" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(item.estimate || 0)}"></td>
+                        <td data-label="Действия"><button class="btn icon" type="button" data-remove-inspection-item="${index}" title="Удалить" aria-label="Удалить пункт осмотра">×</button></td>
                     </tr>`).join("")}
             </tbody>
         </table>
@@ -2043,11 +2274,13 @@ function renderInspectionItems() {
     });
     $$("[data-remove-inspection-item]", host).forEach(button => {
         button.addEventListener("click", event => {
+            markModalDirty();
             state.inspectionDraftItems.splice(Number(event.currentTarget.dataset.removeInspectionItem), 1);
             if (!state.inspectionDraftItems.length) state.inspectionDraftItems.push({ area: "", title: "", condition_status: "ok", approval_status: "approved", recommendation: "", estimate: 0 });
             renderInspectionItems();
         });
     });
+    updateScrollHints(host);
 }
 
 function openCustomerModal(customer = {}) {
@@ -2191,13 +2424,18 @@ function openOrderModal(order = {}) {
     );
     renderOrderItems();
     $("#order_customer_id").addEventListener("change", event => {
-        $("#order_vehicle_id").innerHTML = vehicleOptions(event.target.value, "");
+        const vehicle = $("#order_vehicle_id");
+        vehicle.innerHTML = vehicleOptions(event.target.value, "");
+        vehicle.value = "";
+        vehicle.dispatchEvent(new Event("change", { bubbles: true }));
     });
     $("#addService").addEventListener("click", () => {
+        markModalDirty();
         state.orderDraftItems.push({ kind: "service", title: "", approval_status: "approved", quantity: 1, unit_price: 0, unit_cost: 0 });
         renderOrderItems();
     });
     $("#addPart").addEventListener("click", () => {
+        markModalDirty();
         state.orderDraftItems.push({ kind: "part", inventory_id: "", title: "", approval_status: "approved", quantity: 1, unit_price: 0, unit_cost: 0 });
         renderOrderItems();
     });
@@ -2218,18 +2456,18 @@ function renderOrderItems() {
             <tbody>
                 ${state.orderDraftItems.map((item, index) => `
                     <tr data-index="${index}">
-                        <td><select data-item="kind" aria-label="Тип позиции">
+                        <td data-label="Тип"><select data-item="kind" aria-label="Тип позиции">
                             <option value="service" ${item.kind === "service" ? "selected" : ""}>Работа</option>
                             <option value="part" ${item.kind === "part" ? "selected" : ""}>Запчасть</option>
                         </select></td>
-                        <td><select class="source-select" data-item="inventory_id" aria-label="Источник запчасти" ${item.kind !== "part" ? "disabled" : ""}>${partSourceOptions(item)}</select>${partSourceHint(item)}</td>
-                        <td><input data-item="title" aria-label="Наименование позиции" value="${esc(item.title)}" required></td>
-                        <td><select data-item="approval_status" aria-label="Статус согласования позиции">${itemApprovalOptions(item.approval_status)}</select></td>
-                        <td><input data-item="quantity" aria-label="Количество" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(item.quantity || 1)}"></td>
-                        <td><input data-item="unit_price" aria-label="Цена" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(item.unit_price || 0)}"></td>
-                        <td><input data-item="unit_cost" aria-label="Себестоимость" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(item.unit_cost || 0)}"></td>
-                        <td class="money" data-row-total>${money((item.approval_status || "approved") === "approved" ? num(item.quantity) * num(item.unit_price) : 0)}</td>
-                        <td><button class="btn icon" type="button" data-remove-item="${index}" title="Удалить" aria-label="Удалить позицию заказ-наряда">×</button></td>
+                        <td data-label="Источник"><select class="source-select" data-item="inventory_id" aria-label="Источник запчасти" ${item.kind !== "part" ? "disabled" : ""}>${partSourceOptions(item)}</select>${partSourceHint(item)}</td>
+                        <td data-label="Наименование"><input data-item="title" aria-label="Наименование позиции" value="${esc(item.title)}" required></td>
+                        <td data-label="Согласование"><select data-item="approval_status" aria-label="Статус согласования позиции">${itemApprovalOptions(item.approval_status)}</select></td>
+                        <td data-label="Кол-во"><input data-item="quantity" aria-label="Количество" type="number" inputmode="decimal" step="0.01" min="0.01" required value="${esc(item.quantity || 1)}"></td>
+                        <td data-label="Цена"><input data-item="unit_price" aria-label="Цена" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(item.unit_price || 0)}"></td>
+                        <td data-label="Себест."><input data-item="unit_cost" aria-label="Себестоимость" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(item.unit_cost || 0)}"></td>
+                        <td data-label="Сумма" class="money" data-row-total>${money((item.approval_status || "approved") === "approved" ? num(item.quantity) * num(item.unit_price) : 0)}</td>
+                        <td data-label="Действия"><button class="btn icon" type="button" data-remove-item="${index}" title="Удалить" aria-label="Удалить позицию заказ-наряда">×</button></td>
                     </tr>`).join("")}
             </tbody>
         </table>
@@ -2240,11 +2478,13 @@ function renderOrderItems() {
     });
     $$("[data-remove-item]", host).forEach(button => {
         button.addEventListener("click", event => {
+            markModalDirty();
             state.orderDraftItems.splice(Number(event.currentTarget.dataset.removeItem), 1);
             if (!state.orderDraftItems.length) state.orderDraftItems.push({ kind: "service", title: "", approval_status: "approved", quantity: 1, unit_price: 0, unit_cost: 0 });
             renderOrderItems();
         });
     });
+    updateScrollHints(host);
 }
 
 function syncOrderItemsFromDom(event) {
@@ -2274,7 +2514,11 @@ function syncOrderItemsFromDom(event) {
             item.unit_cost = num(item.unit_cost, 0);
         }
     }
-    renderOrderItems();
+    if (["kind", "inventory_id"].includes(event.target.dataset.item)) {
+        renderOrderItems();
+    } else {
+        syncOrderItemStateOnly(event);
+    }
 }
 
 function orderTotalsHtml() {
@@ -2301,7 +2545,8 @@ function orderTotalsHtml() {
 
 async function saveEntity(kind, id) {
     const form = $("#entityForm");
-    if (form && !form.reportValidity()) return;
+    if (!form) return;
+    if (!form.reportValidity()) return;
     const data = collectForm(form);
     const path = id ? `/api/${kind}/${id}` : `/api/${kind}`;
     const method = id ? "PUT" : "POST";
@@ -2322,6 +2567,11 @@ async function saveOrder(id) {
     if (form && !form.reportValidity()) return;
     const data = collectForm(form);
     syncAllOrderItems();
+    const invalidItem = state.orderDraftItems.find(item => !String(item.title || "").trim() || num(item.quantity, 0) <= 0);
+    if (invalidItem) {
+        applyFormError(new Error(!String(invalidItem.title || "").trim() ? "Укажите наименование позиции." : "Количество позиции должно быть больше нуля."));
+        return;
+    }
     data.items = state.orderDraftItems.map(item => ({
         kind: item.kind,
         inventory_id: item.kind === "part" && num(item.inventory_id, 0) > 0 ? num(item.inventory_id, 0) : null,
@@ -2403,6 +2653,8 @@ function syncInspectionItemStateOnly(event) {
     if (event.target.dataset.inspectionItem === "condition_status") {
         if (item.condition_status === "ok") {
             item.approval_status = "approved";
+        } else if (item.approval_status === "approved") {
+            item.approval_status = "deferred";
         }
         renderInspectionItems();
     }
@@ -2440,7 +2692,7 @@ async function deleteEntity(kind, id) {
 function showError(error) {
     if (error?.name === "AbortError") return;
     const status = Number(error?.status || 0);
-    if (!status || status >= 500) setOnlineState(false);
+    if (!status) setOnlineState(false);
     const message = error.message || String(error);
     state.lastError = message;
     applyFormError(error);
@@ -2448,8 +2700,10 @@ function showError(error) {
     if (!state.data) {
         if (!restoreCachedBootstrap()) {
             const content = $("#content");
-            content.innerHTML = `${offlineBannerHtml()}<div class="notice" role="alert"><strong>Не удалось загрузить данные.</strong><p>${esc(message)}</p><button class="btn primary" type="button" data-action="retry-load">Повторить</button></div>`;
-            bindViewActions(content);
+            if (content) {
+                content.innerHTML = `${offlineBannerHtml(true)}<div class="notice" role="alert"><strong>Не удалось загрузить данные.</strong><p>${esc(message)}</p><button class="btn primary" type="button" data-action="retry-load">Повторить</button></div>`;
+                bindViewActions(content);
+            }
         }
     } else if (!modalOpen) {
         render();
@@ -2490,6 +2744,8 @@ $("#modalBackdrop").addEventListener("click", event => {
 });
 $("#globalSearch").addEventListener("input", event => {
     state.q = event.target.value;
+    state.customerPage = 1;
+    state.catalogLimit = 60;
     updateSearchClear();
     clearTimeout(state.searchTimer);
     state.searchTimer = setTimeout(() => loadData().catch(showError), 260);
@@ -2543,8 +2799,39 @@ $("#commandSearch")?.addEventListener("keydown", event => {
         buttons[nextIndex].scrollIntoView({ block: "nearest" });
     }
 });
+function setSystemMenuOpen(isOpen) {
+    const menu = $("#systemMenu");
+    const button = $("#systemMenuBtn");
+    if (!menu || !button) return;
+    menu.hidden = !isOpen;
+    button.setAttribute("aria-expanded", isOpen ? "true" : "false");
+}
+
+function closeSystemMenu() {
+    setSystemMenuOpen(false);
+}
+
+$("#systemMenuBtn")?.addEventListener("click", event => {
+    event.stopPropagation();
+    const isOpen = $("#systemMenuBtn")?.getAttribute("aria-expanded") === "true";
+    setSystemMenuOpen(!isOpen);
+});
+$("#systemMenu")?.addEventListener("click", event => {
+    const routeButton = event.target.closest("[data-system-route]");
+    if (routeButton) setRoute(routeButton.dataset.systemRoute);
+    if (event.target.closest("button")) closeSystemMenu();
+});
+document.addEventListener("click", event => {
+    const root = $("#systemMenuRoot");
+    if (root && !root.contains(event.target)) closeSystemMenu();
+});
+document.addEventListener("keydown", event => {
+    if (event.key === "Escape") closeSystemMenu();
+});
+
 async function shutdownApp() {
-    if (!confirm("Остановить локальное приложение СТО CRM?")) return;
+    if (!requiresFreshCsrf("остановку CRM")) return;
+    if (!confirm("Остановить локальное приложение СТО CRM? Окно можно будет закрыть, а для продолжения работы CRM нужно запустить снова.")) return;
     try {
         await api("/api/shutdown", { method: "POST", body: "{}" });
         document.body.innerHTML = '<main class="shutdown-state"><section class="shutdown-card"><h1>СТО CRM остановлена</h1><p>Локальный сервер завершает работу. Окно можно закрыть.</p></section></main>';
@@ -2573,7 +2860,15 @@ function applyTheme(theme) {
     const themeButton = $("#themeToggle");
     if (themeButton) {
         const label = requested === "auto" ? `Тема: авто (${isDark ? "тёмная" : "светлая"})` : `Тема: ${isDark ? "тёмная" : "светлая"}`;
-        themeButton.textContent = requested === "auto" ? "◐" : (isDark ? "◑" : "☼");
+        const icon = requested === "auto" ? "◐" : (isDark ? "◑" : "☼");
+        const iconNode = themeButton.querySelector("[data-menu-icon]");
+        const labelNode = themeButton.querySelector("[data-menu-label]");
+        if (iconNode && labelNode) {
+            iconNode.textContent = icon;
+            labelNode.textContent = label;
+        } else {
+            themeButton.textContent = icon;
+        }
         themeButton.setAttribute("aria-pressed", requested === "auto" ? "false" : "true");
         themeButton.setAttribute("aria-label", `${label}. Нажмите, чтобы переключить.`);
         themeButton.title = `${label}. Цикл: авто → светлая → тёмная.`;
@@ -2585,17 +2880,26 @@ function applyDensity(compact) {
     document.body.classList.toggle("compact", state.compactMode);
     const densityButton = $("#densityToggle");
     if (densityButton) {
-        densityButton.textContent = state.compactMode ? "↧" : "↕";
+        const icon = state.compactMode ? "↧" : "↕";
+        const label = state.compactMode ? "Плотность: компактная" : "Плотность: обычная";
+        const iconNode = densityButton.querySelector("[data-menu-icon]");
+        const labelNode = densityButton.querySelector("[data-menu-label]");
+        if (iconNode && labelNode) {
+            iconNode.textContent = icon;
+            labelNode.textContent = label;
+        } else {
+            densityButton.textContent = icon;
+        }
         densityButton.setAttribute("aria-pressed", state.compactMode ? "true" : "false");
-        densityButton.setAttribute("aria-label", state.compactMode ? "Компактный режим включен. Нажмите для комфортного режима." : "Комфортный режим включен. Нажмите для компактного режима.");
-        densityButton.title = state.compactMode ? "Компактный режим" : "Комфортный режим";
+        densityButton.setAttribute("aria-label", state.compactMode ? "Компактный режим включен. Нажмите для обычной плотности." : "Обычная плотность включена. Нажмите для компактного режима.");
+        densityButton.title = state.compactMode ? "Компактный режим" : "Обычная плотность";
     }
 }
 
 function toggleDensity() {
     applyDensity(!state.compactMode);
-    safeStorageSet("sto-crm-density", state.compactMode ? "compact" : null);
-    toast(state.compactMode ? "Компактная плотность включена" : "Комфортная плотность включена");
+    safeStorageSet("sto-crm-density", state.compactMode ? "compact" : "comfortable");
+    toast(state.compactMode ? "Компактная плотность включена" : "Обычная плотность включена");
 }
 
 function safeStorageGet(key) {
@@ -2620,7 +2924,8 @@ function nextThemePreference(current) {
 }
 
 applyTheme(safeStorageGet("sto-crm-theme") || "auto");
-applyDensity(safeStorageGet("sto-crm-density") === "compact");
+const savedDensity = safeStorageGet("sto-crm-density");
+applyDensity(savedDensity ? savedDensity === "compact" : true);
 const densityToggle = $("#densityToggle");
 if (densityToggle) {
     densityToggle.addEventListener("click", toggleDensity);

@@ -28,9 +28,6 @@ import time as time
 import traceback as traceback
 import types
 import urllib as urllib
-import urllib.error as urllib_error
-import urllib.parse as urllib_parse
-import urllib.request as urllib_request
 import webbrowser as webbrowser
 import zlib as zlib
 from collections import defaultdict as defaultdict

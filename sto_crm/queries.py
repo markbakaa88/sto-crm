@@ -1,12 +1,12 @@
-from __future__ import annotations
-
 """Read/query helpers and aggregate total calculations."""
+
+from __future__ import annotations
 
 import sqlite3
 from collections import defaultdict
 from typing import Any
 
-from .config import APPOINTMENT_STATUSES, INSPECTION_STATUSES
+from .config import APPOINTMENT_STATUSES, INSPECTION_STATUSES, ORDER_STATUSES
 from .database import db
 from .runtime import parse_float, search_needle, sql_limit
 from .services import list_order_items
@@ -17,7 +17,7 @@ def list_customers(q: str = "", limit: int | None = 1000) -> list[dict[str, Any]
         params: list[Any] = []
         where = "WHERE c.deleted_at IS NULL"
         if q:
-            where += " AND (CASEFOLD(c.name) LIKE ? OR CASEFOLD(c.phone) LIKE ? OR CASEFOLD(c.email) LIKE ?)"
+            where += " AND (CASEFOLD(c.name) LIKE ? ESCAPE '\\' OR CASEFOLD(c.phone) LIKE ? ESCAPE '\\' OR CASEFOLD(c.email) LIKE ? ESCAPE '\\')"
             needle = search_needle(q)
             params.extend([needle, needle, needle])
         limit_sql, limit_params = sql_limit(limit)
@@ -47,8 +47,8 @@ def list_vehicles(q: str = "", limit: int | None = 1000) -> list[dict[str, Any]]
         where = "WHERE v.deleted_at IS NULL AND c.deleted_at IS NULL"
         if q:
             where += """
-                AND (CASEFOLD(v.make) LIKE ? OR CASEFOLD(v.model) LIKE ? OR CASEFOLD(v.plate) LIKE ?
-                     OR CASEFOLD(v.vin) LIKE ? OR CASEFOLD(c.name) LIKE ?)
+                AND (CASEFOLD(v.make) LIKE ? ESCAPE '\\' OR CASEFOLD(v.model) LIKE ? ESCAPE '\\' OR CASEFOLD(v.plate) LIKE ? ESCAPE '\\'
+                     OR CASEFOLD(v.vin) LIKE ? ESCAPE '\\' OR CASEFOLD(c.name) LIKE ? ESCAPE '\\')
             """
             needle = search_needle(q)
             params.extend([needle, needle, needle, needle, needle])
@@ -75,7 +75,7 @@ def list_inventory(q: str = "", limit: int | None = 1000) -> list[dict[str, Any]
         params: list[Any] = []
         where = "WHERE deleted_at IS NULL"
         if q:
-            where += " AND (CASEFOLD(sku) LIKE ? OR CASEFOLD(name) LIKE ? OR CASEFOLD(brand) LIKE ? OR CASEFOLD(supplier) LIKE ?)"
+            where += " AND (CASEFOLD(sku) LIKE ? ESCAPE '\\' OR CASEFOLD(name) LIKE ? ESCAPE '\\' OR CASEFOLD(brand) LIKE ? ESCAPE '\\' OR CASEFOLD(supplier) LIKE ? ESCAPE '\\')"
             needle = search_needle(q)
             params.extend([needle, needle, needle, needle])
         limit_sql, limit_params = sql_limit(limit)
@@ -83,7 +83,7 @@ def list_inventory(q: str = "", limit: int | None = 1000) -> list[dict[str, Any]
         rows = conn.execute(
             f"""
             SELECT *,
-                   CASE WHEN quantity <= min_quantity THEN 1 ELSE 0 END AS is_low
+                   CASE WHEN min_quantity > 0 AND quantity <= min_quantity THEN 1 ELSE 0 END AS is_low
             FROM inventory
             {where}
             ORDER BY is_low DESC, updated_at DESC, id DESC
@@ -105,9 +105,9 @@ def list_appointments(q: str = "", status: str = "all", limit: int | None = 1000
             params.append(status)
         if q:
             where += """
-                AND (CASEFOLD(c.name) LIKE ? OR CASEFOLD(c.phone) LIKE ? OR CASEFOLD(c.email) LIKE ?
-                     OR CASEFOLD(v.plate) LIKE ? OR CASEFOLD(v.vin) LIKE ? OR CASEFOLD(v.make) LIKE ?
-                     OR CASEFOLD(v.model) LIKE ? OR CASEFOLD(a.reason) LIKE ? OR CASEFOLD(a.advisor) LIKE ?)
+                AND (CASEFOLD(c.name) LIKE ? ESCAPE '\\' OR CASEFOLD(c.phone) LIKE ? ESCAPE '\\' OR CASEFOLD(c.email) LIKE ? ESCAPE '\\'
+                     OR CASEFOLD(v.plate) LIKE ? ESCAPE '\\' OR CASEFOLD(v.vin) LIKE ? ESCAPE '\\' OR CASEFOLD(v.make) LIKE ? ESCAPE '\\'
+                     OR CASEFOLD(v.model) LIKE ? ESCAPE '\\' OR CASEFOLD(a.reason) LIKE ? ESCAPE '\\' OR CASEFOLD(a.advisor) LIKE ? ESCAPE '\\')
             """
             needle = search_needle(q)
             params.extend([needle, needle, needle, needle, needle, needle, needle, needle, needle])
@@ -144,9 +144,9 @@ def list_inspections(q: str = "", status: str = "all", limit: int | None = 1000)
             params.append(status)
         if q:
             where += """
-                AND (CASEFOLD(c.name) LIKE ? OR CASEFOLD(c.phone) LIKE ? OR CASEFOLD(v.plate) LIKE ?
-                     OR CASEFOLD(v.vin) LIKE ? OR CASEFOLD(v.make) LIKE ? OR CASEFOLD(v.model) LIKE ?
-                     OR CASEFOLD(o.number) LIKE ? OR CASEFOLD(i.inspector) LIKE ? OR CASEFOLD(i.summary) LIKE ?)
+                AND (CASEFOLD(c.name) LIKE ? ESCAPE '\\' OR CASEFOLD(c.phone) LIKE ? ESCAPE '\\' OR CASEFOLD(v.plate) LIKE ? ESCAPE '\\'
+                     OR CASEFOLD(v.vin) LIKE ? ESCAPE '\\' OR CASEFOLD(v.make) LIKE ? ESCAPE '\\' OR CASEFOLD(v.model) LIKE ? ESCAPE '\\'
+                     OR CASEFOLD(o.number) LIKE ? ESCAPE '\\' OR CASEFOLD(i.inspector) LIKE ? ESCAPE '\\' OR CASEFOLD(i.summary) LIKE ? ESCAPE '\\')
             """
             needle = search_needle(q)
             params.extend([needle, needle, needle, needle, needle, needle, needle, needle, needle])
@@ -214,17 +214,19 @@ def inspection_totals(items: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def list_orders(q: str = "", status: str = "", limit: int | None = 1000) -> list[dict[str, Any]]:
+    if status and status != "all" and status not in ORDER_STATUSES:
+        raise ValueError("Некорректный статус заказа.")
     with db() as conn:
         params: list[Any] = []
-        where = "WHERE o.deleted_at IS NULL"
+        where = "WHERE o.deleted_at IS NULL AND c.deleted_at IS NULL"
         if status and status != "all":
             where += " AND o.status = ?"
             params.append(status)
         if q:
             where += """
-                AND (CASEFOLD(o.number) LIKE ? OR CASEFOLD(c.name) LIKE ? OR CASEFOLD(c.phone) LIKE ?
-                     OR CASEFOLD(c.email) LIKE ? OR CASEFOLD(v.plate) LIKE ? OR CASEFOLD(v.vin) LIKE ?
-                     OR CASEFOLD(v.make) LIKE ? OR CASEFOLD(v.model) LIKE ? OR CASEFOLD(o.complaint) LIKE ?)
+                AND (CASEFOLD(o.number) LIKE ? ESCAPE '\\' OR CASEFOLD(c.name) LIKE ? ESCAPE '\\' OR CASEFOLD(c.phone) LIKE ? ESCAPE '\\'
+                     OR CASEFOLD(c.email) LIKE ? ESCAPE '\\' OR CASEFOLD(v.plate) LIKE ? ESCAPE '\\' OR CASEFOLD(v.vin) LIKE ? ESCAPE '\\'
+                     OR CASEFOLD(v.make) LIKE ? ESCAPE '\\' OR CASEFOLD(v.model) LIKE ? ESCAPE '\\' OR CASEFOLD(o.complaint) LIKE ? ESCAPE '\\')
             """
             needle = search_needle(q)
             params.extend([needle, needle, needle, needle, needle, needle, needle, needle, needle])
@@ -281,7 +283,10 @@ def get_order(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
         FROM orders o
         JOIN customers c ON c.id = o.customer_id
         LEFT JOIN vehicles v ON v.id = o.vehicle_id
-        WHERE o.id = ? AND o.deleted_at IS NULL
+        WHERE o.id = ?
+          AND o.deleted_at IS NULL
+          AND c.deleted_at IS NULL
+          AND (o.vehicle_id IS NULL OR v.deleted_at IS NULL)
         """,
         (record_id,),
     ).fetchone()

@@ -1,9 +1,10 @@
-from __future__ import annotations
-
 """Strict input normalization and business-rule validation."""
+
+from __future__ import annotations
 
 import sqlite3
 from datetime import datetime, timedelta
+import re
 from typing import Any
 
 from .config import (
@@ -20,6 +21,7 @@ from .config import (
 from .runtime import (
     clean_multiline,
     clean_text,
+    is_blank,
     parse_date_iso,
     parse_datetime_local,
     parse_float,
@@ -30,19 +32,38 @@ from .runtime import (
     validate_vin,
 )
 
+def require_non_negative_float(value: Any, field_name: str, default: float = 0.0) -> float:
+    parsed = parse_float_field(value, field_name, default)
+    if parsed < 0:
+        raise ValueError(f"{field_name} не может быть отрицательным.")
+    return parsed
+
+
+def require_non_negative_int(value: Any, field_name: str, default: int = 0) -> int:
+    parsed = parse_int_field(value, field_name, default)
+    if parsed < 0:
+        raise ValueError(f"{field_name} не может быть отрицательным.")
+    return parsed
+
+
+def optional_non_negative_float(value: Any, field_name: str, default: float = 0.0) -> float:
+    return default if is_blank(value) else require_non_negative_float(value, field_name, default)
+
+
 def generate_order_number(conn: sqlite3.Connection) -> str:
     """Генерирует уникальный номер заказ-наряда."""
     prefix = datetime.now().strftime("СТО-%Y%m%d")
+    pattern = re.compile(rf"^{re.escape(prefix)}-(\d{{3,6}})$")
     rows = conn.execute(
         "SELECT number FROM orders WHERE number LIKE ?",
         (f"{prefix}-%",),
     ).fetchall()
     max_suffix = 0
     for row in rows:
-        try:
-            max_suffix = max(max_suffix, int(str(row["number"]).rsplit("-", 1)[1]))
-        except (IndexError, ValueError):
+        match = pattern.fullmatch(str(row["number"] or ""))
+        if not match:
             continue
+        max_suffix = max(max_suffix, int(match.group(1)))
     return f"{prefix}-{max_suffix + 1:03d}"
 
 
@@ -85,9 +106,9 @@ def validate_vehicle(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[
         "year": validate_vehicle_year(payload.get("year")),
         "plate": plate,
         "vin": vin,
-        "mileage": max(parse_int_field(payload.get("mileage"), "пробег"), 0),
+        "mileage": require_non_negative_int(payload.get("mileage"), "пробег"),
         "next_service_at": parse_date_iso(payload.get("next_service_at"), "дата следующего сервиса"),
-        "next_service_mileage": max(parse_int_field(payload.get("next_service_mileage"), "сервисный пробег"), 0),
+        "next_service_mileage": require_non_negative_int(payload.get("next_service_mileage"), "сервисный пробег"),
         "notes": clean_multiline(payload.get("notes"), 2000),
     }
 
@@ -101,10 +122,10 @@ def validate_inventory(payload: dict[str, Any]) -> dict[str, Any]:
         "name": name,
         "brand": clean_text(payload.get("brand"), 140),
         "unit": clean_text(payload.get("unit"), 30, "шт") or "шт",
-        "quantity": max(parse_float_field(payload.get("quantity"), "остаток"), 0),
-        "min_quantity": max(parse_float_field(payload.get("min_quantity"), "минимальный остаток"), 0),
-        "price": max(parse_float_field(payload.get("price"), "цена"), 0),
-        "cost": max(parse_float_field(payload.get("cost"), "себестоимость"), 0),
+        "quantity": require_non_negative_float(payload.get("quantity"), "остаток"),
+        "min_quantity": require_non_negative_float(payload.get("min_quantity"), "минимальный остаток"),
+        "price": require_non_negative_float(payload.get("price"), "цена"),
+        "cost": require_non_negative_float(payload.get("cost"), "себестоимость"),
         "supplier": clean_text(payload.get("supplier"), 180),
         "notes": clean_multiline(payload.get("notes"), 2000),
     }
@@ -142,13 +163,13 @@ def validate_order(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[st
         "advisor": clean_text(payload.get("advisor"), 120),
         "mechanic": clean_text(payload.get("mechanic"), 120),
         "promised_at": parse_datetime_local(payload.get("promised_at"), "срок заказа"),
-        "odometer": max(parse_int_field(payload.get("odometer"), "пробег в заказе"), 0),
+        "odometer": require_non_negative_int(payload.get("odometer"), "пробег в заказе"),
         "complaint": clean_multiline(payload.get("complaint"), 3000),
         "diagnosis": clean_multiline(payload.get("diagnosis"), 3000),
         "recommendations": clean_multiline(payload.get("recommendations"), 3000),
-        "discount": max(parse_float_field(payload.get("discount"), "скидка"), 0),
-        "tax_rate": min(max(parse_float_field(payload.get("tax_rate"), "налог"), 0), 100),
-        "paid": max(parse_float_field(payload.get("paid"), "оплачено"), 0),
+        "discount": require_non_negative_float(payload.get("discount"), "скидка"),
+        "tax_rate": min(require_non_negative_float(payload.get("tax_rate"), "налог"), 100),
+        "paid": require_non_negative_float(payload.get("paid"), "оплачено"),
         "payment_method": clean_text(payload.get("payment_method"), 80),
         "authorized_by": clean_text(payload.get("authorized_by"), 120),
         "authorized_at": parse_datetime_local(payload.get("authorized_at"), "дата согласования"),
@@ -170,7 +191,8 @@ def validate_appointment(conn: sqlite3.Connection, payload: dict[str, Any]) -> d
     scheduled_at = parse_datetime_local(payload.get("scheduled_at"), "дата и время записи", required=True)
 
     duration_minutes = parse_int_field(payload.get("duration_minutes"), "длительность записи", 60)
-    duration_minutes = min(max(duration_minutes, 15), 480)
+    if duration_minutes < 15 or duration_minutes > 480:
+        raise ValueError("Длительность записи должна быть от 15 до 480 минут.")
     status = clean_text(payload.get("status"), 30, "scheduled")
     if status not in APPOINTMENT_STATUSES:
         raise ValueError("Некорректный статус записи.")
@@ -258,7 +280,7 @@ def validate_inspection_item(payload: dict[str, Any]) -> dict[str, Any]:
         "condition_status": condition_status,
         "approval_status": approval_status,
         "recommendation": clean_multiline(payload.get("recommendation"), 2000),
-        "estimate": max(parse_float_field(payload.get("estimate"), "оценка пункта осмотра"), 0),
+        "estimate": require_non_negative_float(payload.get("estimate"), "оценка пункта осмотра"),
     }
 
 
@@ -286,8 +308,10 @@ def validate_order_item(conn: sqlite3.Connection, payload: dict[str, Any]) -> di
     if inventory_id is not None and inventory_id <= 0:
         inventory_id = None
     title = clean_text(payload.get("title"), 220)
-    unit_price = max(parse_float_field(payload.get("unit_price"), "цена позиции"), 0) if "unit_price" in payload else 0
-    unit_cost = max(parse_float_field(payload.get("unit_cost"), "себестоимость позиции"), 0) if "unit_cost" in payload else 0
+    has_unit_price = "unit_price" in payload and not is_blank(payload.get("unit_price"))
+    has_unit_cost = "unit_cost" in payload and not is_blank(payload.get("unit_cost"))
+    unit_price = optional_non_negative_float(payload.get("unit_price"), "цена позиции") if has_unit_price else 0
+    unit_cost = optional_non_negative_float(payload.get("unit_cost"), "себестоимость позиции") if has_unit_cost else 0
     approval_status = clean_text(payload.get("approval_status"), 30, "approved")
     if approval_status not in ITEM_APPROVAL_STATUSES:
         raise ValueError("Некорректный статус согласования позиции заказ-наряда.")
@@ -301,9 +325,9 @@ def validate_order_item(conn: sqlite3.Connection, payload: dict[str, Any]) -> di
             raise ValueError("Выбранная складская позиция не найдена.")
         if not title:
             title = str(part["name"])
-        if unit_price == 0:
+        if not has_unit_price:
             unit_price = parse_float(part["price"])
-        if unit_cost == 0:
+        if not has_unit_cost:
             unit_cost = parse_float(part["cost"])
     elif kind == "service":
         inventory_id = None
@@ -311,7 +335,7 @@ def validate_order_item(conn: sqlite3.Connection, payload: dict[str, Any]) -> di
     if not title:
         raise ValueError("Укажите наименование запчасти или работы.")
 
-    quantity = max(parse_float_field(payload.get("quantity"), "количество позиции", 1), 0)
+    quantity = require_non_negative_float(payload.get("quantity"), "количество позиции", 1)
     if quantity <= 0:
         raise ValueError("Количество в позиции должно быть больше нуля.")
 
