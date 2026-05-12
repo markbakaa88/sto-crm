@@ -1017,9 +1017,21 @@ class StoCrmTests(unittest.TestCase):
     def test_number_parsers_accept_russian_spacing_and_commas(self):
         self.assertEqual(sto_crm.parse_float("1 500,50"), 1500.5)
         self.assertEqual(sto_crm.parse_float("1\u00a0500,50"), 1500.5)
+        self.assertEqual(sto_crm.parse_float("1\u202f500,50"), 1500.5)
+        self.assertEqual(sto_crm.parse_float_field("1\u202f500,50", "сумма"), 1500.5)
         self.assertEqual(sto_crm.parse_int("12 345,9"), 12345)
+        self.assertEqual(sto_crm.parse_int_field("12\u202f345", "пробег"), 12345)
 
-
+    def test_integer_field_rejects_bool_values(self):
+        customer = self.create_customer("Bool IDs")
+        for value in (True, False):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "клиент"):
+                    sto_crm.create_vehicle({"customer_id": value, "make": "BoolCar"})
+        with self.assertRaisesRegex(ValueError, "целое"):
+            sto_crm.parse_int_field(True, "идентификатор")
+        self.assertEqual(sto_crm.parse_bool_field(True, "согласие"), 1)
+        self.assertTrue(customer["id"])
 
     def test_number_parsers_reject_non_finite_values(self):
         self.assertEqual(sto_crm.parse_float("nan", 7.5), 7.5)
@@ -1806,6 +1818,22 @@ class StoCrmTests(unittest.TestCase):
         self.assertEqual(order["parts_total"], 0)
         updated = sto_crm.update_inventory(part["id"], {"sku": "NOBILL", "name": "Not billable", "quantity": 7, "price": 20, "cost": 10})
         self.assertEqual(updated["quantity"], 7)
+        with self.assertRaisesRegex(ValueError, "активных"):
+            sto_crm.delete_inventory(part["id"])
+        sto_crm.update_order(
+            order["id"],
+            {
+                "customer_id": customer["id"],
+                "vehicle_id": vehicle["id"],
+                "status": "cancelled",
+                "priority": "normal",
+                "items": [
+                    service_item(10),
+                    {"kind": "part", "inventory_id": part["id"], "title": part["name"], "approval_status": "deferred", "quantity": 1, "unit_price": 20, "unit_cost": 10},
+                ],
+            },
+        )
+        self.assertEqual(sto_crm.delete_inventory(part["id"]), {"deleted": True})
 
     def test_explicit_zero_price_for_inventory_part_is_preserved(self):
         customer = self.create_customer("Warranty Customer")
@@ -1865,6 +1893,8 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('function requireRecord(record, label = "Запись")', html)
         self.assertIn('if (requireRecord(customer, "Клиент")) openCustomerModal(customer);', html)
         self.assertIn('if (requireRecord(part, "Складская позиция")) openInventoryModal(part);', html)
+        self.assertIn('if (!vehicle?.id) return vehicleOptions(selectedCustomer, order.vehicle_id);', html)
+        self.assertIn('if (vehicle.deleted_at || vehicle.deleted_at === 1 || vehicle.vehicle_deleted) {', html)
         self.assertIn('healthMetric(r)', html)
         self.assertIn('confirm("Закрыть окно без сохранения изменений?")', html)
         self.assertIn('shouldKeepModalForEscape', html)
@@ -1993,6 +2023,7 @@ class StoCrmTests(unittest.TestCase):
             "https://github.com.evil.test/markbakaa88/sto-crm/releases/download/v1.20.0/STO_CRM.exe",
             "https://user:pass@github.com/markbakaa88/sto-crm/releases/download/v1.20.0/STO_CRM.exe",
             "https://github.com:444/markbakaa88/sto-crm/releases/download/v1.20.0/STO_CRM.exe",
+            "https://github.com/markbakaa88/sto-crm/releases/download/v1.20.0/STO_CRM.exe\nhttps://example.test/payload.exe",
         ]
         for url in untrusted_urls:
             with self.subTest(url=url):
@@ -2258,6 +2289,20 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('function riskRadar(report)', html)
         self.assertIn('function quickActions()', html)
         self.assertIn('function miniLedger(report)', html)
+
+    def test_frontend_css_matches_runtime_shell_states_and_dense_components(self):
+        html = sto_crm.INDEX_HTML
+        self.assertIn('.modal-backdrop.open, .command-palette-backdrop.open { display: grid; }', html)
+        self.assertIn('$("#modalBackdrop").classList.add("open");', html)
+        self.assertIn('$("#commandPalette")?.classList.add("open");', html)
+        self.assertIn('.quick-grid { display: grid;', html)
+        self.assertIn('.action-card { grid-template-columns: minmax(0, 1fr) auto;', html)
+        self.assertIn('.items-table { overflow-x: auto;', html)
+        self.assertIn('.totals { display: grid;', html)
+        self.assertIn('.catalog-summary { display: grid;', html)
+        self.assertIn('.scroll-hint { display: none;', html)
+        self.assertIn('.has-horizontal-overflow .scroll-hint { display: block; }', html)
+        self.assertIn('.span-3 { grid-column: 1 / -1; }', html)
 
     def test_print_order_html_uses_professional_document_design(self):
         order = {

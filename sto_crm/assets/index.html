@@ -16,25 +16,35 @@
 <body>
 <a class="skip-link" href="#content">К основному содержанию</a>
 <div class="app">
-    <aside class="sidebar">
+    <aside class="sidebar" aria-label="Навигация CRM">
         <div class="brand">
-            <div class="brand-mark">CRM</div>
-            <div>
+            <button type="button" class="brand-mark" id="brandHome" aria-label="На панель" title="Перейти к Панели (G D)" data-route="dashboard" data-tooltip="Панель · G D" data-tooltip-placement="right">CRM</button>
+            <div class="brand-copy">
                 <div class="brand-title">СТО CRM</div>
-                <div class="brand-subtitle">Автосервис</div>
+                <div class="brand-subtitle">рабочее место сервиса</div>
             </div>
         </div>
+        <button type="button" class="sidebar-collapse" id="sidebarCollapse" aria-label="Свернуть боковую панель" title="Свернуть/развернуть боковую панель (Ctrl+B)" aria-pressed="false" data-tooltip="Свернуть боковую панель · Ctrl+B" data-tooltip-placement="right">‹</button>
         <nav class="nav" id="nav" aria-label="Основные разделы CRM">
-            <button type="button" data-route="dashboard" class="active" aria-label="Панель" aria-current="page"><span class="icon" aria-hidden="true">⌂</span><span class="nav-label">Панель</span><span class="nav-badge" data-nav-badge="dashboard" hidden></span></button>
-            <button type="button" data-route="appointments" aria-label="Запись"><span class="icon" aria-hidden="true">▤</span><span class="nav-label">Запись</span><span class="nav-badge" data-nav-badge="appointments" hidden></span></button>
-            <button type="button" data-route="inspections" aria-label="Осмотры"><span class="icon" aria-hidden="true">✓</span><span class="nav-label">Осмотры</span><span class="nav-badge" data-nav-badge="inspections" hidden></span></button>
-            <button type="button" data-route="orders" aria-label="Заказы"><span class="icon" aria-hidden="true">№</span><span class="nav-label">Заказы</span><span class="nav-badge" data-nav-badge="orders" hidden></span></button>
-            <button type="button" data-route="customers" aria-label="Клиенты"><span class="icon" aria-hidden="true">◔</span><span class="nav-label">Клиенты</span></button>
-            <button type="button" data-route="vehicles" aria-label="Авто"><span class="icon" aria-hidden="true">◈</span><span class="nav-label">Авто</span></button>
-            <button type="button" data-route="catalog" aria-label="Каталог авто"><span class="icon" aria-hidden="true">◎</span><span class="nav-label">Каталог авто</span></button>
-            <button type="button" data-route="inventory" aria-label="Склад"><span class="icon" aria-hidden="true">▦</span><span class="nav-label">Склад</span><span class="nav-badge" data-nav-badge="inventory" hidden></span></button>
-            <button type="button" data-route="reports" aria-label="Отчеты"><span class="icon" aria-hidden="true">↗</span><span class="nav-label">Отчеты</span></button>
-            <button type="button" data-route="updates" aria-label="Обновления"><span class="icon" aria-hidden="true">⬢</span><span class="nav-label">Обновления</span><span class="nav-badge" data-nav-badge="updates" hidden></span></button>
+            <div class="nav-section" role="group" aria-label="Работа смены">
+                <div class="nav-section-label">Смена</div>
+                <button type="button" data-route="dashboard" class="active" aria-label="Панель" aria-current="page" data-tooltip="Панель · G D" data-tooltip-placement="right"><span class="icon" aria-hidden="true">⌂</span><span class="nav-label">Панель</span><span class="nav-badge" data-nav-badge="dashboard" hidden></span></button>
+                <button type="button" data-route="appointments" aria-label="Запись" data-tooltip="Запись · G A" data-tooltip-placement="right"><span class="icon" aria-hidden="true">▤</span><span class="nav-label">Запись</span><span class="nav-badge" data-nav-badge="appointments" hidden></span></button>
+                <button type="button" data-route="inspections" aria-label="Осмотры" data-tooltip="Осмотры · G I" data-tooltip-placement="right"><span class="icon" aria-hidden="true">✓</span><span class="nav-label">Осмотры</span><span class="nav-badge" data-nav-badge="inspections" hidden></span></button>
+                <button type="button" data-route="orders" aria-label="Заказы" data-tooltip="Заказы · G O" data-tooltip-placement="right"><span class="icon" aria-hidden="true">№</span><span class="nav-label">Заказы</span><span class="nav-badge" data-nav-badge="orders" hidden></span></button>
+            </div>
+            <div class="nav-section" role="group" aria-label="Справочники">
+                <div class="nav-section-label">Справочники</div>
+                <button type="button" data-route="customers" aria-label="Клиенты" data-tooltip="Клиенты · G C" data-tooltip-placement="right"><span class="icon" aria-hidden="true">◔</span><span class="nav-label">Клиенты</span></button>
+                <button type="button" data-route="vehicles" aria-label="Авто" data-tooltip="Авто · G V" data-tooltip-placement="right"><span class="icon" aria-hidden="true">◈</span><span class="nav-label">Авто</span></button>
+                <button type="button" data-route="catalog" aria-label="Каталог авто" data-tooltip="Каталог марок и моделей" data-tooltip-placement="right"><span class="icon" aria-hidden="true">◎</span><span class="nav-label">Каталог авто</span></button>
+                <button type="button" data-route="inventory" aria-label="Склад" data-tooltip="Склад · G S" data-tooltip-placement="right"><span class="icon" aria-hidden="true">▦</span><span class="nav-label">Склад</span><span class="nav-badge" data-nav-badge="inventory" hidden></span></button>
+            </div>
+            <div class="nav-section" role="group" aria-label="Аналитика и система">
+                <div class="nav-section-label">Аналитика</div>
+                <button type="button" data-route="reports" aria-label="Отчеты" data-tooltip="Отчёты · G R" data-tooltip-placement="right"><span class="icon" aria-hidden="true">↗</span><span class="nav-label">Отчеты</span></button>
+                <button type="button" data-route="updates" aria-label="Обновления" data-tooltip="Обновления" data-tooltip-placement="right"><span class="icon" aria-hidden="true">⬢</span><span class="nav-label">Обновления</span><span class="nav-badge" data-nav-badge="updates" hidden></span></button>
+            </div>
         </nav>
         <div class="db-path" id="dbPath"></div>
     </aside>
@@ -47,16 +57,36 @@
             <div class="search">
                 <span aria-hidden="true">⌕</span>
                 <label class="sr-only" for="globalSearch">Поиск по клиентам, автомобилям, заказам и складу</label>
-                <input id="globalSearch" placeholder="Клиент, авто, заказ, склад" autocomplete="off" aria-label="Поиск по клиентам, автомобилям, заказам и складу">
-                <button class="search-clear" id="clearSearch" type="button" aria-label="Очистить поиск" title="Очистить поиск" hidden>×</button>
+                <input id="globalSearch" placeholder="Клиент, авто, заказ, склад" autocomplete="off" aria-label="Поиск по клиентам, автомобилям, заказам и складу" aria-keyshortcuts="/">
+                <button class="search-clear" id="clearSearch" type="button" aria-label="Очистить поиск" title="Очистить поиск (Esc)" hidden>×</button>
+                <kbd class="search-hint" aria-hidden="true">/</kbd>
             </div>
             <div class="top-actions">
-                <button type="button" class="btn ghost" id="commandBtn" title="Командная палитра Ctrl+K" aria-label="Открыть командную палитру">⌘K</button>
-                <button type="button" class="btn icon" id="refreshBtn" title="Обновить" aria-label="Обновить данные">↻</button>
+                <button type="button" class="sync-chip" id="syncChip" data-state="online" aria-label="Состояние синхронизации" data-tooltip="Нажмите, чтобы обновить данные"><span class="dot" aria-hidden="true"></span><span class="sync-text">Актуально</span></button>
+                <div class="cta-wrap">
+                    <div class="cta-group">
+                        <button type="button" class="btn primary" id="primaryCtaBtn" data-action="new-order" data-tooltip="Создать заказ-наряд · N"><span aria-hidden="true">＋</span> Новый заказ <kbd>N</kbd></button>
+                        <button type="button" class="btn primary" id="primaryCtaMore" aria-haspopup="menu" aria-expanded="false" aria-controls="primaryCtaMenu" aria-label="Другие быстрые действия" data-tooltip="Ещё действия">▾</button>
+                    </div>
+                    <div class="cta-menu" id="primaryCtaMenu" role="menu" aria-label="Быстрые действия" hidden>
+                        <button type="button" role="menuitem" data-action="new-appointment"><span>Новая запись</span><kbd>N A</kbd></button>
+                        <button type="button" role="menuitem" data-action="new-customer"><span>Новый клиент</span><kbd>N C</kbd></button>
+                        <button type="button" role="menuitem" data-action="new-vehicle"><span>Новое авто</span><kbd>N V</kbd></button>
+                        <button type="button" role="menuitem" data-action="new-inspection"><span>Новый осмотр</span><kbd>N I</kbd></button>
+                    </div>
+                </div>
+                <div class="bell-wrap">
+                    <button type="button" class="bell" id="bellBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="bellPanel" aria-label="Уведомления" data-tooltip="Задачи и напоминания"><span aria-hidden="true">◌</span><span class="bell-count" id="bellCount" hidden>0</span></button>
+                    <div class="bell-panel" id="bellPanel" role="menu" aria-label="Очередь событий" hidden>
+                        <h4>События смены</h4>
+                        <div class="bell-empty" id="bellEmpty">Всё спокойно — новых сигналов нет.</div>
+                        <div id="bellList"></div>
+                    </div>
+                </div>
+                <button type="button" class="btn ghost" id="commandBtn" title="Командная палитра Ctrl+K" aria-label="Открыть командную палитру" data-tooltip="Командная палитра · Ctrl+K">⌘K</button>
+                <button type="button" class="btn icon" id="refreshBtn" title="Обновить" aria-label="Обновить данные" data-tooltip="Обновить · R">↻</button>
                 <div class="system-menu" id="systemMenuRoot">
-                    <button type="button" class="btn ghost system-menu-button" id="systemMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="systemMenu" title="Системные действия CRM">
-                        <span>Система</span><span aria-hidden="true">⋯</span>
-                    </button>
+                    <button type="button" class="btn ghost system-menu-button" id="systemMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="systemMenu" title="Системные действия CRM" data-tooltip="Система и настройки"><span>Система</span><span aria-hidden="true">⋯</span></button>
                     <div class="system-menu-panel" id="systemMenu" role="menu" aria-label="Системные действия CRM" hidden>
                         <button type="button" role="menuitem" class="system-menu-item" id="themeToggle" title="Тёмная/светлая тема" aria-label="Переключить тёмную или светлую тему" aria-pressed="false"><span data-menu-icon aria-hidden="true">◐</span><span data-menu-label>Тема</span></button>
                         <button type="button" role="menuitem" class="system-menu-item" id="densityToggle" title="Плотность интерфейса" aria-label="Переключить плотность интерфейса" aria-pressed="false"><span data-menu-icon aria-hidden="true">↕</span><span data-menu-label>Плотность</span></button>
@@ -67,29 +97,35 @@
                 </div>
             </div>
         </header>
+        <nav class="breadcrumbs" id="breadcrumbs" aria-label="Хлебные крошки" hidden></nav>
         <section class="content" id="content" tabindex="-1">
-            <div class="offline-banner" id="offlineBanner" role="alert">Нет связи с локальным сервером. Проверьте, что СТО CRM запущена, или нажмите «Обновить».</div>
             <div class="loading-state" role="status" aria-label="Загрузка данных CRM">
                 <div class="loading-mark" aria-hidden="true"></div>
                 <strong>Загружаем данные CRM...</strong>
                 <span class="muted">Готовим рабочее пространство смены</span>
             </div>
             <noscript>
-                <div class="notice" role="alert">
-                    <strong>Для работы СТО CRM требуется JavaScript.</strong>
-                    <p>Включите JavaScript в браузере и обновите страницу локального приложения.</p>
-                </div>
+                <div class="notice" role="alert"><strong>Для работы СТО CRM требуется JavaScript.</strong><p>Включите JavaScript в браузере и обновите страницу локального приложения.</p></div>
             </noscript>
         </section>
+        <footer class="statusbar" id="statusbar" role="contentinfo" aria-label="Статус приложения">
+            <div class="status-left">
+                <span class="status-item" id="statusConnection" data-tooltip="Локальная база данных"><span class="dot" aria-hidden="true"></span><span id="statusConnectionText">Подключено</span></span>
+                <span class="status-item" id="statusDbPath"><span class="path" id="statusDbPathText"></span></span>
+            </div>
+            <div class="status-center" id="statusCenter">СТО CRM</div>
+            <div class="status-right">
+                <span class="status-item" id="statusSync" data-tooltip="Последняя синхронизация"><span aria-hidden="true">↻</span><span id="statusSyncText">—</span></span>
+                <span class="status-item" id="statusBackup" data-tooltip="Резервная копия"><span aria-hidden="true">⇩</span><span id="statusBackupText">Бэкап не создан</span></span>
+                <span class="status-item" id="statusVersion" data-tooltip="Версия и сборка"><span aria-hidden="true">⬢</span><span id="statusVersionText">v—</span></span>
+                <span class="status-item" id="statusClock" data-tooltip="Локальное время"><span aria-hidden="true">⌚</span><span id="statusClockText">--:--</span></span>
+            </div>
+        </footer>
     </main>
 </div>
-
 <div class="modal-backdrop" id="modalBackdrop" role="presentation">
     <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" tabindex="-1">
-        <div class="modal-head">
-            <div class="modal-title" id="modalTitle"></div>
-            <button type="button" class="btn icon" id="modalClose" title="Закрыть" aria-label="Закрыть окно">×</button>
-        </div>
+        <div class="modal-head"><div class="modal-title" id="modalTitle"></div><button type="button" class="btn icon" id="modalClose" title="Закрыть" aria-label="Закрыть окно" data-tooltip="Закрыть · Esc">×</button></div>
         <div class="modal-body" id="modalBody"></div>
         <div class="modal-foot" id="modalFoot"></div>
     </div>
@@ -100,14 +136,13 @@
             <span aria-hidden="true">⌘</span>
             <label class="sr-only" id="commandPaletteTitle" for="commandSearch">Командная палитра CRM</label>
             <input id="commandSearch" autocomplete="off" placeholder="Команда, раздел или действие…" aria-label="Командная палитра CRM" role="combobox" aria-controls="commandList" aria-expanded="false" aria-autocomplete="list">
-            <button type="button" class="btn icon" id="commandClose" aria-label="Закрыть командную палитру">×</button>
+            <button type="button" class="btn icon" id="commandClose" aria-label="Закрыть командную палитру" data-tooltip="Закрыть · Esc">×</button>
         </div>
         <div class="command-palette-list" id="commandList" role="listbox" aria-label="Доступные команды CRM"></div>
     </div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 <div class="sr-only" id="appStatus" role="status" aria-live="polite" aria-atomic="true"></div>
-
 <script nonce="__STO_CRM_CSP_NONCE__">__STO_CRM_APP_JS__</script>
 </body>
 </html>

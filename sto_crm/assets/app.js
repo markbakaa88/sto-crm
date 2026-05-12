@@ -487,6 +487,7 @@ function setLoadingState(isLoading) {
     const content = $("#content");
     if (content) content.setAttribute("aria-busy", String(isLoading));
     $("#refreshBtn")?.toggleAttribute("disabled", isLoading);
+    renderShell();
 }
 
 async function loadData() {
@@ -558,6 +559,7 @@ function setRoute(route, updateUrl = true) {
         if (active) button.setAttribute("aria-current", "page");
         else button.removeAttribute("aria-current");
     });
+    renderShell();
     render();
     if (needsRouteFilterReload) {
         loadData().catch(showError);
@@ -659,6 +661,7 @@ function setOnlineState(isOnline) {
     state.offlineMode = !isOnline;
     const app = $(".app");
     if (app) app.classList.toggle("offline", !isOnline);
+    renderShell();
 }
 
 function updateNavigationBadges() {
@@ -684,7 +687,339 @@ function updateNavigationBadges() {
         const badgeText = badge && !badge.hidden ? badge.getAttribute("aria-label") : "";
         button.setAttribute("aria-label", badgeText ? `${label}: ${badgeText}` : label);
     });
+    renderShell();
 }
+
+const BREADCRUMB_MAP = {
+    dashboard:    [{ label: "Панель",        route: null }],
+    appointments: [{ label: "Смена", route: "dashboard" }, { label: "Запись",        route: null }],
+    inspections:  [{ label: "Смена", route: "dashboard" }, { label: "Осмотры",       route: null }],
+    orders:       [{ label: "Смена", route: "dashboard" }, { label: "Заказ-наряды",  route: null }],
+    customers:    [{ label: "Справочники", route: null },  { label: "Клиенты",       route: null }],
+    vehicles:     [{ label: "Справочники", route: null },  { label: "Автомобили",    route: null }],
+    catalog:      [{ label: "Справочники", route: null },  { label: "Каталог авто",  route: null }],
+    inventory:    [{ label: "Справочники", route: null },  { label: "Склад",         route: null }],
+    reports:      [{ label: "Аналитика",   route: null },  { label: "Отчеты",        route: null }],
+    updates:      [{ label: "Аналитика",   route: null },  { label: "Обновления",    route: null }]
+};
+
+function shortStamp(value) {
+    if (!value) return "—";
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return "—";
+    const diff = Math.max(0, Date.now() - d.getTime());
+    if (diff < 45 * 1000) return "только что";
+    if (diff < 60 * 60 * 1000) return `${Math.max(1, Math.round(diff / 60000))} мин назад`;
+    if (diff < 24 * 60 * 60 * 1000) return `${Math.round(diff / 3600000)} ч назад`;
+    return d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function clockStr() {
+    return new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+}
+
+function updateSyncChip() {
+    const chip = $("#syncChip");
+    if (!chip) return;
+    const textEl = chip.querySelector(".sync-text");
+    let nextState = "online";
+    let text = "Актуально";
+    let stampTip = "";
+    if (state.loading) {
+        nextState = "syncing";
+        text = "Синхронизация…";
+    } else if (state.offlineMode) {
+        nextState = "offline";
+        text = "Нет связи";
+    } else if (state.lastLoadedAt) {
+        const age = Date.now() - new Date(state.lastLoadedAt).getTime();
+        if (Number.isFinite(age) && age > 5 * 60 * 1000) {
+            nextState = "stale";
+            text = `Устарели · ${shortStamp(state.lastLoadedAt)}`;
+        } else {
+            text = `Актуально · ${shortStamp(state.lastLoadedAt)}`;
+        }
+        stampTip = new Date(state.lastLoadedAt).toLocaleString("ru-RU");
+    } else {
+        text = "Ожидание данных";
+    }
+    chip.dataset.state = nextState;
+    if (textEl) textEl.textContent = text;
+    chip.setAttribute("aria-label", `Синхронизация: ${text}`);
+    chip.setAttribute("data-tooltip", stampTip ? `Обновлено ${stampTip}. Нажмите, чтобы синхронизировать.` : "Нажмите, чтобы обновить данные");
+}
+
+function renderBreadcrumbs() {
+    const container = $("#breadcrumbs");
+    if (!container) return;
+    const route = state.route || "dashboard";
+    const trail = BREADCRUMB_MAP[route] || [{ label: routes[route] || "Раздел", route: null }];
+    if (route === "dashboard") {
+        container.hidden = true;
+        container.innerHTML = "";
+        return;
+    }
+    container.hidden = false;
+    const parts = ['<button class="crumb" type="button" data-crumb-route="dashboard" aria-label="На панель">⌂</button>'];
+    trail.forEach((crumb, index) => {
+        parts.push('<span class="sep" aria-hidden="true">/</span>');
+        const isLast = index === trail.length - 1;
+        if (crumb.route && !isLast) {
+            parts.push(`<button class="crumb" type="button" data-crumb-route="${esc(crumb.route)}">${esc(crumb.label)}</button>`);
+        } else {
+            parts.push(`<span aria-current="${isLast ? "page" : "false"}">${esc(crumb.label)}</span>`);
+        }
+    });
+    container.innerHTML = parts.join("");
+}
+
+function renderStatusBar() {
+    const connection = $("#statusConnectionText");
+    const connectionWrap = $("#statusConnection");
+    if (connectionWrap) {
+        connectionWrap.dataset.tone = state.offlineMode ? "bad" : "ok";
+        if (connection) connection.textContent = state.offlineMode ? "Нет связи" : "Подключено";
+    }
+    const dbPath = state.data?.app?.db_path || "";
+    const dbPathEl = $("#statusDbPathText");
+    if (dbPathEl) dbPathEl.textContent = dbPath;
+    const dbWrap = $("#statusDbPath");
+    if (dbWrap) dbWrap.hidden = !dbPath;
+
+    const syncEl = $("#statusSyncText");
+    if (syncEl) syncEl.textContent = state.lastLoadedAt ? shortStamp(state.lastLoadedAt) : "—";
+
+    const backupEl = $("#statusBackupText");
+    const backupWrap = $("#statusBackup");
+    const lastBackup = state.lastBackupAt || state.data?.app?.last_backup_at || "";
+    if (backupEl) backupEl.textContent = lastBackup ? `Бэкап · ${shortStamp(lastBackup)}` : "Бэкап не создан";
+    if (backupWrap) backupWrap.dataset.tone = lastBackup ? "ok" : "warn";
+
+    const versionEl = $("#statusVersionText");
+    const version = state.data?.app?.version || state.updateStatus?.current?.version || "";
+    if (versionEl) versionEl.textContent = version ? `v${version}` : "v—";
+
+    const clockEl = $("#statusClockText");
+    if (clockEl) clockEl.textContent = clockStr();
+}
+
+function collectBellItems() {
+    const items = [];
+    const r = state.data?.reports || {};
+    (r.action_plan || []).slice(0, 6).forEach(action => {
+        if (!action) return;
+        items.push({
+            tone: action.tone === "danger" ? "bad" : action.tone === "warning" ? "warn" : "info",
+            icon: action.tone === "danger" ? "!" : action.tone === "warning" ? "◐" : "◎",
+            title: action.title || "Задача смены",
+            hint: action.subtitle || action.description || action.detail || "",
+            action: action.action || "",
+            id: action.record_id || "",
+            route: action.route || action.route_target || ""
+        });
+    });
+    if (Number(r.low_stock_count || 0) > 0) {
+        items.push({ tone: "warn", icon: "▦", title: `Склад: ${r.low_stock_count} позиций ниже минимума`, hint: "Проверьте закупки", action: "goto-inventory", route: "inventory" });
+    }
+    if (state.updateStatus?.ok && state.updateStatus?.release?.is_newer) {
+        items.push({ tone: "info", icon: "⬢", title: "Доступно обновление CRM", hint: state.updateStatus.release?.name || "", action: "goto-updates", route: "updates" });
+    }
+    return items;
+}
+
+function renderBell() {
+    const list = $("#bellList");
+    const emptyEl = $("#bellEmpty");
+    const count = $("#bellCount");
+    if (!list) return;
+    const items = collectBellItems();
+    if (!items.length) {
+        list.innerHTML = "";
+        if (emptyEl) emptyEl.hidden = false;
+        if (count) { count.hidden = true; count.textContent = "0"; }
+        return;
+    }
+    if (emptyEl) emptyEl.hidden = true;
+    if (count) { count.hidden = false; count.textContent = String(items.length > 99 ? "99+" : items.length); }
+    list.innerHTML = items.map(item => `
+        <button type="button" role="menuitem" class="bell-item ${esc(item.tone)}"
+            data-bell-action="${esc(item.action)}"
+            data-bell-route="${esc(item.route || "")}"
+            data-bell-id="${esc(item.id || "")}">
+            <span aria-hidden="true">${esc(item.icon)}</span>
+            <span><strong>${esc(item.title)}</strong>${item.hint ? `<div class="meta">${esc(item.hint)}</div>` : ""}</span>
+            <span class="muted" aria-hidden="true">›</span>
+        </button>
+    `).join("");
+}
+
+function renderShell() {
+    renderBreadcrumbs();
+    renderStatusBar();
+    updateSyncChip();
+    renderBell();
+}
+
+function initShell() {
+    const collapseBtn = $("#sidebarCollapse");
+    if (collapseBtn && !collapseBtn.dataset.bound) {
+        collapseBtn.dataset.bound = "1";
+        const saved = safeStorageGet("sto-crm-sidebar") === "collapsed";
+        document.body.classList.toggle("sidebar-collapsed", saved);
+        collapseBtn.setAttribute("aria-pressed", saved ? "true" : "false");
+        collapseBtn.addEventListener("click", () => {
+            const next = !document.body.classList.contains("sidebar-collapsed");
+            document.body.classList.toggle("sidebar-collapsed", next);
+            safeStorageSet("sto-crm-sidebar", next ? "collapsed" : "open");
+            collapseBtn.setAttribute("aria-pressed", next ? "true" : "false");
+        });
+    }
+
+    $("#brandHome")?.addEventListener("click", () => setRoute("dashboard"));
+
+    const primary = $("#primaryCtaBtn");
+    const more = $("#primaryCtaMore");
+    const ctaMenu = $("#primaryCtaMenu");
+    if (primary && more && ctaMenu && !more.dataset.bound) {
+        more.dataset.bound = "1";
+        const actionMap = {
+            "new-order": openOrderModal,
+            "new-appointment": openAppointmentModal,
+            "new-customer": openCustomerModal,
+            "new-vehicle": openVehicleModal,
+            "new-inspection": openInspectionModal,
+            "new-inventory": openInventoryModal
+        };
+        const runAction = action => {
+            if (typeof actionMap[action] === "function") actionMap[action]();
+        };
+        primary.addEventListener("click", () => runAction(primary.dataset.action || "new-order"));
+        more.addEventListener("click", event => {
+            event.stopPropagation();
+            const open = ctaMenu.hidden;
+            ctaMenu.hidden = !open;
+            more.setAttribute("aria-expanded", open ? "true" : "false");
+        });
+        ctaMenu.addEventListener("click", event => {
+            const item = event.target.closest("[data-action]");
+            if (!item) return;
+            ctaMenu.hidden = true;
+            more.setAttribute("aria-expanded", "false");
+            runAction(item.dataset.action);
+        });
+        document.addEventListener("click", event => {
+            if (ctaMenu.hidden) return;
+            if (ctaMenu.contains(event.target) || more.contains(event.target)) return;
+            ctaMenu.hidden = true;
+            more.setAttribute("aria-expanded", "false");
+        });
+    }
+
+    const bellBtn = $("#bellBtn");
+    const bellPanel = $("#bellPanel");
+    if (bellBtn && bellPanel && !bellBtn.dataset.bound) {
+        bellBtn.dataset.bound = "1";
+        bellBtn.addEventListener("click", event => {
+            event.stopPropagation();
+            const open = bellPanel.hidden;
+            bellPanel.hidden = !open;
+            bellBtn.setAttribute("aria-expanded", open ? "true" : "false");
+            if (open) renderBell();
+        });
+        document.addEventListener("click", event => {
+            if (bellPanel.hidden) return;
+            if (bellPanel.contains(event.target) || bellBtn.contains(event.target)) return;
+            bellPanel.hidden = true;
+            bellBtn.setAttribute("aria-expanded", "false");
+        });
+        bellPanel.addEventListener("click", event => {
+            const item = event.target.closest("[data-bell-route]");
+            if (!item) return;
+            const route = item.dataset.bellRoute;
+            bellPanel.hidden = true;
+            bellBtn.setAttribute("aria-expanded", "false");
+            if (route && routes[route]) setRoute(route);
+        });
+    }
+
+    $("#syncChip")?.addEventListener("click", () => {
+        if (!state.loading) loadData().then(() => toast("Обновлено")).catch(showError);
+    });
+    $("#breadcrumbs")?.addEventListener("click", event => {
+        const btn = event.target.closest("[data-crumb-route]");
+        if (btn?.dataset.crumbRoute && routes[btn.dataset.crumbRoute]) setRoute(btn.dataset.crumbRoute);
+    });
+
+    bindShellShortcuts();
+    setInterval(renderShell, 30000);
+    renderShell();
+}
+
+function bindShellShortcuts() {
+    if (document.documentElement.dataset.shellShortcutsBound) return;
+    document.documentElement.dataset.shellShortcutsBound = "1";
+    const routeKeys = { d: "dashboard", a: "appointments", i: "inspections", o: "orders", c: "customers", v: "vehicles", s: "inventory", r: "reports", u: "updates" };
+    const newKeys = { o: openOrderModal, a: openAppointmentModal, c: openCustomerModal, v: openVehicleModal, i: openInspectionModal, s: openInventoryModal };
+    let keySequence = "";
+    let keyTimer = null;
+    const resetSequence = () => { keySequence = ""; };
+    const inEditable = el => {
+        if (!el) return false;
+        const tag = el.tagName;
+        return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+    };
+    document.addEventListener("keydown", event => {
+        if (event.defaultPrevented || event.metaKey || event.altKey) return;
+        if (event.ctrlKey && (event.key === "b" || event.key === "B")) {
+            event.preventDefault();
+            $("#sidebarCollapse")?.click();
+            return;
+        }
+        if (event.ctrlKey || inEditable(event.target)) return;
+        if ($("#modalBackdrop")?.classList.contains("open") || $("#commandPalette")?.classList.contains("open")) return;
+        if (event.key === "/") {
+            const input = $("#globalSearch");
+            if (input) {
+                event.preventDefault();
+                input.focus({ preventScroll: false });
+                input.select?.();
+            }
+            return;
+        }
+        if (event.key === "?") {
+            event.preventDefault();
+            openCommandPalette();
+            return;
+        }
+        if (event.key === "Escape") { resetSequence(); return; }
+        const lower = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+        if (keySequence === "g" && routeKeys[lower]) {
+            event.preventDefault();
+            setRoute(routeKeys[lower]);
+            resetSequence();
+            return;
+        }
+        if (keySequence === "n" && newKeys[lower]) {
+            event.preventDefault();
+            newKeys[lower]();
+            resetSequence();
+            return;
+        }
+        if (lower === "g" || lower === "n") {
+            keySequence = lower;
+            clearTimeout(keyTimer);
+            keyTimer = setTimeout(resetSequence, 1100);
+            return;
+        }
+        if (lower === "r" && keySequence === "") {
+            event.preventDefault();
+            loadData().then(() => toast("Обновлено")).catch(showError);
+            return;
+        }
+        resetSequence();
+    });
+}
+
 
 function updateSearchClear() {
     const clearButton = $("#clearSearch");
@@ -803,6 +1138,8 @@ async function createBackupFromUi() {
     if (!requiresFreshCsrf("резервное копирование")) return;
     try {
         const result = await api("/api/backup", { method: "POST", body: "{}" });
+        state.lastBackupAt = new Date().toISOString();
+        renderShell();
         toast(`Резервная копия: ${result.display_path || result.filename || result.path}`);
     } catch (error) {
         showError(error);
@@ -2085,10 +2422,23 @@ function customerOptions(selected) {
     return placeholder + customers.map(c => `<option value="${esc(c.id)}" ${Number(selected) === Number(c.id) ? "selected" : ""}>${esc(c.name)} · ${esc(c.phone)}</option>`).join("");
 }
 
-function vehicleOptions(customerId, selected) {
-    const allVehicles = state.data.lookups?.vehicles || state.data.vehicles;
-    const vehicles = allVehicles.filter(v => !customerId || Number(v.customer_id) === Number(customerId));
-    return `<option value="">Не выбран</option>` + vehicles.map(v => `<option value="${esc(v.id)}" ${Number(selected) === Number(v.id) ? "selected" : ""}>${esc(vehicleName(v))}</option>`).join("");
+function vehicleOptions(customerId, selected, extraVehicles = []) {
+    const allVehicles = [...(state.data.lookups?.vehicles || state.data.vehicles || []), ...(extraVehicles || [])];
+    const seen = new Set();
+    const vehicles = allVehicles.filter(vehicle => {
+        if (!vehicle?.id) return false;
+        if (seen.has(Number(vehicle.id))) return false;
+        if (customerId && Number(vehicle.customer_id) !== Number(customerId)) return false;
+        seen.add(Number(vehicle.id));
+        return true;
+    });
+    return `<option value="">Не выбран</option>` + vehicles.map(vehicle => {
+        const unavailable = vehicle.deleted_at || vehicle.deleted_at === 1 || vehicle.vehicle_deleted;
+        const selectedAttr = Number(selected) === Number(vehicle.id) ? "selected" : "";
+        const disabledAttr = unavailable && !selectedAttr ? "disabled" : "";
+        const rawLabel = `${vehicleName(vehicle) || `ID ${vehicle.id}`}${unavailable ? " · удалён" : ""}`;
+        return `<option value="${esc(vehicle.id)}" ${selectedAttr} ${disabledAttr}>${esc(rawLabel)}</option>`;
+    }).join("");
 }
 
 function catalogModels(make) {
@@ -2423,12 +2773,29 @@ function openOrderModal(order = {}) {
         return;
     }
     const selectedCustomer = order.customer_id || lookupCustomers[0]?.id || "";
+    const orderVehicleOption = order.vehicle_id ? {
+        id: order.vehicle_id,
+        customer_id: selectedCustomer,
+        make: order.vehicle_make,
+        model: order.vehicle_model,
+        year: order.vehicle_year,
+        plate: order.vehicle_plate,
+        deleted_at: order.vehicle_deleted
+    } : null;
+    const currentVehicleOptions = () => {
+        const vehicle = orderVehicleOption;
+        if (!vehicle?.id) return vehicleOptions(selectedCustomer, order.vehicle_id);
+        if (vehicle.deleted_at || vehicle.deleted_at === 1 || vehicle.vehicle_deleted) {
+            return vehicleOptions(selectedCustomer, order.vehicle_id, [vehicle]);
+        }
+        return vehicleOptions(selectedCustomer, order.vehicle_id, [vehicle]);
+    };
     openModal(
         order.id ? `Заказ-наряд ${order.number}` : "Новый заказ-наряд",
         `<form id="orderForm" class="stack">
             <div class="form-grid three">
                 ${selectField("order", "customer_id", "Клиент", customerOptions(selectedCustomer), "required")}
-                ${selectField("order", "vehicle_id", "Автомобиль", vehicleOptions(selectedCustomer, order.vehicle_id))}
+                ${selectField("order", "vehicle_id", "Автомобиль", currentVehicleOptions())}
                 ${selectField("order", "status", "Статус", Object.entries(state.data.statuses).map(([key, label]) => `<option value="${esc(key)}" ${order.status === key ? "selected" : ""}>${esc(label)}</option>`).join(""))}
                 ${selectField("order", "priority", "Приоритет", Object.entries(state.data.priorities || priorityLabels).map(([key, label]) => `<option value="${esc(key)}" ${(order.priority || "normal") === key ? "selected" : ""}>${esc(label)}</option>`).join(""))}
                 ${inputField("order", "advisor", "Мастер-приемщик", `value="${esc(order.advisor || "Администратор")}"`)}
@@ -3029,6 +3396,7 @@ if (window.matchMedia) {
     else if (colorSchemeQuery.addListener) colorSchemeQuery.addListener(onSystemThemeChange);
 }
 
+initShell();
 window.addEventListener("popstate", () => setRoute(routeFromLocation(), false));
 window.addEventListener("hashchange", () => setRoute(routeFromLocation(), false));
 setRoute(state.route, false);

@@ -119,7 +119,10 @@ def github_headers(accept: str = "application/vnd.github+json") -> dict[str, str
 
 
 def _parse_trusted_update_url(url: str) -> tuple[str, urllib.parse.ParseResult]:
-    cleaned = clean_text(url, 1000)
+    raw = "" if url is None else str(url)
+    if any(ord(char) < 32 or ord(char) == 127 for char in raw):
+        raise RuntimeError("Manifest обновления содержит недоверенную ссылку на файл.")
+    cleaned = clean_text(raw, 1000)
     if not cleaned:
         raise RuntimeError("В релизе нет ссылки на файл обновления.")
     try:

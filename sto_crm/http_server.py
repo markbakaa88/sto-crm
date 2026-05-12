@@ -72,14 +72,19 @@ class CRMHandler(BaseHTTPRequestHandler):
             self.validate_local_request_context()
             self.send_bytes(b"", "text/plain; charset=utf-8", status=204, headers={"Allow": "GET, POST, PUT, DELETE, OPTIONS"})
         except PermissionError as exc:
+            self.close_connection = True
             self.send_error_json(403, str(exc))
+        finally:
+            self.discard_untrusted_request_body()
 
     def handle_request(self, method: str) -> None:
+        trusted_request = False
         try:
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path.rstrip("/") or "/"
             query = urllib.parse.parse_qs(parsed.query)
             self.validate_mutating_request(method)
+            trusted_request = True
 
             if method == "HEAD" and path in {"/", "/app"}:
                 self.send_html(INDEX_HTML, write_body=False)
@@ -198,6 +203,9 @@ class CRMHandler(BaseHTTPRequestHandler):
             if getattr(sys, "stderr", None):
                 traceback.print_exc()
             self.send_error_json(500, INTERNAL_ERROR_MESSAGE)
+        finally:
+            if not trusted_request:
+                self.discard_untrusted_request_body()
 
     def route_entity(
         self,
@@ -292,6 +300,19 @@ class CRMHandler(BaseHTTPRequestHandler):
         except ValueError:
             return False
         return (port or 80) == self.server.server_port
+
+    def discard_untrusted_request_body(self) -> None:
+        raw_length = self.headers.get("Content-Length")
+        try:
+            length = int(raw_length or "0")
+        except ValueError:
+            length = 0
+        if length <= 0:
+            return
+        try:
+            self.rfile.read(min(length, MAX_BODY_BYTES + 1))
+        except (OSError, ValueError):
+            pass
 
     def read_json(self) -> dict[str, Any]:
         raw_length = self.headers.get("Content-Length")

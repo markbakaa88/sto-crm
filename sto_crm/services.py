@@ -480,17 +480,22 @@ def delete_inventory(record_id: int) -> dict[str, Any]:
     with write_db() as conn:
         if not active_exists(conn, "inventory", record_id):
             raise KeyError("Складская позиция не найдена.")
-        order_usage = conn.execute(
+        protected_usage = conn.execute(
             """
-            SELECT COUNT(*)
+            SELECT 1
             FROM order_items oi
             JOIN orders o ON o.id = oi.order_id
-            WHERE oi.inventory_id = ? AND o.deleted_at IS NULL
+            WHERE oi.inventory_id = ?
+              AND o.deleted_at IS NULL
+              AND o.status <> 'cancelled'
+            LIMIT 1
             """,
             (record_id,),
-        ).fetchone()[0]
-        if order_usage:
-            raise ValueError("Позиция используется в заказ-нарядах. Сначала удалите или измените связанные заказы.")
+        ).fetchone()
+        if protected_usage:
+            raise ValueError(
+                "Позиция используется в активных или закрытых заказ-нарядах. Сначала удалите или измените активные заказы либо явно отмените закрытые."
+            )
         stamp = now_iso()
         conn.execute("UPDATE inventory SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL", (stamp, stamp, record_id))
         return {"deleted": True}

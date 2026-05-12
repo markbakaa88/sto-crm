@@ -120,7 +120,7 @@ def parse_float(value: Any, default: float = 0.0) -> float:
     if value is None or value == "":
         return default
     try:
-        normalized = str(value).replace("\u00a0", "").replace(" ", "").replace(",", ".")
+        normalized = str(value).replace("\u00a0", "").replace("\u202f", "").replace(" ", "").replace(",", ".")
         parsed = float(normalized)
         return parsed if math.isfinite(parsed) else default
     except (TypeError, ValueError):
@@ -157,7 +157,7 @@ def parse_float_field(value: Any, field_name: str, default: float = 0.0) -> floa
     if is_blank(value):
         return default
     try:
-        normalized = str(value).replace("\u00a0", "").replace(" ", "").replace(",", ".").strip()
+        normalized = str(value).replace("\u00a0", "").replace("\u202f", "").replace(" ", "").replace(",", ".").strip()
         parsed = float(normalized)
     except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(f"Некорректное число: {field_name}.") from exc
@@ -171,7 +171,7 @@ def parse_int_field(value: Any, field_name: str, default: int = 0) -> int:
     if is_blank(value):
         return default
     if isinstance(value, bool):
-        return int(value)
+        raise ValueError(f"Некорректное целое число: {field_name}.")
     try:
         if isinstance(value, int):
             return value
@@ -179,7 +179,7 @@ def parse_int_field(value: Any, field_name: str, default: int = 0) -> int:
             if not math.isfinite(value) or not value.is_integer():
                 raise ValueError
             return int(value)
-        normalized = str(value).replace("\u00a0", "").replace(" ", "").strip()
+        normalized = str(value).replace("\u00a0", "").replace("\u202f", "").replace(" ", "").strip()
         if re.fullmatch(r"[+-]?\d+", normalized):
             return int(normalized)
         if re.fullmatch(r"[+-]?\d+[\.,]\d+", normalized):
