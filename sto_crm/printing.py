@@ -10,6 +10,16 @@ from .config import ITEM_APPROVAL_STATUSES, ORDER_STATUSES
 from .runtime import money, parse_float, parse_int
 from .validation import item_is_billable
 
+def _format_quantity(value: Any) -> str:
+    """Форматирует количество без экспоненты и с русской десятичной запятой."""
+    amount = parse_float(value)
+    # Не используем ':g' — для больших/малых значений он даёт экспоненту.
+    text = f"{amount:.4f}".rstrip("0").rstrip(".")
+    if not text or text == "-":
+        text = "0"
+    return text.replace(".", ",")
+
+
 def print_order_html(order: dict[str, Any]) -> str:
     vehicle = " ".join(
         str(part)
@@ -33,7 +43,7 @@ def print_order_html(order: dict[str, Any]) -> str:
                 <td><strong>{html.escape(str(item.get('title') or ''))}</strong></td>
                 <td>{'Работа' if item.get('kind') == 'service' else 'Запчасть'}</td>
                 <td><span class="line-badge {approval_class}">{html.escape(approval_label)}</span></td>
-                <td class="num">{parse_float(item.get('quantity')):g}</td>
+                <td class="num">{_format_quantity(item.get('quantity'))}</td>
                 <td class="num">{money(item.get('unit_price'))}</td>
                 <td class="num total-cell">{money(total)}</td>
             </tr>
@@ -45,7 +55,7 @@ def print_order_html(order: dict[str, Any]) -> str:
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-__STO_CRM_CSP_NONCE__'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
     <title>{html.escape(str(order.get("number")))} · заказ-наряд</title>
     <style>
         :root {{

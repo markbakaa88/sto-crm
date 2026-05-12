@@ -51,7 +51,13 @@ def optional_non_negative_float(value: Any, field_name: str, default: float = 0.
 
 
 def generate_order_number(conn: sqlite3.Connection) -> str:
-    """Генерирует уникальный номер заказ-наряда."""
+    """Генерирует уникальный номер заказ-наряда.
+
+    Намеренно игнорируем legacy-номера с суффиксом вне диапазона 3-6 цифр,
+    чтобы случайный импорт/ручная правка с аномальным суффиксом не ломали
+    ежедневный инкремент. Сгенерированный номер всегда 3-значный и не
+    конфликтует с 7+-значными legacy-номерами.
+    """
     prefix = datetime.now().strftime("СТО-%Y%m%d")
     pattern = re.compile(rf"^{re.escape(prefix)}-(\d{{3,6}})$")
     rows = conn.execute(
@@ -63,7 +69,11 @@ def generate_order_number(conn: sqlite3.Connection) -> str:
         match = pattern.fullmatch(str(row["number"] or ""))
         if not match:
             continue
-        max_suffix = max(max_suffix, int(match.group(1)))
+        try:
+            suffix = int(match.group(1))
+        except (TypeError, ValueError):
+            continue
+        max_suffix = max(max_suffix, suffix)
     return f"{prefix}-{max_suffix + 1:03d}"
 
 

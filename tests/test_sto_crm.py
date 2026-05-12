@@ -527,6 +527,48 @@ class StoCrmTests(unittest.TestCase):
         with sto_crm.db() as conn:
             self.assertEqual(sto_crm.get_inventory(conn, part["id"])["quantity"], 3)
 
+        # Повторное сохранение cancelled-after-closed заказа без изменений должно
+        # пройти без ошибки, а попытка повторно открыть (перевести в любой другой
+        # статус) — по-прежнему блокируется.
+        noop = sto_crm.update_order(order["id"], payload)
+        self.assertEqual(noop["status"], "cancelled")
+
+        reopened = dict(payload)
+        reopened["status"] = "in_progress"
+        with self.assertRaises(ValueError):
+            sto_crm.update_order(order["id"], reopened)
+
+    def test_closed_order_survives_when_vehicle_is_soft_deleted(self):
+        customer = self.create_customer("Orphan Customer")
+        vehicle = self.create_vehicle(customer["id"], "S700SO")
+        order = sto_crm.create_order(
+            {
+                "customer_id": customer["id"],
+                "vehicle_id": vehicle["id"],
+                "status": "closed",
+                "priority": "normal",
+                "items": [service_item(500)],
+            }
+        )
+        # Перевод в отмену освобождает авто от активных заказов на уровне проверок
+        # удаления, но закрытый/отменённый заказ должен продолжать открываться.
+        sto_crm.update_order(order["id"], {
+            "customer_id": customer["id"],
+            "vehicle_id": vehicle["id"],
+            "status": "cancelled",
+            "priority": "normal",
+            "items": [service_item(500)],
+        })
+        with sto_crm.db() as conn:
+            conn.execute(
+                "UPDATE vehicles SET deleted_at = ? WHERE id = ?",
+                (sto_crm.now_iso(), vehicle["id"]),
+            )
+            fetched = sto_crm.get_order(conn, order["id"])
+        self.assertEqual(fetched["id"], order["id"])
+        self.assertEqual(fetched.get("vehicle_deleted"), 1)
+        self.assertIsNone(fetched.get("vehicle_plate"))
+
     def test_order_allows_external_part_without_inventory_and_does_not_consume_stock(self):
         customer = self.create_customer("External Part Customer")
         vehicle = self.create_vehicle(customer["id"], "X404XP")
@@ -1900,7 +1942,7 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('field-error', html)
         self.assertIn('clearAllFormErrors(form)', html)
         self.assertIn('min="0.01" required value="${esc(item.quantity || 1)}"', html)
-        self.assertIn('const invalidItem = state.orderDraftItems.find(item => !String(item.title || "").trim() || num(item.quantity, 0) <= 0);', html)
+        self.assertIn('const invalidItems = state.orderDraftItems.filter(item => !String(item.title || "").trim() || num(item.quantity, 0) <= 0);', html)
         self.assertEqual(html.count('applyFormError('), 3)
 
     def test_github_update_helpers_select_and_compare_release_assets(self):
@@ -2255,7 +2297,7 @@ class StoCrmTests(unittest.TestCase):
     def test_frontend_error_retry_and_network_helpers_are_robust(self):
         html = sto_crm.INDEX_HTML
         self.assertIn('bindViewActions(content);', html)
-        self.assertIn('error.retryable = response.status >= 500;', html)
+        self.assertIn('error.retryable = response.status >= 500 || [408, 425, 429].includes(response.status);', html)
         self.assertIn('const retryable = error?.retryable === true || !Number(error?.status || 0);', html)
         self.assertIn('if (attempt === maxRetries || !retryable) throw error;', html)
         self.assertIn('if (method !== "GET" && !state.data?.app?.csrf_token)', html)

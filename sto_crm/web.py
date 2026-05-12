@@ -5,6 +5,8 @@ from __future__ import annotations
 from importlib import resources
 from pathlib import Path
 
+from .runtime import is_frozen
+
 _ASSET_PACKAGE = f"{__package__}.assets"
 _ASSET_DIR = Path(__file__).resolve().parent / "assets"
 _CSS_MARKER = "__STO_CRM_APP_CSS__"
@@ -13,9 +15,12 @@ FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><re
 
 
 def _read_asset(name: str) -> str:
-    filesystem_asset = _ASSET_DIR / name
-    if filesystem_asset.is_file():
-        return filesystem_asset.read_text(encoding="utf-8")
+    # В собранном exe читаем ТОЛЬКО упакованные ресурсы,
+    # чтобы нельзя было подменить app.js/app.css файлом рядом с exe.
+    if not is_frozen():
+        filesystem_asset = _ASSET_DIR / name
+        if filesystem_asset.is_file():
+            return filesystem_asset.read_text(encoding="utf-8")
     return resources.files(_ASSET_PACKAGE).joinpath(name).read_text(encoding="utf-8")
 
 

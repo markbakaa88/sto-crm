@@ -466,11 +466,26 @@ try {{
     if (-not (Test-Path -LiteralPath $Downloaded)) {{ throw 'Скачанный файл обновления не найден.' }}
     $ActualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $Downloaded).Hash.ToLowerInvariant()
     if ($ActualSha256 -ne $ExpectedSha256) {{ throw 'SHA-256 файла обновления изменился перед установкой.' }}
+    $ExpectedSize = (Get-Item -LiteralPath $Downloaded).Length
     if (Test-Path -LiteralPath $Backup) {{ Remove-Item -LiteralPath $Backup -Force }}
     Move-Item -LiteralPath $Current -Destination $Backup -Force
-    Move-Item -LiteralPath $Downloaded -Destination $Current -Force
+    $MoveSucceeded = $false
+    try {{
+        Move-Item -LiteralPath $Downloaded -Destination $Current -Force
+        if (-not (Test-Path -LiteralPath $Current)) {{ throw 'Новый exe не появился на месте.' }}
+        $ActualSize = (Get-Item -LiteralPath $Current).Length
+        if ($ActualSize -ne $ExpectedSize) {{ throw 'Размер установленного файла отличается от загруженного.' }}
+        $VerifySha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $Current).Hash.ToLowerInvariant()
+        if ($VerifySha256 -ne $ExpectedSha256) {{ throw 'SHA-256 установленного файла не совпадает.' }}
+        $MoveSucceeded = $true
+    }} catch {{
+        Write-UpdateLog ('Установка прервана, откатываем: ' + $_.Exception.Message)
+        if (Test-Path -LiteralPath $Current) {{ Remove-Item -LiteralPath $Current -Force -ErrorAction SilentlyContinue }}
+        if (Test-Path -LiteralPath $Backup) {{ Move-Item -LiteralPath $Backup -Destination $Current -Force }}
+        throw
+    }}
     Write-UpdateLog 'Файл приложения обновлен.'
-    Start-Process -FilePath $Current
+    try {{ Start-Process -FilePath $Current }} catch {{ Write-UpdateLog ('Запуск после обновления не выполнен: ' + $_.Exception.Message) }}
 }} catch {{
     Write-UpdateLog ('Ошибка обновления: ' + $_.Exception.Message)
     try {{

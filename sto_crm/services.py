@@ -162,7 +162,15 @@ def update_vehicle(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
             ).fetchone()[0]
             if inspections_count:
                 raise ValueError("Нельзя сменить клиента у автомобиля с цифровыми осмотрами.")
-        mileage_order_id = old["mileage_order_id"] if parse_int(old["mileage"]) == data["mileage"] else None
+        old_mileage_order_id = parse_int(old["mileage_order_id"])
+        # Сохраняем привязку к заказу-источнику ТОЛЬКО если пробег не изменился
+        # И ранее уже был синхронизирован с заказом. Иначе ручной пробег, случайно
+        # совпавший с заказным, был бы ошибочно помечен как синхронизированный.
+        mileage_order_id = (
+            old_mileage_order_id
+            if old_mileage_order_id and parse_int(old["mileage"]) == data["mileage"]
+            else None
+        )
         conn.execute(
             """
             UPDATE vehicles
@@ -616,8 +624,19 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
             data["follow_up_at"] = str(old["follow_up_at"] or "") or (datetime.now() + timedelta(days=1)).replace(microsecond=0).isoformat(timespec="minutes")
         if old_status == "closed":
             ensure_closed_order_not_changed(old, old_items, data)
-        elif str(old["closed_at"] or ""):
-            raise ValueError("Отмененный после закрытия заказ-наряд нельзя повторно открыть или изменить. Создайте новый корректирующий заказ.")
+        elif str(old["closed_at"] or "") and old_status == "cancelled":
+            # Отмененный после закрытия заказ-наряд: финансы заморожены,
+            # разрешаем только noop-сохранение в статусе cancelled.
+            if new_status != "cancelled":
+                raise ValueError("Отмененный после закрытия заказ-наряд нельзя повторно открыть или изменить. Создайте новый корректирующий заказ.")
+            # Для проверки noop нормализуем обе стороны: статус уже 'cancelled' → 'cancelled',
+            # а ensure_closed_order_not_changed ожидает старую запись в 'closed' и
+            # маппит новую 'cancelled' в 'closed'. Нам нужно, чтобы обе стороны сравнивались
+            # одинаково, поэтому сравниваем содержимое без поля status напрямую.
+            old_payload_signature = closed_order_signature(dict(old) | {"status": "cancelled"}, old_items)
+            new_payload_signature = closed_order_signature({**data, "status": "cancelled"}, data["items"])
+            if old_payload_signature != new_payload_signature:
+                raise ValueError("Отмененный после закрытия заказ-наряд нельзя повторно открыть или изменить. Создайте новый корректирующий заказ.")
         apply_inventory_delta(conn, old_status, new_status, old_items, data["items"])
         conn.execute(
             """
@@ -654,7 +673,9 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def compute_closed_at(old_status: str, old_closed_at: str, new_status: str) -> str:
-    if old_status == "closed" and old_closed_at:
+    # Ранее закрытый заказ: сохраняем исходную дату закрытия и при отмене,
+    # чтобы финансовая история и защита от повторного открытия не терялись.
+    if old_closed_at and (old_status == "closed" or new_status == "cancelled"):
         return old_closed_at
     if new_status != "closed":
         return ""

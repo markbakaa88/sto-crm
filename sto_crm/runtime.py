@@ -137,7 +137,7 @@ def parse_int(value: Any, default: int = 0) -> int:
             return value
         if isinstance(value, float):
             return int(value) if math.isfinite(value) else default
-        normalized = str(value).replace(" ", "").replace(" ", "").strip()
+        normalized = str(value).replace("\u00a0", "").replace("\u202f", "").replace(" ", "").strip()
         if re.fullmatch(r"[+-]?\d+", normalized):
             return int(normalized)
         if re.fullmatch(r"[+-]?\d+[\.,]\d+", normalized):

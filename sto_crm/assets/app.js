@@ -418,14 +418,16 @@ async function api(path, options = {}, retries = null) {
             const contentType = response.headers.get("Content-Type") || "";
             const data = contentType.includes("application/json") ? await response.json() : await response.text();
             if (!response.ok) {
-                const error = new Error(data?.error || data || "Ошибка запроса");
+                const message = (data && typeof data === "object" ? data.error : data) || `Ошибка запроса (HTTP ${response.status})`;
+                const error = new Error(message);
                 error.status = response.status;
-                error.retryable = response.status >= 500;
+                error.retryable = response.status >= 500 || [408, 425, 429].includes(response.status);
                 throw error;
             }
             return data;
         } catch (error) {
             if (error?.name === "AbortError") throw error;
+            if (options?.signal?.aborted) throw error;
             const retryable = error?.retryable === true || !Number(error?.status || 0);
             if (attempt === maxRetries || !retryable) throw error;
             await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
@@ -1338,8 +1340,8 @@ function renderVehicles() {
                             <td>${v.plate ? `<span class="plate">${esc(v.plate)}</span>` : ""}</td>
                             <td>${esc(v.vin)}</td>
                             <td><div class="cell-title">${esc(v.customer_name)}<div class="muted">${esc(v.customer_phone)}</div></div></td>
-                            <td>${Number(v.mileage || 0).toLocaleString("ru-RU")} км</td>
-                            <td><div class="cell-title">${esc(v.next_service_at || "")}<div class="muted">${v.next_service_mileage ? `${Number(v.next_service_mileage).toLocaleString("ru-RU")} км` : ""}</div></div></td>
+                            <td>${num(v.mileage).toLocaleString("ru-RU")} км</td>
+                            <td><div class="cell-title">${esc(v.next_service_at || "")}<div class="muted">${v.next_service_mileage ? `${num(v.next_service_mileage).toLocaleString("ru-RU")} км` : ""}</div></div></td>
                             <td><div class="row-actions"><button class="btn" type="button" data-action="edit-vehicle" data-id="${v.id}" aria-label="Открыть автомобиль ${esc(vehicleName(v) || v.plate || v.id)}">Открыть</button></div></td>
                         </tr>`).join("") || `<tr><td colspan="7" class="empty"><strong>Автомобилей не найдено</strong><span>Добавьте автомобиль клиента.</span></td></tr>`}
                 </tbody>
@@ -1659,7 +1661,9 @@ async function checkForUpdates(showToast = true) {
     if (state.updateLoading) return;
     state.updateCheckScheduled = false;
     state.updateLoading = true;
-    render();
+    // Перерисовываем ТОЛЬКО если пользователь находится в разделе обновлений,
+    // иначе теряется фокус в глобальном поиске и перерисовываются все таблицы.
+    if (state.route === "updates") render();
     try {
         state.updateStatus = await api("/api/update/status", {}, 0);
         if (showToast) {
@@ -1672,7 +1676,8 @@ async function checkForUpdates(showToast = true) {
         throw error;
     } finally {
         state.updateLoading = false;
-        render();
+        if (state.route === "updates") render();
+        updateNavigationBadges();
     }
 }
 
@@ -2326,7 +2331,7 @@ function openCustomerModal(customer = {}) {
             ${inputField("customer", "email", "Email", `type="email" value="${esc(customer.email)}" inputmode="email" autocomplete="email"`)}
             ${inputField("customer", "source", "Источник", `value="${esc(customer.source)}"`)}
             ${selectField("customer", "preferred_channel", "Канал связи", channelOptions(customer.preferred_channel))}
-            <label class="check-field" for="customer_reminder_consent"><input id="customer_reminder_consent" type="checkbox" name="reminder_consent" value="1" ${customer.reminder_consent === 0 ? "" : "checked"}> Сервисные напоминания</label>
+            <label class="check-field" for="customer_reminder_consent"><input id="customer_reminder_consent" type="checkbox" name="reminder_consent" value="1" ${Number(customer.reminder_consent ?? 1) ? "checked" : ""}> Сервисные напоминания</label>
             ${textareaField("customer", "notes", "Заметки", customer.notes, "", "span-2")}
         </form>`,
         `${customer.id ? `<button class="btn danger" type="button" data-save="delete-customer" data-id="${customer.id}">Удалить</button>` : ""}
@@ -2474,7 +2479,7 @@ function openOrderModal(order = {}) {
         renderOrderItems();
     });
     ['discount', 'tax_rate', 'paid'].forEach(name => {
-        const input = document.querySelector(`[name="${name}"]`);
+        const input = document.querySelector(`#orderForm [name="${name}"]`);
         if (input) input.addEventListener("input", () => {
             const totals = $("#orderTotals");
             if (totals) totals.outerHTML = orderTotalsHtml();
@@ -2562,9 +2567,9 @@ function orderTotalsHtml() {
     const deferred = state.orderDraftItems.filter(i => (i.approval_status || "approved") !== "approved")
         .reduce((sum, i) => sum + num(i.quantity) * num(i.unit_price), 0);
     const subtotal = service + parts;
-    const discountPreview = Math.min(num(document.querySelector('[name="discount"]')?.value, 0), subtotal);
-    const taxPreview = Math.max(0, subtotal - discountPreview) * Math.min(Math.max(num(document.querySelector('[name="tax_rate"]')?.value, 0), 0), 100) / 100;
-    const paidPreview = Math.min(num(document.querySelector('[name="paid"]')?.value, 0), Math.max(0, subtotal - discountPreview) + taxPreview);
+    const discountPreview = Math.min(num(document.querySelector('#orderForm [name="discount"]')?.value, 0), subtotal);
+    const taxPreview = Math.max(0, subtotal - discountPreview) * Math.min(Math.max(num(document.querySelector('#orderForm [name="tax_rate"]')?.value, 0), 0), 100) / 100;
+    const paidPreview = Math.min(num(document.querySelector('#orderForm [name="paid"]')?.value, 0), Math.max(0, subtotal - discountPreview) + taxPreview);
     const duePreview = Math.max(0, subtotal - discountPreview + taxPreview - paidPreview);
     return `<div class="totals" id="orderTotals">
         <div><span>Работы</span><strong>${money(service)}</strong></div>
@@ -2602,9 +2607,14 @@ async function saveOrder(id) {
     if (form && !form.reportValidity()) return;
     const data = collectForm(form);
     syncAllOrderItems();
-    const invalidItem = state.orderDraftItems.find(item => !String(item.title || "").trim() || num(item.quantity, 0) <= 0);
-    if (invalidItem) {
-        applyFormError(new Error(!String(invalidItem.title || "").trim() ? "Укажите наименование позиции." : "Количество позиции должно быть больше нуля."));
+    const invalidItems = state.orderDraftItems.filter(item => !String(item.title || "").trim() || num(item.quantity, 0) <= 0);
+    if (invalidItems.length) {
+        const missingTitle = invalidItems.some(item => !String(item.title || "").trim());
+        const missingQty = invalidItems.some(item => num(item.quantity, 0) <= 0);
+        const parts = [];
+        if (missingTitle) parts.push("укажите наименование позиции");
+        if (missingQty) parts.push("количество должно быть больше нуля");
+        applyFormError(new Error(`Проверьте позиции заказ-наряда: ${parts.join("; ")} (строк с ошибкой: ${invalidItems.length}).`));
         return;
     }
     data.items = state.orderDraftItems.map(item => ({
@@ -2910,7 +2920,7 @@ async function shutdownApp() {
         toast(error.message || String(error), "error");
     }
 }
-$("#shutdownBtn").addEventListener("click", () => shutdownApp());
+$("#shutdownBtn")?.addEventListener("click", () => shutdownApp());
 
 // init theme
 function systemPrefersDark() {

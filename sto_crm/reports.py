@@ -307,16 +307,29 @@ def build_reports(
                 "orders_count": 0,
                 "revenue": 0.0,
                 "last_order_at": "",
+                "_last_order_dt": None,
             },
         )
         bucket["orders_count"] += 1
         bucket["revenue"] += parse_float(order.get("total"))
-        bucket["last_order_at"] = max(str(bucket.get("last_order_at") or ""), str(order.get("updated_at") or ""))
+        candidate_text = str(order.get("closed_at") or order.get("updated_at") or "")
+        candidate_dt = parse_local_datetime(candidate_text)
+        # Сравниваем по datetime, чтобы смешанные форматы (YYYY-MM-DD vs
+        # YYYY-MM-DDTHH:MM) не ломали определение последней даты.
+        if candidate_dt and (bucket["_last_order_dt"] is None or candidate_dt > bucket["_last_order_dt"]):
+            bucket["_last_order_dt"] = candidate_dt
+            bucket["last_order_at"] = candidate_text
+        elif not bucket["last_order_at"]:
+            bucket["last_order_at"] = candidate_text
     vip_customers = sorted(
         [
             {
-                **bucket,
+                "customer_id": bucket["customer_id"],
+                "customer_name": bucket.get("customer_name"),
+                "customer_phone": bucket.get("customer_phone"),
+                "orders_count": bucket["orders_count"],
                 "revenue": round(parse_float(bucket.get("revenue")), 2),
+                "last_order_at": bucket.get("last_order_at") or "",
             }
             for bucket in retention_by_customer.values()
             if parse_float(bucket.get("revenue")) > 0 and (bucket["orders_count"] >= 2 or parse_float(bucket.get("revenue")) >= 50_000)

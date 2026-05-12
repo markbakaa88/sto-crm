@@ -279,20 +279,29 @@ def get_order(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
         """
         SELECT o.*, c.name AS customer_name, c.phone AS customer_phone, c.email AS customer_email,
                v.make AS vehicle_make, v.model AS vehicle_model, v.year AS vehicle_year,
-               v.plate AS vehicle_plate, v.vin AS vehicle_vin, v.mileage AS vehicle_mileage
+               v.plate AS vehicle_plate, v.vin AS vehicle_vin, v.mileage AS vehicle_mileage,
+               v.deleted_at AS vehicle_deleted_at
         FROM orders o
         JOIN customers c ON c.id = o.customer_id
         LEFT JOIN vehicles v ON v.id = o.vehicle_id
         WHERE o.id = ?
           AND o.deleted_at IS NULL
           AND c.deleted_at IS NULL
-          AND (o.vehicle_id IS NULL OR v.deleted_at IS NULL)
         """,
         (record_id,),
     ).fetchone()
     if not row:
         raise KeyError("Заказ-наряд не найден.")
     order = dict(row)
+    # Если автомобиль был soft-deleted, НЕ скрываем сам заказ (иначе редактирование/закрытие
+    # закрытого заказа становится невозможным), но очищаем поля авто, чтобы фронт получил
+    # консистентные NULL вместо данных удаленного автомобиля.
+    if order.pop("vehicle_deleted_at", None):
+        for key in ("vehicle_make", "vehicle_model", "vehicle_year", "vehicle_plate", "vehicle_vin", "vehicle_mileage"):
+            order[key] = None
+        order["vehicle_deleted"] = 1
+    else:
+        order["vehicle_deleted"] = 0
     order["items"] = list_order_items(conn, record_id)
     order.update(calculate_totals(order, order["items"]))
     return order

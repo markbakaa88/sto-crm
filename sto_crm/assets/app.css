@@ -1129,7 +1129,9 @@
             text-align: left;
         }
         .command-item:hover,
-        .command-item.active { background: var(--surface-soft); }
+        .command-item.active,
+        .command-item:focus-visible { background: var(--surface-soft); }
+        .command-item:focus-visible { outline: none; box-shadow: var(--focus, 0 0 0 2px var(--accent)); }
         .command-item kbd {
             border: 1px solid var(--line);
             border-bottom-width: 2px;
@@ -1423,13 +1425,23 @@
         }
 
         @media print {
+            @page { size: A4; margin: 14mm; }
+
             .sidebar,
             .topbar,
             .toast,
             .modal-backdrop,
             .command-palette-backdrop,
             .system-menu-panel,
-            .skip-link {
+            .skip-link,
+            .offline-banner,
+            .error-banner,
+            .view-heading-actions,
+            .toolbar,
+            .toolbar-right,
+            .row-actions,
+            .pagination,
+            .loading-state {
                 display: none !important;
             }
 

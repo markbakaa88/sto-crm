@@ -241,9 +241,13 @@ class CRMHandler(BaseHTTPRequestHandler):
         if not self.is_allowed_host_header(self.headers.get("Host")):
             raise PermissionError("Запрос отклонен: внешний хост не имеет доступа к локальной CRM.")
         origin = self.headers.get("Origin")
-        if origin and not self.is_allowed_origin(origin):
-            raise PermissionError("Запрос отклонен: внешний источник не имеет доступа к локальной CRM.")
         fetch_site = (self.headers.get("Sec-Fetch-Site") or "").lower()
+        if origin:
+            if not self.is_allowed_origin(origin):
+                raise PermissionError("Запрос отклонен: внешний источник не имеет доступа к локальной CRM.")
+        elif fetch_site and fetch_site not in {"same-origin", "none"}:
+            # При отсутствии Origin требуем явный same-origin-сигнал браузера.
+            raise PermissionError("Запрос отклонен: внешний источник не имеет доступа к локальной CRM.")
         if fetch_site and fetch_site not in {"same-origin", "same-site", "none"}:
             raise PermissionError("Запрос отклонен: внешний сайт не имеет доступа к локальной CRM.")
 
