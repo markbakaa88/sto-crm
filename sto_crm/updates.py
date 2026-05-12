@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import secrets
@@ -384,6 +385,11 @@ def download_release_asset(asset: dict[str, Any], target: Path) -> dict[str, Any
                     raise RuntimeError("Файл обновления превышает безопасный лимит.")
                 sha256.update(chunk)
                 output.write(chunk)
+            output.flush()
+            try:
+                os.fsync(output.fileno())
+            except (OSError, AttributeError):
+                pass
         if expected_size and total != expected_size:
             raise RuntimeError("Размер скачанного обновления не совпадает с размером в GitHub Release.")
         if total <= 0:
@@ -410,8 +416,18 @@ def ensure_downloaded_executable(path: Path) -> None:
     if path.suffix.lower() != ".exe":
         raise RuntimeError("Автообновление поддерживает только готовый Windows-файл .exe из GitHub Release.")
     with path.open("rb") as handle:
-        if handle.read(2) != b"MZ":
+        head = handle.read(64)
+        if len(head) < 64 or head[:2] != b"MZ":
             raise RuntimeError("Скачанный файл не похож на Windows .exe.")
+        try:
+            lfanew = int.from_bytes(head[60:64], "little")
+        except ValueError as exc:
+            raise RuntimeError("Скачанный файл не похож на Windows .exe.") from exc
+        if lfanew <= 0 or lfanew > 4 * 1024 * 1024:
+            raise RuntimeError("Скачанный файл не содержит корректный PE-заголовок.")
+        handle.seek(lfanew)
+        if handle.read(4) != b"PE\x00\x00":
+            raise RuntimeError("Скачанный файл не содержит корректную PE-сигнатуру.")
 
 
 def write_windows_update_script(
@@ -501,6 +517,8 @@ def install_update_from_github() -> dict[str, Any]:
     if not is_frozen():
         raise RuntimeError("Автоустановка доступна в Windows-версии STO_CRM.exe. Для исходников используйте git pull.")
     release = latest_release_info()
+    if release.get("prerelease") or release.get("draft"):
+        return {"ok": True, "updated": False, "message": "Стабильных обновлений нет.", "release": release}
     version = release.get("version") or release.get("tag")
     if not is_newer_version(version, APP_VERSION):
         return {"ok": True, "updated": False, "message": "Установлена актуальная версия.", "release": release}
@@ -512,7 +530,7 @@ def install_update_from_github() -> dict[str, Any]:
     update_dir = user_data_dir() / "updates"
     update_dir.mkdir(parents=True, exist_ok=True)
     safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", asset.get("name") or "STO_CRM.exe")
-    downloaded = update_dir / f"download-{datetime.now().strftime('%Y%m%d%H%M%S')}-{safe_name}"
+    downloaded = update_dir / f"download-{datetime.now().strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(8)}-{safe_name}"
     backup = create_backup()
     append_updater_log(f"Перед обновлением создана резервная копия базы: {backup['display_path']}.")
     details = download_release_asset(asset, downloaded)

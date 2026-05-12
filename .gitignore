@@ -14,14 +14,27 @@ venv/
 *.err
 backups/
 updates/
+apply_update_*.ps1
 *.bak.exe
-*.bak.*
+*.bak.[0-9]*
 
 # Build artifacts
 build/
 dist/
 release/
 *.spec.bak
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*.swp
+
+# Coverage / pytest reports
+.coverage
+coverage.xml
+htmlcov/
 
 # Local assistant/editor metadata
 .source/

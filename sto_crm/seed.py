@@ -10,7 +10,7 @@ from .services import create_order_tx
 
 def seed_demo_data() -> None:
     with write_db() as conn:
-        count = conn.execute("SELECT COUNT(*) FROM customers WHERE deleted_at IS NULL").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM customers").fetchone()[0]
         if count:
             return
         stamp = now_iso()

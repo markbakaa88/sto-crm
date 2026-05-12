@@ -439,7 +439,9 @@ def ensure_no_appointment_conflict(
     end = start + timedelta(minutes=duration_minutes)
     if end <= start:
         raise ValueError("Длительность записи должна быть больше нуля.")
-    window_start = (start - timedelta(days=1)).isoformat(timespec="minutes")
+    # Максимальная длительность по валидатору — 480 минут (8 часов). Берём 9 часов
+    # с запасом, чтобы поймать любую существующую запись, которая тянется к моменту start.
+    window_start = (start - timedelta(minutes=540)).isoformat(timespec="minutes")
     window_end = end.isoformat(timespec="minutes")
 
     rows = conn.execute(

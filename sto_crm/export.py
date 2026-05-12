@@ -114,14 +114,29 @@ def csv_export(entity: str) -> tuple[str, str]:
         ]
     elif entity == "inspections":
         rows = []
+        inspection_fields = [
+            "id", "inspected_at", "status", "customer_name", "customer_phone",
+            "vehicle_plate", "vehicle_make", "vehicle_model", "order_number", "inspector",
+        ]
         for inspection in list_inspections("", "all", None):
-            for item in inspection.get("items", []):
+            items = inspection.get("items", []) or []
+            if not items:
                 rows.append(
                     {
-                        **{k: inspection.get(k, "") for k in [
-                            "id", "inspected_at", "status", "customer_name", "customer_phone",
-                            "vehicle_plate", "vehicle_make", "vehicle_model", "order_number", "inspector",
-                        ]},
+                        **{k: inspection.get(k, "") for k in inspection_fields},
+                        "area": "",
+                        "item_title": "",
+                        "condition_status": "",
+                        "approval_status": "",
+                        "recommendation": "",
+                        "estimate": "",
+                    }
+                )
+                continue
+            for item in items:
+                rows.append(
+                    {
+                        **{k: inspection.get(k, "") for k in inspection_fields},
                         "area": item.get("area", ""),
                         "item_title": item.get("title", ""),
                         "condition_status": item.get("condition_status", ""),

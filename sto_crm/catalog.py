@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import json
+import threading
 import zlib
 from typing import Any
 
@@ -60,6 +62,7 @@ CAR_CATALOG: list[dict[str, list[str] | str]] = [
 ]
 
 _CAR_CATALOG_CACHE: dict[str, Any] | None = None
+_CAR_CATALOG_LOCK = threading.Lock()
 OFFICIAL_CAR_CATALOG_B64 = (
     "eNqdfVl36jiX9l9xn4v+6l2rqCTMvHdghgyQEOwQTnr1hQMOuGJsyuAkpFf/92/vZ0u25YRTtfoCaWuwLMka9sz//NjHabL0"
     "f/z7x+2l63Stt+mVbe28/d6P1n5SWXqJtY+83X4TH6ytn6z9lfUeHDaW495Z9mxiJf46iCMvtOKXlzCIfGvpHbwwXv/4/cfW"
@@ -236,9 +239,12 @@ OFFICIAL_CAR_CATALOG_B64 = (
 )
 
 def official_car_catalog_entries() -> list[dict[str, Any]]:
-    raw = zlib.decompress(base64.b64decode(OFFICIAL_CAR_CATALOG_B64)).decode("utf-8")
-    payload = json.loads(raw)
-    entries = payload.get("makes", [])
+    try:
+        raw = zlib.decompress(base64.b64decode(OFFICIAL_CAR_CATALOG_B64)).decode("utf-8")
+        payload = json.loads(raw)
+    except (binascii.Error, zlib.error, UnicodeDecodeError, ValueError):
+        return []
+    entries = payload.get("makes", []) if isinstance(payload, dict) else []
     if not isinstance(entries, list):
         return []
     return [entry for entry in entries if isinstance(entry, dict)]
@@ -246,38 +252,45 @@ def official_car_catalog_entries() -> list[dict[str, Any]]:
 
 def car_catalog_payload() -> dict[str, Any]:
     global _CAR_CATALOG_CACHE
-    if _CAR_CATALOG_CACHE is not None:
+    cached = _CAR_CATALOG_CACHE
+    if cached is not None:
+        return cached
+    with _CAR_CATALOG_LOCK:
+        if _CAR_CATALOG_CACHE is not None:
+            return _CAR_CATALOG_CACHE
+        models_by_make: dict[str, list[str]] = {}
+        seen_models: dict[str, set[str]] = {}
+        make_names: dict[str, str] = {}
+        makes: list[str] = []
+        for entry in [*CAR_CATALOG, *official_car_catalog_entries()]:
+            raw_make = str(entry.get("make", "")).strip()
+            if not raw_make:
+                continue
+            make_key = raw_make.casefold()
+            make = make_names.setdefault(make_key, raw_make)
+            raw_models = entry.get("models", [])
+            if not isinstance(raw_models, list):
+                continue
+            models = [str(model).strip() for model in raw_models if str(model).strip()]
+            if make not in models_by_make:
+                makes.append(make)
+                models_by_make[make] = []
+                seen_models[make] = set()
+            for model in models:
+                key = model.casefold()
+                if key not in seen_models[make]:
+                    models_by_make[make].append(model)
+                    seen_models[make].add(key)
+        makes = sorted(makes, key=str.casefold)
+        for make in list(models_by_make):
+            models_by_make[make] = sorted(models_by_make[make], key=str.casefold)
+        _CAR_CATALOG_CACHE = {
+            "makes": makes,
+            "models": models_by_make,
+            "stats": {
+                "makes": len(makes),
+                "models": sum(len(items) for items in models_by_make.values()),
+                "empty_makes": sum(1 for items in models_by_make.values() if not items),
+            },
+        }
         return _CAR_CATALOG_CACHE
-    models_by_make: dict[str, list[str]] = {}
-    seen_models: dict[str, set[str]] = {}
-    make_names: dict[str, str] = {}
-    makes: list[str] = []
-    for entry in [*CAR_CATALOG, *official_car_catalog_entries()]:
-        raw_make = str(entry["make"]).strip()
-        if not raw_make:
-            continue
-        make_key = raw_make.casefold()
-        make = make_names.setdefault(make_key, raw_make)
-        models = [str(model).strip() for model in entry["models"] if str(model).strip()]
-        if make not in models_by_make:
-            makes.append(make)
-            models_by_make[make] = []
-            seen_models[make] = set()
-        for model in models:
-            key = model.casefold()
-            if key not in seen_models[make]:
-                models_by_make[make].append(model)
-                seen_models[make].add(key)
-    makes = sorted(makes, key=str.casefold)
-    for make, models in models_by_make.items():
-        models_by_make[make] = sorted(models, key=str.casefold)
-    _CAR_CATALOG_CACHE = {
-        "makes": makes,
-        "models": models_by_make,
-        "stats": {
-            "makes": len(makes),
-            "models": sum(len(models) for models in models_by_make.values()),
-            "empty_makes": sum(1 for models in models_by_make.values() if not models),
-        },
-    }
-    return _CAR_CATALOG_CACHE

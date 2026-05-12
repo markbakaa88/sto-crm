@@ -2267,6 +2267,57 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('window.setTimeout(() => URL.revokeObjectURL(url), 1000);', html)
         self.assertNotIn('URL.revokeObjectURL(url);\n    toast("CSV экспортирован")', html)
 
+    def test_ensure_downloaded_executable_validates_full_pe_header(self):
+        good = Path(self.tempdir.name) / "good.exe"
+        lfanew = 0x80
+        payload = bytearray(b"MZ" + b"\x00" * (lfanew - 2) + b"PE\x00\x00" + b"rest")
+        payload[60:64] = lfanew.to_bytes(4, "little")
+        good.write_bytes(bytes(payload))
+        sto_crm.ensure_downloaded_executable(good)
+
+        bad_magic = Path(self.tempdir.name) / "bad-magic.exe"
+        bad_magic.write_bytes(b"XZ" + b"\x00" * 200)
+        with self.assertRaisesRegex(RuntimeError, "Windows .exe"):
+            sto_crm.ensure_downloaded_executable(bad_magic)
+
+        short = Path(self.tempdir.name) / "short.exe"
+        short.write_bytes(b"MZ")
+        with self.assertRaisesRegex(RuntimeError, "Windows .exe"):
+            sto_crm.ensure_downloaded_executable(short)
+
+        bad_pe = Path(self.tempdir.name) / "no-pe.exe"
+        stub = bytearray(b"MZ" + b"\x00" * 126)
+        stub[60:64] = (0x40).to_bytes(4, "little")
+        stub += b"ZZZZ"
+        bad_pe.write_bytes(bytes(stub))
+        with self.assertRaisesRegex(RuntimeError, "PE-сигнатуру"):
+            sto_crm.ensure_downloaded_executable(bad_pe)
+
+        wrong_extension = Path(self.tempdir.name) / "file.dll"
+        wrong_extension.write_bytes(bytes(payload))
+        with self.assertRaisesRegex(RuntimeError, "готовый Windows-файл"):
+            sto_crm.ensure_downloaded_executable(wrong_extension)
+
+    def test_install_update_rejects_prerelease_and_draft_builds(self):
+        saved_release = {"version": "99.0.0", "tag": "v99.0.0", "prerelease": True, "asset": {}}
+
+        old_latest = sto_crm.latest_release_info
+        old_is_frozen = sto_crm.is_frozen
+        try:
+            sto_crm.is_frozen = lambda: True
+            sto_crm.latest_release_info = lambda: saved_release
+            result = sto_crm.install_update_from_github()
+            self.assertTrue(result["ok"])
+            self.assertFalse(result["updated"])
+            self.assertIn("Стабильных обновлений", result["message"])
+
+            saved_release = {"version": "99.0.0", "tag": "v99.0.0", "draft": True, "asset": {}}
+            result = sto_crm.install_update_from_github()
+            self.assertFalse(result["updated"])
+        finally:
+            sto_crm.latest_release_info = old_latest
+            sto_crm.is_frozen = old_is_frozen
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -83,7 +83,9 @@ def build_reports(
     pipeline_due = sum(parse_float(o.get("due")) for o in active_orders)
     status_counts = dict.fromkeys(ORDER_STATUSES, 0)
     for order in orders:
-        status_counts[str(order.get("status"))] = status_counts.get(str(order.get("status")), 0) + 1
+        key = str(order.get("status") or "")
+        if key in status_counts:
+            status_counts[key] += 1
     low_stock = [
         p
         for p in inventory
@@ -230,10 +232,10 @@ def build_reports(
         )
     procurement_plan.sort(key=lambda item: (0 if item["urgency"] == "critical" else 1, -parse_float(item.get("budget"))))
 
+    overdue_ids = {int(order["id"]) for order in overdue_orders if order.get("id")}
     pipeline_by_status = []
     for status, label in ORDER_STATUSES.items():
         status_orders = [order for order in orders if order.get("status") == status]
-        overdue_ids = {int(order["id"]) for order in overdue_orders if order.get("id")}
         status_overdue = [order for order in status_orders if int(order.get("id") or 0) in overdue_ids]
         pipeline_by_status.append(
             {
@@ -247,7 +249,6 @@ def build_reports(
             }
         )
 
-    overdue_ids = {int(order["id"]) for order in overdue_orders if order.get("id")}
     workload: dict[str, dict[str, Any]] = {}
     for order in active_orders:
         responsible = clean_text(order.get("mechanic") or order.get("advisor"), 120, "Не назначен") or "Не назначен"

@@ -97,9 +97,10 @@ def main(argv: list[str] | None = None) -> int:
     def shutdown(*_: Any) -> None:
         threading.Thread(target=server.shutdown, daemon=True).start()
 
-    signal.signal(signal.SIGINT, shutdown)
-    if hasattr(signal, "SIGTERM"):
-        signal.signal(signal.SIGTERM, shutdown)
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGINT, shutdown)
+        if hasattr(signal, "SIGTERM"):
+            signal.signal(signal.SIGTERM, shutdown)
 
     safe_log(f"{APP_NAME} запущена: {url}")
     safe_log(f"База данных: {_runtime.RUNTIME.db_path}")

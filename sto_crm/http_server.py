@@ -134,7 +134,9 @@ class CRMHandler(BaseHTTPRequestHandler):
                 token = self.headers.get("X-CSRF-Token") or self.headers.get("X-CRM-CSRF-Token") or ""
                 if not secrets.compare_digest(token, _runtime.RUNTIME.csrf_token):
                     raise PermissionError("Экспорт доступен только из интерфейса CRM.")
-                entity = path.rsplit("/", 1)[-1].replace(".csv", "")
+                entity = path.rsplit("/", 1)[-1]
+                if entity.endswith(".csv"):
+                    entity = entity[:-4]
                 filename, content = csv_export(entity)
                 self.send_bytes(
                     content.encode("utf-8"),

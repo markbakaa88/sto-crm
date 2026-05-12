@@ -313,6 +313,7 @@ def update_inspection(record_id: int, payload: dict[str, Any]) -> dict[str, Any]
         if not active_exists(conn, "inspections", record_id):
             raise KeyError("Осмотр не найден.")
         data = validate_inspection(conn, payload)
+        old_items = list_inspection_items(conn, record_id)
         conn.execute(
             """
             UPDATE inspections
@@ -324,7 +325,12 @@ def update_inspection(record_id: int, payload: dict[str, Any]) -> dict[str, Any]
             {**{k: v for k, v in data.items() if k != "items"}, "updated_at": now_iso(), "id": record_id},
         )
         conn.execute("DELETE FROM inspection_items WHERE inspection_id=?", (record_id,))
-        insert_inspection_items(conn, record_id, data["items"])
+        preserved_item_stamps = {
+            inspection_item_signature(item): str(item.get("created_at") or "")
+            for item in old_items
+            if item.get("created_at")
+        }
+        insert_inspection_items(conn, record_id, data["items"], preserved_timestamps=preserved_item_stamps)
         return get_inspection(conn, record_id)
 
 
@@ -337,8 +343,20 @@ def delete_inspection(record_id: int) -> dict[str, Any]:
         return {"deleted": True}
 
 
-def insert_inspection_items(conn: sqlite3.Connection, inspection_id: int, items: list[dict[str, Any]]) -> None:
+def insert_inspection_items(
+    conn: sqlite3.Connection,
+    inspection_id: int,
+    items: list[dict[str, Any]],
+    *,
+    preserved_timestamps: dict[tuple, str] | None = None,
+) -> None:
     stamp = now_iso()
+    preserved = preserved_timestamps or {}
+    rows = []
+    for item in items:
+        signature = inspection_item_signature(item)
+        created_at = preserved.get(signature) or stamp
+        rows.append({**item, "inspection_id": inspection_id, "created_at": created_at})
     conn.executemany(
         """
         INSERT INTO inspection_items(inspection_id, area, title, condition_status, approval_status,
@@ -346,7 +364,18 @@ def insert_inspection_items(conn: sqlite3.Connection, inspection_id: int, items:
         VALUES (:inspection_id, :area, :title, :condition_status, :approval_status,
                 :recommendation, :estimate, :created_at)
         """,
-        [{**item, "inspection_id": inspection_id, "created_at": stamp} for item in items],
+        rows,
+    )
+
+
+def inspection_item_signature(item: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        str(item.get("area") or ""),
+        str(item.get("title") or ""),
+        str(item.get("condition_status") or ""),
+        str(item.get("approval_status") or ""),
+        str(item.get("recommendation") or ""),
+        round(parse_float(item.get("estimate")), 2),
     )
 
 
@@ -582,13 +611,13 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         data = validate_order(conn, payload)
         old_status = str(old["status"])
         new_status = data["status"]
+        closed_at = compute_closed_at(old_status, str(old["closed_at"] or ""), new_status)
+        if data["status"] == "closed" and not data["follow_up_at"]:
+            data["follow_up_at"] = str(old["follow_up_at"] or "") or (datetime.now() + timedelta(days=1)).replace(microsecond=0).isoformat(timespec="minutes")
         if old_status == "closed":
             ensure_closed_order_not_changed(old, old_items, data)
         elif str(old["closed_at"] or ""):
             raise ValueError("Отмененный после закрытия заказ-наряд нельзя повторно открыть или изменить. Создайте новый корректирующий заказ.")
-        closed_at = compute_closed_at(old_status, str(old["closed_at"] or ""), new_status)
-        if data["status"] == "closed" and not data["follow_up_at"]:
-            data["follow_up_at"] = str(old["follow_up_at"] or "") or (datetime.now() + timedelta(days=1)).replace(microsecond=0).isoformat(timespec="minutes")
         apply_inventory_delta(conn, old_status, new_status, old_items, data["items"])
         conn.execute(
             """
@@ -609,7 +638,8 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
             },
         )
         conn.execute("DELETE FROM order_items WHERE order_id=?", (record_id,))
-        insert_order_items(conn, record_id, data["items"])
+        preserved_item_stamps = {closed_item_signature(item): str(item.get("created_at") or "") for item in old_items if item.get("created_at")}
+        insert_order_items(conn, record_id, data["items"], preserved_timestamps=preserved_item_stamps)
         old_vehicle_id = int(old["vehicle_id"] or 0) or None
         old_odometer = parse_int(old["odometer"])
         if data["status"] != "cancelled":
@@ -664,14 +694,26 @@ def delete_order(record_id: int) -> dict[str, Any]:
         return {"deleted": True}
 
 
-def insert_order_items(conn: sqlite3.Connection, order_id: int, items: list[dict[str, Any]]) -> None:
+def insert_order_items(
+    conn: sqlite3.Connection,
+    order_id: int,
+    items: list[dict[str, Any]],
+    *,
+    preserved_timestamps: dict[tuple, str] | None = None,
+) -> None:
     stamp = now_iso()
+    preserved = preserved_timestamps or {}
+    rows = []
+    for item in items:
+        signature = closed_item_signature(item)
+        created_at = preserved.get(signature) or stamp
+        rows.append({**item, "order_id": order_id, "created_at": created_at})
     conn.executemany(
         """
         INSERT INTO order_items(order_id, kind, inventory_id, title, approval_status, quantity, unit_price, unit_cost, created_at)
         VALUES (:order_id, :kind, :inventory_id, :title, :approval_status, :quantity, :unit_price, :unit_cost, :created_at)
         """,
-        [{**item, "order_id": order_id, "created_at": stamp} for item in items],
+        rows,
     )
 
 
@@ -764,8 +806,12 @@ def apply_inventory_delta(
         part = conn.execute("SELECT id, name, quantity, deleted_at FROM inventory WHERE id=?", (part_id,)).fetchone()
         if not part:
             raise ValueError("Складская позиция для списания не найдена.")
-        if delta > 0 and part["deleted_at"]:
-            raise ValueError(f"Складская позиция недоступна для списания: {part['name']}.")
+        if part["deleted_at"]:
+            if delta > 0:
+                raise ValueError(f"Складская позиция недоступна для списания: {part['name']}.")
+            raise ValueError(
+                f"Восстановите позицию склада «{part['name']}» перед возвратом остатков отмененного заказа."
+            )
         current_qty = parse_float(part["quantity"])
         if delta > 0 and current_qty + 0.000001 < delta:
             raise ValueError(f"Недостаточно на складе: {part['name']}. Доступно {current_qty:g}, требуется {delta:g}.")

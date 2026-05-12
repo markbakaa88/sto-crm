@@ -102,12 +102,15 @@ function assertSafeModalMarkup(markup) {
     }
 }
 
+const RUB_FORMAT_FULL = new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const RUB_FORMAT_COMPACT = new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", minimumFractionDigits: 0, maximumFractionDigits: 0 });
+
 function money(value) {
-    return new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value || 0));
+    return RUB_FORMAT_FULL.format(Number(value || 0));
 }
 
 function moneyCompact(value) {
-    return new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Number(value || 0));
+    return RUB_FORMAT_COMPACT.format(Number(value || 0));
 }
 
 function pluralRu(value, one, few, many) {
@@ -297,12 +300,17 @@ function inspectionConditionBadge(status) {
     return `<span class="status condition-${classToken(status)}">${esc(label)}</span>`;
 }
 
+let announceFrame = 0;
 function announce(message, urgent = false) {
     const status = $("#appStatus");
     if (!status) return;
     status.setAttribute("aria-live", urgent ? "assertive" : "polite");
     status.textContent = "";
-    requestAnimationFrame(() => { status.textContent = message; });
+    if (announceFrame) cancelAnimationFrame(announceFrame);
+    announceFrame = requestAnimationFrame(() => {
+        announceFrame = 0;
+        status.textContent = message;
+    });
 }
 
 function toast(message, type = "info") {
@@ -1779,7 +1787,7 @@ function bindViewActions(root) {
                 const searchInput = $("#globalSearch");
                 if (searchInput) searchInput.value = "";
                 updateSearchClear();
-                loadData().then(runAction).catch(() => runAction());
+                loadData().then(runAction).catch(showError);
             } else {
                 runAction();
             }
@@ -1960,7 +1968,7 @@ function handleModalKeydown(event) {
         return;
     }
     const backdrop = $("#modalBackdrop");
-    if (!backdrop.classList.contains("open")) return;
+    if (!backdrop || !backdrop.classList.contains("open")) return;
     if (event.key === "Escape") {
         if (shouldKeepModalForEscape(event)) return;
         event.preventDefault();
@@ -2579,12 +2587,13 @@ async function saveEntity(kind, id) {
     setSaveButtonsBusy(true);
     try {
         await api(path, { method, body: JSON.stringify(data) });
-        setSaveButtonsBusy(false);
         closeModal(true);
         await loadData();
         toast("Сохранено");
+    } catch (error) {
+        showError(error);
     } finally {
-        if (state.saving) setSaveButtonsBusy(false);
+        setSaveButtonsBusy(false);
     }
 }
 
@@ -2612,12 +2621,13 @@ async function saveOrder(id) {
     setSaveButtonsBusy(true);
     try {
         await api(path, { method, body: JSON.stringify(data) });
-        setSaveButtonsBusy(false);
         closeModal(true);
         await loadData();
         toast("Заказ-наряд сохранен");
+    } catch (error) {
+        showError(error);
     } finally {
-        if (state.saving) setSaveButtonsBusy(false);
+        setSaveButtonsBusy(false);
     }
 }
 
@@ -2639,12 +2649,13 @@ async function saveInspection(id) {
     setSaveButtonsBusy(true);
     try {
         await api(path, { method, body: JSON.stringify(data) });
-        setSaveButtonsBusy(false);
         closeModal(true);
         await loadData();
         toast("Осмотр сохранен");
+    } catch (error) {
+        showError(error);
     } finally {
-        if (state.saving) setSaveButtonsBusy(false);
+        setSaveButtonsBusy(false);
     }
 }
 
@@ -2706,12 +2717,13 @@ async function deleteEntity(kind, id) {
     setSaveButtonsBusy(true);
     try {
         await api(`/api/${kind}/${id}`, { method: "DELETE" });
-        setSaveButtonsBusy(false);
         closeModal(true);
         await loadData();
         toast("Удалено");
+    } catch (error) {
+        showError(error);
     } finally {
-        if (state.saving) setSaveButtonsBusy(false);
+        setSaveButtonsBusy(false);
     }
 }
 
@@ -2763,26 +2775,25 @@ document.addEventListener("click", event => {
 });
 
 const modalCloseButton = $("#modalClose");
-modalCloseButton.addEventListener("click", () => closeModal());
+modalCloseButton?.addEventListener("click", () => closeModal());
 document.addEventListener("keydown", handleModalKeydown);
-$("#modalBackdrop").addEventListener("click", event => {
+$("#modalBackdrop")?.addEventListener("click", event => {
     if (event.target.id === "modalBackdrop") closeModal();
 });
-$("#globalSearch").addEventListener("input", event => {
+$("#globalSearch")?.addEventListener("input", event => {
     state.q = event.target.value;
     state.customerPage = 1;
-    state.catalogLimit = 60;
     updateSearchClear();
     clearTimeout(state.searchTimer);
     state.searchTimer = setTimeout(() => loadData().catch(showError), 260);
 });
-$("#globalSearch").addEventListener("keydown", event => {
+$("#globalSearch")?.addEventListener("keydown", event => {
     if (event.key === "Escape" && state.q) {
         event.preventDefault();
         clearGlobalSearch();
     }
 });
-$("#clearSearch").addEventListener("click", clearGlobalSearch);
+$("#clearSearch")?.addEventListener("click", clearGlobalSearch);
 window.addEventListener("offline", () => {
     setOnlineState(false);
     announce("Браузер сообщает, что сеть недоступна. Работаем с последними загруженными данными.", true);
@@ -2791,8 +2802,8 @@ window.addEventListener("online", () => {
     setOnlineState(true);
     loadData().then(() => toast("Соединение восстановлено")).catch(showError);
 });
-$("#refreshBtn").addEventListener("click", () => loadData().then(() => toast("Обновлено")).catch(showError));
-$("#backupBtn").addEventListener("click", createBackupFromUi);
+$("#refreshBtn")?.addEventListener("click", () => loadData().then(() => toast("Обновлено")).catch(showError));
+$("#backupBtn")?.addEventListener("click", createBackupFromUi);
 $("#commandBtn")?.addEventListener("click", openCommandPalette);
 $("#commandClose")?.addEventListener("click", closeCommandPalette);
 $("#commandPalette")?.addEventListener("click", event => {
