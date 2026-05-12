@@ -191,20 +191,6 @@ def init_db(seed_demo: bool = False) -> None:
                     created_at TEXT NOT NULL
                 );
 
-                CREATE INDEX IF NOT EXISTS idx_customers_active_name ON customers(deleted_at, name);
-                CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
-                CREATE INDEX IF NOT EXISTS idx_vehicles_active_customer ON vehicles(deleted_at, customer_id);
-                CREATE INDEX IF NOT EXISTS idx_vehicles_plate ON vehicles(plate);
-                CREATE INDEX IF NOT EXISTS idx_inventory_active_name ON inventory(deleted_at, name);
-                CREATE INDEX IF NOT EXISTS idx_orders_active_status ON orders(deleted_at, status);
-                CREATE INDEX IF NOT EXISTS idx_orders_deleted ON orders(deleted_at);
-                CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id);
-                CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
-                CREATE INDEX IF NOT EXISTS idx_appointments_schedule ON appointments(deleted_at, scheduled_at);
-                CREATE INDEX IF NOT EXISTS idx_appointments_customer ON appointments(customer_id);
-                CREATE INDEX IF NOT EXISTS idx_inspections_vehicle ON inspections(deleted_at, vehicle_id, inspected_at);
-                CREATE INDEX IF NOT EXISTS idx_inspections_customer ON inspections(customer_id);
-                CREATE INDEX IF NOT EXISTS idx_inspection_items_inspection ON inspection_items(inspection_id);
                 """
             )
             ensure_schema(conn)
@@ -332,6 +318,10 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "inventory", "updated_at", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "inventory", "deleted_at", "TEXT")
 
+    ensure_column(conn, "orders", "number", "TEXT NOT NULL DEFAULT ''")
+    ensure_column(conn, "orders", "customer_id", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(conn, "orders", "vehicle_id", "INTEGER")
+    ensure_column(conn, "orders", "status", "TEXT NOT NULL DEFAULT 'new'")
     ensure_column(conn, "orders", "priority", "TEXT NOT NULL DEFAULT 'normal'")
     ensure_column(conn, "orders", "advisor", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "orders", "mechanic", "TEXT NOT NULL DEFAULT ''")
@@ -347,6 +337,9 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "orders", "authorized_by", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "orders", "authorized_at", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "orders", "follow_up_at", "TEXT NOT NULL DEFAULT ''")
+    ensure_column(conn, "orders", "created_at", "TEXT NOT NULL DEFAULT ''")
+    ensure_column(conn, "orders", "updated_at", "TEXT NOT NULL DEFAULT ''")
+    ensure_column(conn, "orders", "deleted_at", "TEXT")
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(orders)").fetchall()}
     if "closed_at" not in columns:
         conn.execute("ALTER TABLE orders ADD COLUMN closed_at TEXT NOT NULL DEFAULT ''")
@@ -357,7 +350,34 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         WHERE status = 'closed' AND COALESCE(closed_at, '') = ''
         """
     )
+    for row in conn.execute("SELECT id FROM orders WHERE COALESCE(number, '') = '' ORDER BY id").fetchall():
+        conn.execute("UPDATE orders SET number = ? WHERE id = ?", (f"СТО-LEGACY-{int(row['id']):06d}", int(row["id"])))
+    duplicate_numbers = conn.execute(
+        """
+        SELECT number
+        FROM orders
+        WHERE COALESCE(number, '') <> ''
+        GROUP BY number
+        HAVING COUNT(*) > 1
+        """
+    ).fetchall()
+    for duplicate in duplicate_numbers:
+        rows = conn.execute("SELECT id, number FROM orders WHERE number = ? ORDER BY id", (duplicate["number"],)).fetchall()
+        for row in rows[1:]:
+            conn.execute("UPDATE orders SET number = ? WHERE id = ?", (f"{row['number']}-{int(row['id']):06d}", int(row["id"])))
+
+    ensure_column(conn, "order_items", "order_id", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(conn, "order_items", "kind", "TEXT NOT NULL DEFAULT 'service'")
+    ensure_column(conn, "order_items", "inventory_id", "INTEGER")
+    ensure_column(conn, "order_items", "title", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "order_items", "approval_status", "TEXT NOT NULL DEFAULT 'approved'")
+    ensure_column(conn, "order_items", "quantity", "REAL NOT NULL DEFAULT 1")
+    ensure_column(conn, "order_items", "unit_price", "REAL NOT NULL DEFAULT 0")
+    ensure_column(conn, "order_items", "unit_cost", "REAL NOT NULL DEFAULT 0")
+    ensure_column(conn, "order_items", "created_at", "TEXT NOT NULL DEFAULT ''")
+
+    ensure_column(conn, "appointments", "customer_id", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(conn, "appointments", "vehicle_id", "INTEGER")
     ensure_column(conn, "appointments", "scheduled_at", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "appointments", "duration_minutes", "INTEGER NOT NULL DEFAULT 60")
     ensure_column(conn, "appointments", "status", "TEXT NOT NULL DEFAULT 'scheduled'")
@@ -368,6 +388,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "appointments", "updated_at", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "appointments", "deleted_at", "TEXT")
 
+    ensure_column(conn, "inspections", "customer_id", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(conn, "inspections", "vehicle_id", "INTEGER")
     ensure_column(conn, "inspections", "order_id", "INTEGER REFERENCES orders(id)")
     ensure_column(conn, "inspections", "status", "TEXT NOT NULL DEFAULT 'draft'")
     ensure_column(conn, "inspections", "inspector", "TEXT NOT NULL DEFAULT ''")
@@ -377,13 +399,30 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "inspections", "updated_at", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "inspections", "deleted_at", "TEXT")
 
+    ensure_column(conn, "inspection_items", "inspection_id", "INTEGER NOT NULL DEFAULT 0")
     ensure_column(conn, "inspection_items", "area", "TEXT NOT NULL DEFAULT ''")
+    ensure_column(conn, "inspection_items", "title", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "inspection_items", "condition_status", "TEXT NOT NULL DEFAULT 'ok'")
     ensure_column(conn, "inspection_items", "approval_status", "TEXT NOT NULL DEFAULT 'approved'")
     ensure_column(conn, "inspection_items", "recommendation", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "inspection_items", "estimate", "REAL NOT NULL DEFAULT 0")
     ensure_column(conn, "inspection_items", "created_at", "TEXT NOT NULL DEFAULT ''")
 
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_customers_active_name ON customers(deleted_at, name)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_vehicles_active_customer ON vehicles(deleted_at, customer_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_vehicles_plate ON vehicles(plate)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_inventory_active_name ON inventory(deleted_at, name)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_active_status ON orders(deleted_at, status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_deleted ON orders(deleted_at)")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_number ON orders(number)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_schedule ON appointments(deleted_at, scheduled_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_customer ON appointments(customer_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_inspections_vehicle ON inspections(deleted_at, vehicle_id, inspected_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_inspections_customer ON inspections(customer_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_inspection_items_inspection ON inspection_items(inspection_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_closed_at ON orders(closed_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_follow_up_at ON orders(follow_up_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_vehicles_next_service ON vehicles(next_service_at, next_service_mileage)")

@@ -1422,6 +1422,46 @@
             .nav button.active { justify-content: flex-start; }
         }
 
+        @media print {
+            .sidebar,
+            .topbar,
+            .toast,
+            .modal-backdrop,
+            .command-palette-backdrop,
+            .system-menu-panel,
+            .skip-link {
+                display: none !important;
+            }
+
+            body,
+            .app,
+            .main,
+            .content {
+                display: block !important;
+                width: auto !important;
+                max-width: none !important;
+                min-height: 0 !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                background: #fff !important;
+                color: #000 !important;
+                box-shadow: none !important;
+                overflow: visible !important;
+            }
+
+            .table-wrap {
+                overflow: visible !important;
+                max-width: none !important;
+                box-shadow: none !important;
+            }
+
+            table {
+                min-width: 0 !important;
+                width: 100% !important;
+                page-break-inside: auto;
+            }
+        }
+
 /* compact business redesign */
 /* Legacy contract markers kept for packaged UI smoke tests:
    --content-max: 1680px;
@@ -2073,4 +2113,82 @@ body.compact .btn { min-height: 30px; }
     body.compact th,
     body.compact td { padding: 10px 11px; }
     .action-side .btn.primary { min-height: 44px; }
+}
+
+/* Mobile overflow and contrast hardening */
+.toolbar,
+.toolbar-left,
+.toolbar-right {
+    min-width: 0;
+    max-width: 100%;
+}
+.toolbar-left { flex: 1 1 auto; }
+.toolbar .segmented {
+    min-width: 0;
+    max-width: 100%;
+}
+body.dark .nav button.active .icon,
+body.dark .nav button.active .nav-badge,
+body.dark .action-card.info .action-priority {
+    color: #062f2c;
+    background: var(--accent-contrast);
+}
+@media (max-width: 680px) {
+    #content { scroll-margin-top: 150px; }
+    .topbar { gap: 6px; }
+    .title-block {
+        flex: 1 1 calc(100% - 56px);
+        min-width: 0;
+        width: auto;
+    }
+    .topbar h1 { font-size: 20px; }
+    .search input { height: 40px; min-height: 40px; }
+    .view-subtitle { display: none; }
+    .search {
+        order: 3;
+        flex: 1 1 100%;
+        min-width: 0;
+    }
+    .top-actions {
+        order: 2;
+        flex: 0 0 auto;
+        width: auto;
+        margin-left: auto;
+        justify-content: flex-end;
+        overflow-x: visible;
+        flex-wrap: nowrap;
+    }
+    .top-actions #commandBtn,
+    .top-actions #refreshBtn {
+        display: none;
+    }
+    .system-menu-button {
+        min-width: 44px;
+        padding: 0 12px;
+    }
+    .system-menu-button span:first-child {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+    .toolbar,
+    .toolbar-left,
+    .toolbar-right { width: 100%; }
+    .toolbar-left {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+    }
+    .segmented {
+        width: max-content;
+        max-width: 100%;
+    }
+    .segmented button {
+        min-height: 44px;
+        padding: 0 12px;
+    }
 }

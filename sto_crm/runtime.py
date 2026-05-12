@@ -92,7 +92,7 @@ def normalize_github_repository(value: str | None = None) -> str:
     if raw.startswith(("http://", "https://")):
         parsed = urllib.parse.urlparse(raw)
         parts = [part for part in parsed.path.strip("/").split("/") if part]
-        if len(parts) >= 2 and parsed.netloc.lower().endswith("github.com"):
+        if len(parts) >= 2 and (parsed.hostname or "").lower() == "github.com":
             raw = "/".join(parts[:2])
     raw = raw.removesuffix(".git").strip("/")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", raw):
@@ -260,8 +260,9 @@ def csv_cell(value: Any) -> Any:
     # Spreadsheet apps can hide formulas behind leading whitespace, BOMs or
     # direction/zero-width marks.  Strip those characters only for detection and
     # keep the original cell value intact for export fidelity.
-    stripped = value.lstrip().lstrip("\ufeff\u200b\u200c\u200d\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
-    if stripped and stripped[0] in ("=", "+", "-", "@", "\t", "\r", "\n"):
+    dangerous_leading = " \t\r\n\v\f\ufeff\u200b\u200c\u200d\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
+    stripped = value.lstrip(dangerous_leading)
+    if stripped and stripped[0] in ("=", "+", "-", "@"):
         return "'" + value
     return value
 

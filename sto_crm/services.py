@@ -584,6 +584,8 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         new_status = data["status"]
         if old_status == "closed":
             ensure_closed_order_not_changed(old, old_items, data)
+        elif str(old["closed_at"] or ""):
+            raise ValueError("Отмененный после закрытия заказ-наряд нельзя повторно открыть или изменить. Создайте новый корректирующий заказ.")
         closed_at = compute_closed_at(old_status, str(old["closed_at"] or ""), new_status)
         if data["status"] == "closed" and not data["follow_up_at"]:
             data["follow_up_at"] = str(old["follow_up_at"] or "") or (datetime.now() + timedelta(days=1)).replace(microsecond=0).isoformat(timespec="minutes")
@@ -622,10 +624,10 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def compute_closed_at(old_status: str, old_closed_at: str, new_status: str) -> str:
-    if new_status != "closed":
-        return ""
     if old_status == "closed" and old_closed_at:
         return old_closed_at
+    if new_status != "closed":
+        return ""
     return now_iso()
 
 

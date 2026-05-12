@@ -105,6 +105,8 @@ def build_reports(
     for vehicle in vehicles:
         if parse_int(vehicle.get("customer_reminder_consent"), 1) == 0:
             continue
+        if str(vehicle.get("customer_preferred_channel") or "phone") == "none":
+            continue
         next_service_at = str(vehicle.get("next_service_at") or "")
         next_service_mileage = parse_int(vehicle.get("next_service_mileage"))
         mileage = parse_int(vehicle.get("mileage"))
@@ -292,7 +294,7 @@ def build_reports(
 
     retention_by_customer: dict[int, dict[str, Any]] = {}
     for order in orders:
-        if order.get("status") == "cancelled" or not order.get("customer_id"):
+        if order.get("status") != "closed" or not order.get("customer_id"):
             continue
         customer_id = int(order["customer_id"])
         bucket = retention_by_customer.setdefault(

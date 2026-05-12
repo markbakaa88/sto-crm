@@ -99,7 +99,7 @@ def list_appointments(q: str = "", status: str = "all", limit: int | None = 1000
         raise ValueError("Некорректный статус записи.")
     with db() as conn:
         params: list[Any] = []
-        where = "WHERE a.deleted_at IS NULL"
+        where = "WHERE a.deleted_at IS NULL AND c.deleted_at IS NULL AND (a.vehicle_id IS NULL OR v.deleted_at IS NULL)"
         if status and status != "all":
             where += " AND a.status = ?"
             params.append(status)
@@ -138,7 +138,7 @@ def list_inspections(q: str = "", status: str = "all", limit: int | None = 1000)
         raise ValueError("Некорректный статус осмотра.")
     with db() as conn:
         params: list[Any] = []
-        where = "WHERE i.deleted_at IS NULL AND c.deleted_at IS NULL"
+        where = "WHERE i.deleted_at IS NULL AND c.deleted_at IS NULL AND (i.vehicle_id IS NULL OR v.deleted_at IS NULL) AND (i.order_id IS NULL OR o.deleted_at IS NULL)"
         if status and status != "all":
             where += " AND i.status = ?"
             params.append(status)
@@ -218,7 +218,7 @@ def list_orders(q: str = "", status: str = "", limit: int | None = 1000) -> list
         raise ValueError("Некорректный статус заказа.")
     with db() as conn:
         params: list[Any] = []
-        where = "WHERE o.deleted_at IS NULL AND c.deleted_at IS NULL"
+        where = "WHERE o.deleted_at IS NULL AND c.deleted_at IS NULL AND (o.vehicle_id IS NULL OR v.deleted_at IS NULL)"
         if status and status != "all":
             where += " AND o.status = ?"
             params.append(status)

@@ -256,6 +256,6 @@ def print_order_html(order: dict[str, Any]) -> str:
             <div class="line">Клиент</div>
         </section>
     </main>
-    <script>document.getElementById("printButton").addEventListener("click", () => window.print());</script>
+    <script nonce="__STO_CRM_CSP_NONCE__">document.getElementById("printButton").addEventListener("click", () => window.print());</script>
 </body>
 </html>"""

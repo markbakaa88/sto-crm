@@ -178,13 +178,13 @@ function num(value, fallback = 0) {
 function dateShort(value) {
     if (!value) return "";
     const parsed = new Date(String(value).replace(" ", "T"));
-    if (Number.isNaN(parsed.getTime())) return String(value).slice(0, 16);
+    if (Number.isNaN(parsed.getTime())) return esc(String(value).slice(0, 16));
     return parsed.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
 function inputDateValue(value) {
     if (!value) return "";
-    return String(value).replace(" ", "T").slice(0, 16);
+    return esc(String(value).replace(" ", "T").slice(0, 16));
 }
 
 function vehicleName(vehicle) {
@@ -524,6 +524,11 @@ function setRoute(route, updateUrl = true) {
     if (!routes[route]) return;
     const previousRoute = state.route;
     const sameRoute = previousRoute === route;
+    const hasOrderFilter = state.status !== "all" && !state.offlineMode;
+    const needsRouteFilterReload = hasOrderFilter && (
+        (route === "orders" && previousRoute !== "orders") ||
+        (route !== "orders" && previousRoute === "orders")
+    );
     state.route = route;
     if (route === "updates" && !state.updateStatus && !state.updateLoading && !state.updateCheckScheduled) {
         state.updateCheckScheduled = true;
@@ -544,6 +549,9 @@ function setRoute(route, updateUrl = true) {
         else button.removeAttribute("aria-current");
     });
     render();
+    if (needsRouteFilterReload) {
+        loadData().catch(showError);
+    }
     if (previousRoute !== route) {
         $("#content")?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
         announce(`Открыт раздел ${routes[route]}.`);
@@ -659,6 +667,12 @@ function updateNavigationBadges() {
         badge.hidden = !visible;
         badge.textContent = visible ? String(value) : "";
         badge.setAttribute("aria-label", value === "!" ? "Доступно обновление" : `${value} требует внимания`);
+    });
+    $$("#nav button[data-route]").forEach(button => {
+        const label = button.querySelector(".nav-label")?.textContent?.trim() || button.dataset.route || "Раздел";
+        const badge = button.querySelector("[data-nav-badge]");
+        const badgeText = badge && !badge.hidden ? badge.getAttribute("aria-label") : "";
+        button.setAttribute("aria-label", badgeText ? `${label}: ${badgeText}` : label);
     });
 }
 
@@ -972,7 +986,7 @@ function pipelineBoard(statuses = []) {
                         <strong>${esc(order.number || "Без номера")}</strong>
                         <div class="muted">${esc(order.customer_name || "")} · ${esc(order.vehicle || "Авто не выбрано")}</div>
                         <div>${money(order.total)} · ${esc(priorityLabels[order.priority] || order.priority || "")}</div>
-                        <button class="btn ghost" type="button" data-action="edit-order" data-id="${order.id}">Открыть</button>
+                        <button class="btn ghost" type="button" data-action="edit-order" data-id="${order.id}" aria-label="Открыть заказ-наряд ${esc(order.number || order.id)}">Открыть</button>
                     </div>`;
                 }).join("") || `<div class="muted">Нет заказов в статусе.</div>`}
             </div>
@@ -1000,7 +1014,7 @@ function overdueOrderList(orders = []) {
         <div class="deal-card overdue">
             <strong>${esc(order.number)} · ${money(order.total)}</strong>
             <div class="muted">${esc(order.customer_name || "")} · ${esc(order.vehicle || "")} · срок ${dateShort(order.promised_at)}</div>
-            <button class="btn ghost" type="button" data-action="edit-order" data-id="${order.id}">Открыть</button>
+            <button class="btn ghost" type="button" data-action="edit-order" data-id="${order.id}" aria-label="Открыть заказ-наряд ${esc(order.number || order.id)}">Открыть</button>
         </div>`).join("")}</div>`;
 }
 
@@ -1083,7 +1097,7 @@ function renderAppointments() {
                             <td>${Number(appointment.duration_minutes || 0)} мин</td>
                             <td>${esc(appointment.advisor || "")}</td>
                             <td><div class="cell-title"><strong>${esc(appointment.reason || "")}</strong><div class="muted">${esc(appointment.notes || "")}</div></div></td>
-                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-appointment" data-id="${appointment.id}">Открыть</button></div></td>
+                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-appointment" data-id="${appointment.id}" aria-label="Открыть запись ${esc(appointment.customer_name || appointment.id)} на ${esc(dateShort(appointment.scheduled_at))}">Открыть</button></div></td>
                         </tr>`).join("") || `<tr><td colspan="7" class="empty"><strong>Записей не найдено</strong><span>Создайте запись клиента в календаре.</span></td></tr>`}
                 </tbody>
             </table>
@@ -1120,7 +1134,7 @@ function renderInspections() {
                             <td>${Number(inspection.items_count || 0)}</td>
                             <td><div class="cell-title"><strong>${Number(inspection.critical_count || 0)} крит.</strong><div class="muted">${Number(inspection.attention_count || 0)} требует внимания</div></div></td>
                             <td class="money">${money(inspection.recommended_total)}</td>
-                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-inspection" data-id="${inspection.id}">Открыть</button></div></td>
+                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-inspection" data-id="${inspection.id}" aria-label="Открыть осмотр ${esc(inspection.customer_name || inspection.id)} от ${esc(dateShort(inspection.inspected_at))}">Открыть</button></div></td>
                         </tr>`).join("") || `<tr><td colspan="7" class="empty"><strong>Осмотров не найдено</strong><span>Создайте цифровой осмотр DVI.</span></td></tr>`}
                 </tbody>
             </table>
@@ -1200,9 +1214,9 @@ function renderOrders() {
 function orderRowActions(order) {
     const number = order.number || "заказа";
     return `<div class="row-actions order-row-actions">
-        <button class="btn" type="button" data-action="edit-order" data-id="${order.id}">Открыть</button>
+        <button class="btn" type="button" data-action="edit-order" data-id="${order.id}" aria-label="Открыть заказ-наряд ${esc(number)}">Открыть</button>
         <button class="btn ghost" type="button" data-action="print-order" data-id="${order.id}" aria-label="Печать заказ-наряда ${esc(number)}">Печать</button>
-        <button class="btn ghost" type="button" data-action="duplicate-order" data-id="${order.id}">Повторить</button>
+        <button class="btn ghost" type="button" data-action="duplicate-order" data-id="${order.id}" aria-label="Повторить заказ-наряд ${esc(number)}">Повторить</button>
     </div>`;
 }
 
@@ -1284,7 +1298,7 @@ function renderCustomers() {
                             <td>${textOrDash(c.source)}</td>
                             <td>${c.vehicles_count}</td>
                             <td><div class="cell-title"><strong>${c.orders_count}</strong><div class="muted">${c.last_order_at ? `посл. ${dateShort(c.last_order_at)}` : "нет заказов"}</div></div></td>
-                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-customer" data-id="${c.id}">Открыть</button></div></td>
+                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-customer" data-id="${c.id}" aria-label="Открыть клиента ${esc(c.name || c.id)}">Открыть</button></div></td>
                         </tr>`).join("") || `<tr><td colspan="8" class="empty"><strong>Клиентов не найдено</strong><span>Добавьте клиента или измените поиск.</span></td></tr>`}
                 </tbody>
             </table>
@@ -1318,7 +1332,7 @@ function renderVehicles() {
                             <td><div class="cell-title">${esc(v.customer_name)}<div class="muted">${esc(v.customer_phone)}</div></div></td>
                             <td>${Number(v.mileage || 0).toLocaleString("ru-RU")} км</td>
                             <td><div class="cell-title">${esc(v.next_service_at || "")}<div class="muted">${v.next_service_mileage ? `${Number(v.next_service_mileage).toLocaleString("ru-RU")} км` : ""}</div></div></td>
-                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-vehicle" data-id="${v.id}">Открыть</button></div></td>
+                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-vehicle" data-id="${v.id}" aria-label="Открыть автомобиль ${esc(vehicleName(v) || v.plate || v.id)}">Открыть</button></div></td>
                         </tr>`).join("") || `<tr><td colspan="7" class="empty"><strong>Автомобилей не найдено</strong><span>Добавьте автомобиль клиента.</span></td></tr>`}
                 </tbody>
             </table>
@@ -1485,7 +1499,7 @@ function renderInventory() {
                             <td class="money">${money(p.price)}</td>
                             <td class="money">${money(p.cost)}</td>
                             <td>${esc(p.supplier)}</td>
-                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-inventory" data-id="${p.id}">Открыть</button></div></td>
+                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-inventory" data-id="${p.id}" aria-label="Открыть складскую позицию ${esc(p.name || p.sku || p.id)}">Открыть</button></div></td>
                         </tr>`).join("") || `<tr><td colspan="8" class="empty"><strong>Складских позиций не найдено</strong><span>Добавьте первую позицию склада.</span></td></tr>`}
                 </tbody>
             </table>
@@ -1621,7 +1635,7 @@ function renderUpdates() {
                 </div>
             </div>
             <p id="updateInstallHint" class="muted">${esc(installTitle)}</p>
-            <p>CRM проверяет GitHub Releases выбранного публичного репозитория, читает manifest <strong>latest.json</strong> и скачивает только готовый <strong>STO_CRM.exe</strong>. Обновление скачивается с контролем размера и SHA-256, делает резерв текущего exe и перезапускает приложение.</p>
+            <p>CRM проверяет GitHub Releases выбранного публичного репозитория, читает manifest <strong>latest.json</strong> и скачивает только готовый <strong>STO_CRM.exe</strong>. Перед установкой создается резервная копия SQLite-базы, затем обновление скачивается с контролем размера и SHA-256, делает резерв текущего exe и перезапускает приложение.</p>
             <div class="update-meta">
                 <span class="count-pill">Текущая версия: ${esc(app.version)}</span>
                 <a class="count-pill" href="${esc(safeExternalUrl(app.repository_url))}" target="_blank" rel="noopener noreferrer">${esc(app.repository)}</a>
@@ -1660,13 +1674,14 @@ async function installUpdate() {
         toast("Новых обновлений нет");
         return;
     }
-    if (!confirm("Скачать обновление, закрыть CRM и перезапустить новую версию? Перед установкой будет создана резервная копия текущего exe.")) return;
+    if (!confirm("Скачать обновление, закрыть CRM и перезапустить новую версию? Перед установкой будут созданы резервные копии базы SQLite и текущего exe.")) return;
     state.updateInstalling = true;
     render();
     try {
         const result = await api("/api/update/install", { method: "POST", body: "{}" }, 0);
         toast(result.message || "Обновление запущено");
-        document.body.innerHTML = '<main class="shutdown-state"><section class="shutdown-card"><h1>СТО CRM обновляется</h1><p>Приложение закроется, заменит exe и запустится снова. Базу данных обновление не трогает.</p></section></main>';
+        const backupText = result.backup?.display_path ? ` Резервная копия базы: ${esc(result.backup.display_path)}.` : " Перед установкой создана резервная копия базы.";
+        document.body.innerHTML = `<main class="shutdown-state"><section class="shutdown-card"><h1>СТО CRM обновляется</h1><p>Приложение закроется, заменит exe и запустится снова.${backupText}</p></section></main>`;
     } catch (error) {
         state.updateInstalling = false;
         render();
@@ -2008,10 +2023,20 @@ async function openPrintOrder(id) {
             headers: { "X-CSRF-Token": state.data.app.csrf_token },
             cache: "no-store"
         });
-        const html = await response.text();
-        if (!response.ok) throw new Error(html || "Не удалось открыть печатную форму");
+        const contentType = response.headers.get("Content-Type") || "";
+        const bodyText = await response.text();
+        if (!response.ok) {
+            let message = bodyText || "Не удалось открыть печатную форму";
+            if (contentType.includes("application/json")) {
+                try {
+                    const payload = JSON.parse(bodyText);
+                    message = payload?.error || message;
+                } catch (_error) { /* keep raw text if server returned malformed JSON */ }
+            }
+            throw new Error(message);
+        }
         printWindow.document.open();
-        printWindow.document.write(html);
+        printWindow.document.write(bodyText);
         printWindow.document.close();
     } catch (error) {
         printWindow.close();
@@ -2093,7 +2118,8 @@ function partSourceHint(item = {}) {
 }
 
 function channelOptions(selected = "phone") {
-    return Object.entries(channelLabels)
+    const channels = state.data?.preferred_channels || channelLabels;
+    return Object.entries(channels)
         .map(([key, label]) => `<option value="${esc(key)}" ${(selected || "phone") === key ? "selected" : ""}>${esc(label)}</option>`)
         .join("");
 }
@@ -2799,34 +2825,68 @@ $("#commandSearch")?.addEventListener("keydown", event => {
         buttons[nextIndex].scrollIntoView({ block: "nearest" });
     }
 });
-function setSystemMenuOpen(isOpen) {
+function systemMenuItems() {
+    return $$("#systemMenu [role='menuitem']:not([disabled])");
+}
+
+function focusSystemMenuItem(index = 0) {
+    const items = systemMenuItems();
+    if (!items.length) return;
+    items[((index % items.length) + items.length) % items.length].focus();
+}
+
+function setSystemMenuOpen(isOpen, { focusFirst = false, restoreFocus = false } = {}) {
     const menu = $("#systemMenu");
     const button = $("#systemMenuBtn");
     if (!menu || !button) return;
     menu.hidden = !isOpen;
     button.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    if (isOpen && focusFirst) focusSystemMenuItem(0);
+    if (!isOpen && restoreFocus) button.focus();
 }
 
-function closeSystemMenu() {
-    setSystemMenuOpen(false);
+function closeSystemMenu(options = {}) {
+    setSystemMenuOpen(false, options);
 }
 
 $("#systemMenuBtn")?.addEventListener("click", event => {
     event.stopPropagation();
     const isOpen = $("#systemMenuBtn")?.getAttribute("aria-expanded") === "true";
-    setSystemMenuOpen(!isOpen);
+    setSystemMenuOpen(!isOpen, { focusFirst: !isOpen });
+});
+$("#systemMenuBtn")?.addEventListener("keydown", event => {
+    if (!["ArrowDown", "Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    setSystemMenuOpen(true, { focusFirst: true });
 });
 $("#systemMenu")?.addEventListener("click", event => {
     const routeButton = event.target.closest("[data-system-route]");
     if (routeButton) setRoute(routeButton.dataset.systemRoute);
-    if (event.target.closest("button")) closeSystemMenu();
+    if (event.target.closest("button")) closeSystemMenu({ restoreFocus: true });
+});
+$("#systemMenu")?.addEventListener("keydown", event => {
+    const items = systemMenuItems();
+    const activeIndex = items.findIndex(item => item === document.activeElement);
+    if (event.key === "Escape") {
+        event.preventDefault();
+        closeSystemMenu({ restoreFocus: true });
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        focusSystemMenuItem(activeIndex + (event.key === "ArrowDown" ? 1 : -1));
+    } else if (event.key === "Home") {
+        event.preventDefault();
+        focusSystemMenuItem(0);
+    } else if (event.key === "End") {
+        event.preventDefault();
+        focusSystemMenuItem(items.length - 1);
+    }
 });
 document.addEventListener("click", event => {
     const root = $("#systemMenuRoot");
     if (root && !root.contains(event.target)) closeSystemMenu();
 });
 document.addEventListener("keydown", event => {
-    if (event.key === "Escape") closeSystemMenu();
+    if (event.key === "Escape") closeSystemMenu({ restoreFocus: $("#systemMenuBtn")?.getAttribute("aria-expanded") === "true" });
 });
 
 async function shutdownApp() {

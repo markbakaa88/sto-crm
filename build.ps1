@@ -8,7 +8,6 @@ $ProjectRoot = $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
     $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 }
-$PyInstallerRequirement = "pyinstaller>=6.10,<7"
 $RequiredPythonMajor = 3
 $RequiredPythonMinor = 13
 
@@ -185,9 +184,6 @@ try {
     $python = Resolve-Python
     Assert-CompatiblePython -PythonPath $python
     $sourcePath = Join-Path $ProjectRoot "sto_crm.py"
-    $packageSourcePaths = @(Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "sto_crm") -Filter "*.py" | ForEach-Object { $_.FullName })
-    $assetPackageSource = Join-Path $ProjectRoot "sto_crm\assets\__init__.py"
-    $testPath = Join-Path $ProjectRoot "tests\test_sto_crm.py"
     $specPath = Join-Path $ProjectRoot "STO_CRM.spec"
     $buildDir = Join-Path $ProjectRoot "build"
     $distDir = Join-Path $ProjectRoot "dist"
@@ -195,12 +191,13 @@ try {
     $distExe = Join-Path $distDir "STO_CRM.exe"
     $releaseExe = Join-Path $releaseDir "STO_CRM.exe"
 
-    Write-Host "Ensuring $PyInstallerRequirement is available (requires internet access unless pip cache already satisfies it)..."
-    Invoke-Checked $python @("-m", "pip", "install", "--disable-pip-version-check", $PyInstallerRequirement)
+    Write-Host "Ensuring development and packaging requirements are available (requires internet access unless pip cache already satisfies them)..."
+    Invoke-Checked $python @("-m", "pip", "install", "--disable-pip-version-check", "-r", (Join-Path $ProjectRoot "requirements-dev.txt"))
 
-    $compileArgs = @("-m", "py_compile", $sourcePath, $assetPackageSource, $testPath) + $packageSourcePaths
-    Invoke-Checked $python $compileArgs
+    Invoke-Checked $python @("-m", "compileall", "-q", $sourcePath, (Join-Path $ProjectRoot "sto_crm"), (Join-Path $ProjectRoot "tests"))
     Invoke-Checked $python @("-m", "unittest", "discover", "-v")
+    Invoke-Checked $python @("-m", "pytest", "-q")
+    Invoke-Checked $python @("-m", "ruff", "check", ".")
 
     Remove-DirectoryIfExists $buildDir
     Remove-DirectoryIfExists $distDir

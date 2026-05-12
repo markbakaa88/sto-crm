@@ -16,7 +16,6 @@ GITHUB_UPDATE_TIMEOUT = 15
 GITHUB_UPDATE_MAX_JSON_BYTES = 2 * 1024 * 1024
 GITHUB_UPDATE_MAX_ASSET_BYTES = 250 * 1024 * 1024
 GITHUB_RELEASE_MANIFEST_NAME = "latest.json"
-GITHUB_RELEASE_NOTES_NAME = "README.md"
 EXE_ASSET_RE = re.compile(r"(?:^|[-_.])STO[-_]?CRM(?:[-_.]|$).*\.exe$|^STO_CRM\.exe$", re.IGNORECASE)
 MANIFEST_ASSET_RE = re.compile(r"(?:^|[-_.])latest(?:[-_.]|$).*\.json$|^latest\.json$", re.IGNORECASE)
 VIN_RE = re.compile(r"^[A-HJ-NPR-Z0-9]{17}$")

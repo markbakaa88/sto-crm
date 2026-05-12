@@ -104,9 +104,7 @@ class CRMHandler(BaseHTTPRequestHandler):
                 return
             if method == "GET" and path.startswith("/print/order/"):
                 self.validate_local_request_context()
-                token = (query.get("token") or [""])[0]
-                if not token:
-                    token = self.headers.get("X-CSRF-Token") or self.headers.get("X-CRM-CSRF-Token") or ""
+                token = self.headers.get("X-CSRF-Token") or self.headers.get("X-CRM-CSRF-Token") or ""
                 if not token or not secrets.compare_digest(token, _runtime.RUNTIME.csrf_token):
                     raise PermissionError("Печатная форма доступна только из интерфейса CRM.")
                 order_id = parse_int_field(path.rsplit("/", 1)[-1], "номер заказ-наряда")
@@ -133,9 +131,7 @@ class CRMHandler(BaseHTTPRequestHandler):
                 return
             if method == "GET" and path.startswith("/api/export/"):
                 self.validate_local_request_context()
-                token = (query.get("token") or [""])[0]
-                if not token:
-                    token = self.headers.get("X-CSRF-Token") or self.headers.get("X-CRM-CSRF-Token") or ""
+                token = self.headers.get("X-CSRF-Token") or self.headers.get("X-CRM-CSRF-Token") or ""
                 if not secrets.compare_digest(token, _runtime.RUNTIME.csrf_token):
                     raise PermissionError("Экспорт доступен только из интерфейса CRM.")
                 entity = path.rsplit("/", 1)[-1].replace(".csv", "")
@@ -153,19 +149,24 @@ class CRMHandler(BaseHTTPRequestHandler):
                 self.send_error_json(404, "Маршрут не найден.")
                 return
             entity = parts[1]
-            record_id = parse_int_field(parts[2], "идентификатор записи") if len(parts) > 2 else 0
 
-            if entity == "backup" and method == "POST":
+            if entity == "backup" and len(parts) == 2 and method == "POST":
                 self.send_json(create_backup())
-            elif entity == "update" and len(parts) > 2 and parts[2] == "install" and method == "POST":
+                return
+            if entity == "update" and len(parts) == 3 and parts[2] == "install" and method == "POST":
                 result = install_update_from_github()
                 self.send_json(result)
                 if result.get("updated"):
                     threading.Thread(target=self.server.shutdown, daemon=True).start()
-            elif entity == "shutdown" and method == "POST":
+                return
+            if entity == "shutdown" and len(parts) == 2 and method == "POST":
                 self.send_json({"ok": True})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
-            elif entity == "customers":
+                return
+
+            record_id = parse_int_field(parts[2], "идентификатор записи") if len(parts) > 2 else 0
+
+            if entity == "customers":
                 self.route_entity(method, record_id, payload, create_customer, update_customer, delete_customer)
             elif entity == "vehicles":
                 self.route_entity(method, record_id, payload, create_vehicle, update_vehicle, delete_vehicle)
@@ -187,6 +188,8 @@ class CRMHandler(BaseHTTPRequestHandler):
             self.send_error_json(404, str(exc).strip("'"))
         except sqlite3.IntegrityError:
             self.send_error_json(409, "Запись конфликтует с существующими данными. Обновите страницу и повторите действие.")
+        except RuntimeError as exc:
+            self.send_error_json(500, str(exc) or INTERNAL_ERROR_MESSAGE)
         except BrokenPipeError:
             return
         except Exception:
@@ -298,8 +301,9 @@ class CRMHandler(BaseHTTPRequestHandler):
             raise ValueError("Пустое тело JSON-запроса.")
         raw = self.rfile.read(length)
         try:
-            data = json.loads(raw.decode("utf-8"))
-        except json.JSONDecodeError as exc:
+            text = raw.decode("utf-8")
+            data = json.loads(text)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("Некорректный JSON.") from exc
         if not isinstance(data, dict):
             raise ValueError("Ожидался JSON-объект.")
@@ -310,7 +314,15 @@ class CRMHandler(BaseHTTPRequestHandler):
         self.send_bytes(body, "application/json; charset=utf-8", status=status, write_body=write_body)
 
     def send_html(self, content: str, status: int = 200, *, write_body: bool = True) -> None:
-        self.send_bytes(content.encode("utf-8"), "text/html; charset=utf-8", status=status, write_body=write_body)
+        nonce = secrets.token_urlsafe(16)
+        html = content.replace("__STO_CRM_CSP_NONCE__", nonce)
+        self.send_bytes(
+            html.encode("utf-8"),
+            "text/html; charset=utf-8",
+            status=status,
+            write_body=write_body,
+            script_nonce=nonce,
+        )
 
     def send_error_json(self, status: int, message: str) -> None:
         self.send_json({"ok": False, "error": message}, status=status, write_body=self.command.upper() != "HEAD")
@@ -322,6 +334,7 @@ class CRMHandler(BaseHTTPRequestHandler):
         status: int = 200,
         headers: dict[str, str] | None = None,
         write_body: bool = True,
+        script_nonce: str = "",
     ) -> None:
         self.close_connection = True
         self.send_response(status)
@@ -334,10 +347,12 @@ class CRMHandler(BaseHTTPRequestHandler):
         self.send_header("Permissions-Policy", "geolocation=(), camera=(), microphone=()")
         self.send_header("Cross-Origin-Opener-Policy", "same-origin")
         self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        script_src = f"script-src 'self' 'nonce-{script_nonce}'" if script_nonce else "script-src 'self'"
         self.send_header(
             "Content-Security-Policy",
-            "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; "
-            "connect-src 'self' https://api.github.com https://github.com https://objects.githubusercontent.com; "
+            "default-src 'self'; style-src 'self' 'unsafe-inline'; "
+            f"{script_src}; "
+            "connect-src 'self'; "
             "img-src 'self' data:; object-src 'none'; base-uri 'none'; "
             "form-action 'self'; frame-ancestors 'none'",
         )

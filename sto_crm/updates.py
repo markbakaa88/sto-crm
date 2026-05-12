@@ -157,9 +157,8 @@ def validate_manifest_asset_download_url(url: str, repository: str, tag: str) ->
         expected_path = f"/{expected_repo}/releases/download/{expected_tag}/"
         if not parsed.path.startswith(expected_path):
             raise RuntimeError("Manifest обновления указывает файл вне ожидаемого GitHub Release.")
-    elif host == "api.github.com":
-        raise RuntimeError("Manifest обновления не должен указывать API GitHub как файл .exe.")
-    return cleaned
+        return cleaned
+    raise RuntimeError("Manifest обновления должен указывать файл .exe из ожидаемого GitHub Release.")
 
 
 def validate_update_response_url(url: str) -> None:
@@ -257,13 +256,18 @@ def normalize_release_asset(
 
 def release_info_from_manifest(release: dict[str, Any], manifest: dict[str, Any], manifest_asset: dict[str, Any]) -> dict[str, Any]:
     repository = normalize_github_repository()
+    release_tag = clean_text(release.get("tag_name") or "", 80)
     manifest_tag = clean_text(manifest.get("tag") or "", 80)
-    tag = manifest_tag or clean_text(release.get("tag_name") or "", 80)
+    if manifest_tag and release_tag and manifest_tag != release_tag:
+        raise RuntimeError("Manifest обновления не соответствует тегу GitHub Release.")
+    tag = manifest_tag or release_tag
+    if not tag:
+        raise RuntimeError("GitHub Release не содержит тега для проверки manifest обновления.")
     asset = normalize_release_asset(
         manifest.get("asset") if isinstance(manifest.get("asset"), dict) else None,
         require_sha256=True,
-        repository=repository if manifest_tag else None,
-        tag=tag if manifest_tag else None,
+        repository=repository,
+        tag=tag,
     )
     version = clean_text(manifest.get("version") or tag or release.get("tag_name") or "", 80).lstrip("vV")
     return {
@@ -509,6 +513,8 @@ def install_update_from_github() -> dict[str, Any]:
     update_dir.mkdir(parents=True, exist_ok=True)
     safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", asset.get("name") or "STO_CRM.exe")
     downloaded = update_dir / f"download-{datetime.now().strftime('%Y%m%d%H%M%S')}-{safe_name}"
+    backup = create_backup()
+    append_updater_log(f"Перед обновлением создана резервная копия базы: {backup['display_path']}.")
     details = download_release_asset(asset, downloaded)
     ensure_downloaded_executable(downloaded)
     append_updater_log(f"Скачано обновление {version}: {details['size']} байт, sha256={details['sha256']}.")
@@ -519,4 +525,5 @@ def install_update_from_github() -> dict[str, Any]:
         "message": "Обновление скачано. CRM закроется, заменит exe и запустится снова.",
         "release": release,
         "download": details,
+        "backup": backup,
     }

@@ -67,6 +67,25 @@ def generate_order_number(conn: sqlite3.Connection) -> str:
     return f"{prefix}-{max_suffix + 1:03d}"
 
 
+def parse_bool_field(value: Any, field_name: str, default: bool = False) -> int:
+    """Strictly normalize UI/API booleans stored as SQLite 0/1 integers."""
+    if is_blank(value):
+        return 1 if default else 0
+    if isinstance(value, bool):
+        return 1 if value else 0
+    if isinstance(value, int) and not isinstance(value, bool):
+        if value in {0, 1}:
+            return value
+        raise ValueError(f"Некорректное значение: {field_name}.")
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized in {"1", "true", "yes", "on", "да"}:
+            return 1
+        if normalized in {"0", "false", "no", "off", "нет"}:
+            return 0
+    raise ValueError(f"Некорректное значение: {field_name}.")
+
+
 def validate_customer(payload: dict[str, Any]) -> dict[str, Any]:
     name = clean_text(payload.get("name"), 180)
     if not name:
@@ -84,7 +103,7 @@ def validate_customer(payload: dict[str, Any]) -> dict[str, Any]:
         "email": email,
         "source": clean_text(payload.get("source"), 120),
         "preferred_channel": preferred_channel,
-        "reminder_consent": 1 if parse_int_field(payload.get("reminder_consent"), "согласие на напоминания", 1) else 0,
+        "reminder_consent": parse_bool_field(payload.get("reminder_consent"), "согласие на напоминания", True),
         "notes": clean_multiline(payload.get("notes"), 2000),
     }
 
