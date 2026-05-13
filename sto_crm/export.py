@@ -12,15 +12,13 @@ from .config import (
     APP_NAME,
     APP_VERSION,
     APPOINTMENT_STATUSES,
-    INSPECTION_CONDITIONS,
-    INSPECTION_STATUSES,
     ITEM_APPROVAL_STATUSES,
     LOOKUP_LIMIT,
     ORDER_PRIORITIES,
     ORDER_STATUSES,
     PREFERRED_CHANNELS,
 )
-from .queries import list_appointments, list_customers, list_inspections, list_inventory, list_orders, list_vehicles
+from .queries import list_appointments, list_customers, list_inventory, list_orders, list_vehicles
 from .reports import build_reports
 from .runtime import (
     clean_text,
@@ -40,7 +38,6 @@ def bootstrap_payload(q: str = "", status: str = "all") -> dict[str, Any]:
     vehicles = list_vehicles(q)
     inventory = list_inventory(q)
     appointments = list_appointments(q)
-    inspections = list_inspections(q)
     orders = list_orders(q, status)
     lookup_customers = list_customers("", LOOKUP_LIMIT)
     lookup_vehicles = list_vehicles("", LOOKUP_LIMIT)
@@ -50,12 +47,9 @@ def bootstrap_payload(q: str = "", status: str = "all") -> dict[str, Any]:
     all_inventory = list_inventory("", None)
     all_vehicles = list_vehicles("", None)
     all_appointments = list_appointments("", "all", None)
-    all_inspections = list_inspections("", "all", None)
+    all_customers = list_customers("", None)
     lookup_appointments = all_appointments[:LOOKUP_LIMIT]
-    lookup_inspections = all_inspections[:LOOKUP_LIMIT]
-    reports = build_reports(
-        all_orders, all_inventory, all_vehicles, all_appointments, all_inspections
-    )
+    reports = build_reports(all_orders, all_inventory, all_vehicles, all_appointments, all_customers)
     return {
         "app": {
             "name": APP_NAME,
@@ -71,13 +65,10 @@ def bootstrap_payload(q: str = "", status: str = "all") -> dict[str, Any]:
         "statuses": ORDER_STATUSES,
         "appointment_statuses": APPOINTMENT_STATUSES,
         "item_approval_statuses": ITEM_APPROVAL_STATUSES,
-        "inspection_statuses": INSPECTION_STATUSES,
-        "inspection_conditions": INSPECTION_CONDITIONS,
         "customers": customers,
         "vehicles": vehicles,
         "inventory": inventory,
         "appointments": appointments,
-        "inspections": inspections,
         "orders": orders,
         "car_catalog": car_catalog_payload(),
         "lookups": {
@@ -86,7 +77,6 @@ def bootstrap_payload(q: str = "", status: str = "all") -> dict[str, Any]:
             "inventory": lookup_inventory,
             "orders": lookup_orders,
             "appointments": lookup_appointments,
-            "inspections": lookup_inspections,
         },
         "reports": reports,
         "preferred_channels": PREFERRED_CHANNELS,
@@ -111,44 +101,6 @@ def csv_export(entity: str) -> tuple[str, str]:
         headers = [
             "id", "scheduled_at", "duration_minutes", "status", "customer_name", "customer_phone",
             "vehicle_plate", "vehicle_make", "vehicle_model", "advisor", "reason", "notes",
-        ]
-    elif entity == "inspections":
-        rows = []
-        inspection_fields = [
-            "id", "inspected_at", "status", "customer_name", "customer_phone",
-            "vehicle_plate", "vehicle_make", "vehicle_model", "order_number", "inspector",
-        ]
-        for inspection in list_inspections("", "all", None):
-            items = inspection.get("items", []) or []
-            if not items:
-                rows.append(
-                    {
-                        **{k: inspection.get(k, "") for k in inspection_fields},
-                        "area": "",
-                        "item_title": "",
-                        "condition_status": "",
-                        "approval_status": "",
-                        "recommendation": "",
-                        "estimate": "",
-                    }
-                )
-                continue
-            for item in items:
-                rows.append(
-                    {
-                        **{k: inspection.get(k, "") for k in inspection_fields},
-                        "area": item.get("area", ""),
-                        "item_title": item.get("title", ""),
-                        "condition_status": item.get("condition_status", ""),
-                        "approval_status": item.get("approval_status", ""),
-                        "recommendation": item.get("recommendation", ""),
-                        "estimate": item.get("estimate", ""),
-                    }
-                )
-        headers = [
-            "id", "inspected_at", "status", "customer_name", "customer_phone", "vehicle_plate",
-            "vehicle_make", "vehicle_model", "order_number", "inspector", "area", "item_title",
-            "condition_status", "approval_status", "recommendation", "estimate",
         ]
     elif entity == "orders":
         rows = list_orders("", "all", None)

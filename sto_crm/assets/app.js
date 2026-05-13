@@ -12,7 +12,6 @@ const state = {
     loadSeq: 0,
     lastError: "",
     orderDraftItems: [],
-    inspectionDraftItems: [],
     bootstrapAbortController: null,
     modalDirty: false,
     saving: false,
@@ -30,7 +29,6 @@ const BOOTSTRAP_CACHE_KEY = "sto-crm-bootstrap";
 const routes = {
     dashboard: "Панель",
     appointments: "Запись",
-    inspections: "Осмотры",
     orders: "Заказы",
     customers: "Клиенты",
     vehicles: "Автомобили",
@@ -44,7 +42,6 @@ const routes = {
 const routeSubtitles = {
     dashboard: "Сводка смены",
     appointments: "Визиты и приемка",
-    inspections: "DVI и рекомендации",
     orders: "Заказы, сроки и оплаты",
     customers: "Контакты и история",
     vehicles: "Авто, VIN и сервисный план",
@@ -66,8 +63,6 @@ function channelLabel(key) {
 }
 const appointmentStatusFallback = { scheduled: "Запланирована", confirmed: "Подтверждена", arrived: "Клиент приехал", done: "Завершена", no_show: "Не приехал", cancelled: "Отменена" };
 const itemApprovalFallback = { approved: "Согласовано", deferred: "Отложено", declined: "Отказ" };
-const inspectionStatusFallback = { draft: "Черновик", ready: "Готов", sent: "Отправлен клиенту", archived: "Архив" };
-const inspectionConditionFallback = { ok: "Норма", attention: "Внимание", critical: "Критично" };
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -79,12 +74,15 @@ function esc(value) {
 }
 
 function safeExternalUrl(value, fallback = "#") {
-    try {
-        const url = new URL(String(value || ""), location.href);
-        return url.protocol === "https:" && /(^|\.)github\.com$/i.test(url.hostname) ? url.href : fallback;
-    } catch (_error) {
-        return fallback;
-    }
+    const normalize = candidate => {
+        try {
+            const url = new URL(String(candidate || ""), location.href);
+            return url.protocol === "https:" && /(^|\.)github\.com$/i.test(url.hostname) ? url.href : null;
+        } catch (_error) {
+            return null;
+        }
+    };
+    return normalize(value) || normalize(fallback) || "#";
 }
 
 function assertSafeModalMarkup(markup) {
@@ -199,9 +197,6 @@ function orderVehicle(order) {
     return [order.vehicle_make, order.vehicle_model, order.vehicle_year, order.vehicle_plate].filter(Boolean).join(" ");
 }
 
-function inspectionVehicle(inspection) {
-    return [inspection.vehicle_make, inspection.vehicle_model, inspection.vehicle_year, inspection.vehicle_plate].filter(Boolean).join(" ");
-}
 
 function appointmentVehicle(appointment) {
     return [appointment.vehicle_make, appointment.vehicle_model, appointment.vehicle_year, appointment.vehicle_plate].filter(Boolean).join(" ");
@@ -260,7 +255,7 @@ function contextPill(label, value, hint, tone = "") {
 function contextStripHtml() {
     if (!state.data) return "";
     const r = state.data.reports || {};
-    const riskCount = Number(r.overdue_orders_count || 0) + Number(r.inspection_alerts_count || 0) + Number(r.low_stock_count || 0);
+    const riskCount = Number(r.overdue_orders_count || 0) + Number(r.low_stock_count || 0);
     const riskTone = riskCount > 0 ? (riskCount > 3 ? "danger" : "warning") : "success";
     return `<section class="context-strip" aria-label="Операционный статус CRM">
         ${contextPill("Смена", `${Math.max(0, Math.min(100, Number(r.business_health_score || 0)))}/100 · ${r.business_health_label || "Контроль"}`, "Индекс здоровья сервиса", riskTone)}
@@ -290,15 +285,6 @@ function itemApprovalBadge(status) {
     return `<span class="status item-${classToken(status)}">${esc(label)}</span>`;
 }
 
-function inspectionStatusBadge(status) {
-    const label = state.data?.inspection_statuses?.[status] || inspectionStatusFallback[status] || status;
-    return `<span class="status inspection-${classToken(status)}">${esc(label)}</span>`;
-}
-
-function inspectionConditionBadge(status) {
-    const label = state.data?.inspection_conditions?.[status] || inspectionConditionFallback[status] || status;
-    return `<span class="status condition-${classToken(status)}">${esc(label)}</span>`;
-}
 
 let announceFrame = 0;
 function announce(message, urgent = false) {
@@ -337,7 +323,7 @@ function clearAllFormErrors(form) {
 }
 
 function applyFormError(error) {
-    const form = $("#entityForm") || $("#orderForm") || $("#inspectionForm");
+    const form = $("#entityForm") || $("#orderForm");
     if (!form) return;
     clearAllFormErrors(form);
     const message = error?.message || String(error || "");
@@ -361,12 +347,12 @@ function applyFormError(error) {
     for (const [name, tokens] of hints) {
         if (tokens.some(token => lower.includes(token))) {
             matchedName = name;
-            target = form.elements[name] || form.querySelector(`[data-item="${name}"], [data-inspection-item="${name}"]`);
+            target = form.elements[name] || form.querySelector(`[data-item="${name}"]`);
             break;
         }
     }
     if (window.RadioNodeList && target instanceof RadioNodeList) target = target[0];
-    if (!(target instanceof HTMLElement) && matchedName) target = form.querySelector(`[data-item="${matchedName}"], [data-inspection-item="${matchedName}"]`);
+    if (!(target instanceof HTMLElement) && matchedName) target = form.querySelector(`[data-item="${matchedName}"]`);
     if (!(target instanceof HTMLElement)) target = form.querySelector("input, select, textarea");
     if (!target) return;
     target.classList.add("invalid");
@@ -583,7 +569,6 @@ function render() {
     const renderers = {
         dashboard: renderDashboard,
         appointments: renderAppointments,
-        inspections: renderInspections,
         orders: renderOrders,
         customers: renderCustomers,
         vehicles: renderVehicles,
@@ -669,7 +654,6 @@ function updateNavigationBadges() {
     const badgeValues = {
         dashboard: r.action_plan_total || 0,
         appointments: r.appointments_today_count || 0,
-        inspections: r.inspection_alerts_count || 0,
         orders: r.active_orders || 0,
         inventory: r.low_stock_count || 0,
         updates: state.updateStatus?.ok && state.updateStatus.release?.is_newer ? "!" : 0
@@ -693,7 +677,6 @@ function updateNavigationBadges() {
 const BREADCRUMB_MAP = {
     dashboard:    [{ label: "Панель",        route: null }],
     appointments: [{ label: "Смена", route: "dashboard" }, { label: "Запись",        route: null }],
-    inspections:  [{ label: "Смена", route: "dashboard" }, { label: "Осмотры",       route: null }],
     orders:       [{ label: "Смена", route: "dashboard" }, { label: "Заказ-наряды",  route: null }],
     customers:    [{ label: "Справочники", route: null },  { label: "Клиенты",       route: null }],
     vehicles:     [{ label: "Справочники", route: null },  { label: "Автомобили",    route: null }],
@@ -887,7 +870,6 @@ function initShell() {
             "new-appointment": openAppointmentModal,
             "new-customer": openCustomerModal,
             "new-vehicle": openVehicleModal,
-            "new-inspection": openInspectionModal,
             "new-inventory": openInventoryModal
         };
         const runAction = action => {
@@ -958,8 +940,8 @@ function initShell() {
 function bindShellShortcuts() {
     if (document.documentElement.dataset.shellShortcutsBound) return;
     document.documentElement.dataset.shellShortcutsBound = "1";
-    const routeKeys = { d: "dashboard", a: "appointments", i: "inspections", o: "orders", c: "customers", v: "vehicles", s: "inventory", r: "reports", u: "updates" };
-    const newKeys = { o: openOrderModal, a: openAppointmentModal, c: openCustomerModal, v: openVehicleModal, i: openInspectionModal, s: openInventoryModal };
+    const routeKeys = { d: "dashboard", p: "dashboard", a: "appointments", o: "orders", c: "customers", v: "vehicles", k: "catalog", s: "inventory", r: "reports", u: "updates" };
+    const newKeys = { o: openOrderModal, a: openAppointmentModal, c: openCustomerModal, v: openVehicleModal, s: openInventoryModal };
     let keySequence = "";
     let keyTimer = null;
     const resetSequence = () => { keySequence = ""; };
@@ -1042,15 +1024,14 @@ function clearGlobalSearch() {
 
 function commandItems() {
     return [
-        { icon: "П", title: "Панель", hint: "Сводка смены", keys: "G P", run: () => setRoute("dashboard") },
+        { icon: "П", title: "Панель", hint: "Сводка смены", keys: "G D", run: () => setRoute("dashboard") },
         { icon: "З", title: "Новая запись", hint: "Календарь приемки", keys: "N A", run: () => openAppointmentModal() },
-        { icon: "D", title: "Новый осмотр", hint: "DVI чек-лист", keys: "N D", run: () => openInspectionModal() },
         { icon: "№", title: "Новый заказ", hint: "Работы и оплаты", keys: "N O", run: () => openOrderModal() },
         { icon: "К", title: "Новый клиент", hint: "Контакт CRM", keys: "N C", run: () => openCustomerModal() },
         { icon: "А", title: "Новый автомобиль", hint: "Карточка авто", keys: "N V", run: () => openVehicleModal() },
         { icon: "С", title: "Новая позиция", hint: "Складской учет", keys: "N S", run: () => openInventoryModal() },
         { icon: "О", title: "Отчеты", hint: "Финансы и риски", keys: "G R", run: () => setRoute("reports") },
-        { icon: "М", title: "Каталог авто", hint: "Марки и модели", keys: "G C", run: () => setRoute("catalog") },
+        { icon: "М", title: "Каталог авто", hint: "Марки и модели", keys: "G K", run: () => setRoute("catalog") },
         { icon: "↻", title: "Обновить", hint: "Перезагрузить данные", keys: "R", run: () => loadData().then(() => toast("Обновлено")).catch(showError) },
         { icon: "↕", title: "Плотность", hint: "Компактно / обычно", keys: "D", run: () => toggleDensity() },
         { icon: "⇩", title: "Резерв", hint: "Backup SQLite", keys: "B", run: () => createBackupFromUi() },
@@ -1239,7 +1220,7 @@ function renderDashboard() {
         <section class="workspace-grid dashboard-focus-grid">
             <div class="panel action-center action-center-large">
                 <div class="panel-head">
-                    <h2>План смены ${helpTip("Автоматический список важных действий: просрочки, критичные DVI, сметы, follow-up, сервисные напоминания и закупка.")}</h2>
+                    <h2>План смены ${helpTip("Автоматический список важных действий: просрочки, сметы, follow-up, сервисные напоминания и закупка.")}</h2>
                     <span class="count-pill">${r.action_plan_total || 0}</span>
                 </div>
                 <div class="panel-body">${actionPlanList(r.action_plan || [])}</div>
@@ -1248,9 +1229,9 @@ function renderDashboard() {
                 <div class="panel">
                     <div class="panel-head"><h2>Контроль</h2><span class="count-pill">${score}/100</span></div>
                     <div class="panel-body dashboard-control">
-                        ${insightCard("Индекс", `${score}/100`, r.business_health_label || "Контроль", { icon: "И", help: "Индекс здоровья смены: учитывает просрочки, DVI-риски, склад и оплату." })}
+                        ${insightCard("Индекс", `${score}/100`, r.business_health_label || "Контроль", { icon: "И", help: "Индекс здоровья смены: учитывает просрочки, склад и оплату." })}
                         ${insightCard("К оплате", moneyCompact(r.due_total || 0), "Дебиторская задолженность", { icon: "₽" })}
-                        ${insightCard("Риски", riskTotal, `${r.overdue_orders_count || 0} срок · ${r.inspection_alerts_count || 0} DVI · ${r.low_stock_count || 0} склад`, { icon: "!", help: "DVI — цифровой осмотр автомобиля. Риск означает пункт, требующий внимания или согласования." })}
+                        ${insightCard("Риски", riskTotal, `${r.overdue_orders_count || 0} срок · ${r.low_stock_count || 0} склад`, { icon: "!", help: "Риск означает задачу, требующую внимания или согласования." })}
                     </div>
                 </div>
                 <div class="panel">
@@ -1293,7 +1274,6 @@ function miniLedger(report) {
 function riskRadar(report) {
     const rows = [
         { label: "Просрочки", value: report.overdue_orders_count || 0, max: 8, tone: "danger" },
-        { label: "DVI риски", value: report.inspection_alerts_count || 0, max: 8, tone: "warning" },
         { label: "Склад", value: report.low_stock_count || 0, max: 8, tone: "info" },
         { label: "Сметы", value: (report.authorizations_pending || []).length, max: 8, tone: "warning" }
     ];
@@ -1306,7 +1286,6 @@ function riskRadar(report) {
 function quickActions() {
     const actions = [
         ["new-appointment", "З", "Запись", "Календарь приемки"],
-        ["new-inspection", "D", "DVI", "Цифровой осмотр"],
         ["new-order", "№", "Заказ", "Заказ-наряд"],
         ["new-customer", "К", "Клиент", "Контакт и канал связи"]
     ];
@@ -1315,7 +1294,7 @@ function quickActions() {
 
 function healthMetric(report) {
     const score = Math.max(0, Math.min(100, Number(report.business_health_score || 0)));
-    return `<article class="metric health-card" aria-label="Индекс смены: ${score} из 100"><div class="metric-top"><small>Индекс смены</small><span class="metric-icon" aria-hidden="true">↗</span></div><strong><span class="health-score">${score}</span><span>/100</span></strong><div class="trend">${esc(report.business_health_label || "Контроль")} · просрочки, склад и DVI</div></article>`;
+    return `<article class="metric health-card" aria-label="Индекс смены: ${score} из 100"><div class="metric-top"><small>Индекс смены</small><span class="metric-icon" aria-hidden="true">↗</span></div><strong><span class="health-score">${score}</span><span>/100</span></strong><div class="trend">${esc(report.business_health_label || "Контроль")} · просрочки и склад</div></article>`;
 }
 
 function pipelineBoard(statuses = []) {
@@ -1385,7 +1364,7 @@ function workloadList(items = []) {
 
 function actionPlanList(items = []) {
     if (!items.length) {
-        return `<div class="empty"><strong>План смены чист</strong><span>Нет просрочек, критичных DVI, срочных закупок и задач follow-up.</span></div>`;
+        return `<div class="empty"><strong>План смены чист</strong><span>Нет просрочек, срочных закупок и задач follow-up.</span></div>`;
     }
     const visible = items.slice(0, 8);
     const hiddenCount = Math.max(0, items.length - visible.length);
@@ -1452,42 +1431,7 @@ function renderAppointments() {
     `;
 }
 
-function renderInspections() {
-    const rows = state.data.inspections || [];
-    return `
-        ${viewHeading("Digital Vehicle Inspection", "Фиксируйте состояние автомобиля, критичные пункты, рекомендации и согласования клиента в профессиональном DVI-процессе.", [
-            `${rows.length} осмотров`,
-            `${state.data.reports.inspection_alerts_count || 0} рисков DVI`,
-            `${state.data.reports.crm_tasks_count || 0} CRM задач`
-        ], [
-            { label: "CSV", action: "export-csv", export: "inspections", className: "ghost" },
-            { label: "Новый осмотр", action: "new-inspection", className: "primary" }
-        ])}
-        <section class="kpi-grid">
-            ${metric("Осмотров", state.data.reports.inspections_count || 0, "История DVI по клиентам и авто")}
-            ${metric("Риски DVI", state.data.reports.inspection_alerts_count || 0, "Требуют согласования и follow-up")}
-            ${metric("Каталог авто", state.data.car_catalog?.stats?.models || 0, "Моделей для точной карточки авто")}
-            ${metric("CRM задачи", state.data.reports.crm_tasks_count, "Осмотры, follow-up и сервисные напоминания")}
-        </section>
-        <div class="table-wrap">
-            <table aria-label="Таблица цифровых осмотров">
-                <thead>${tableHead(["Дата", "Клиент и авто", "Статус", "Пункты", "Риски", {text: "Рекомендации", className: "money"}, ""])}</thead>
-                <tbody>
-                    ${rows.map(inspection => `
-                        <tr>
-                            <td class="nowrap">${dateShort(inspection.inspected_at)}</td>
-                            <td><div class="cell-title"><strong>${esc(inspection.customer_name)}</strong><div class="muted">${esc(inspectionVehicle(inspection) || "Авто не выбрано")} ${inspection.order_number ? `· ${esc(inspection.order_number)}` : ""}</div></div></td>
-                            <td>${inspectionStatusBadge(inspection.status)}</td>
-                            <td>${Number(inspection.items_count || 0)}</td>
-                            <td><div class="cell-title"><strong>${Number(inspection.critical_count || 0)} крит.</strong><div class="muted">${Number(inspection.attention_count || 0)} требует внимания</div></div></td>
-                            <td class="money">${money(inspection.recommended_total)}</td>
-                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-inspection" data-id="${inspection.id}" aria-label="Открыть осмотр ${esc(inspection.customer_name || inspection.id)} от ${esc(dateShort(inspection.inspected_at))}">Открыть</button></div></td>
-                        </tr>`).join("") || `<tr><td colspan="7" class="empty"><strong>Осмотров не найдено</strong><span>Создайте цифровой осмотр DVI.</span></td></tr>`}
-                </tbody>
-            </table>
-        </div>
-    `;
-}
+
 
 function smallOrderList(orders) {
     if (!orders.length) return `<div class="muted">Нет запланированных выдач.</div>`;
@@ -1507,14 +1451,7 @@ function appointmentList(appointments) {
         </div>`).join("")}</div>`;
 }
 
-function inspectionAlertList(items) {
-    if (!items?.length) return `<div class="muted">Критичных пунктов осмотра нет.</div>`;
-    return `<div class="stack">${items.map(item => `
-        <div>
-            <strong>${esc(item.title)}</strong> ${inspectionConditionBadge(item.condition_status)}
-            <div class="muted">${esc(item.customer_name)} · ${esc(item.vehicle || "")} · ${money(item.estimate)}</div>
-        </div>`).join("")}</div>`;
-}
+
 
 function lowStockList(parts) {
     if (!parts.length) return `<div class="muted">Критичных остатков нет.</div>`;
@@ -1715,13 +1652,6 @@ function crmTaskList(report) {
             <div>
                 <strong>Вернуть ${esc(itemApprovalFallback[item.approval_status] || item.approval_status)}: ${esc(item.title)}</strong>
                 <div class="muted">${esc(item.customer_name)} · ${esc(item.vehicle || "")} · ${money(item.amount)}</div>
-            </div>`));
-    }
-    if (report.inspection_alerts?.length) {
-        blocks.push(...report.inspection_alerts.map(item => `
-            <div>
-                <strong>DVI: ${esc(item.title)}</strong>
-                <div class="muted">${esc(item.customer_name)} · ${esc(item.vehicle || "")} · ${esc(inspectionConditionFallback[item.condition_status] || item.condition_status)} · ${money(item.estimate)}</div>
             </div>`));
     }
     return blocks.length ? `<div class="stack">${blocks.slice(0, 8).join("")}</div>` : `<div class="muted">Нет срочных CRM задач.</div>`;
@@ -2079,11 +2009,6 @@ function bindViewActions(root) {
                     const appointment = findAppointmentById(id);
                     if (requireRecord(appointment, "Запись")) openAppointmentModal(appointment);
                 }
-                else if (action === "new-inspection") openInspectionModal();
-                else if (action === "edit-inspection") {
-                    const inspection = findInspectionById(id);
-                    if (requireRecord(inspection, "Осмотр")) openInspectionModal(inspection);
-                }
                 else if (action === "new-customer") openCustomerModal();
                 else if (action === "edit-customer") {
                     const customer = findCustomerById(id);
@@ -2161,9 +2086,6 @@ function findAppointmentById(id) {
     return findById(state.data?.appointments || [], id) || findById(state.data?.lookups?.appointments || [], id) || null;
 }
 
-function findInspectionById(id) {
-    return findById(state.data?.inspections || [], id) || findById(state.data?.lookups?.inspections || [], id) || null;
-}
 
 function orderDuplicateDraft(order = {}) {
     return {
@@ -2416,23 +2338,31 @@ function collectForm(form) {
     return data;
 }
 
-function customerOptions(selected) {
-    const customers = state.data.lookups?.customers || state.data.customers;
-    const placeholder = customers.length ? "" : `<option value="">Нет клиентов</option>`;
-    return placeholder + customers.map(c => `<option value="${esc(c.id)}" ${Number(selected) === Number(c.id) ? "selected" : ""}>${esc(c.name)} · ${esc(c.phone)}</option>`).join("");
+function customerOptions(selected = "") {
+    const customers = state.data.lookups?.customers || state.data.customers || [];
+    const placeholderText = customers.length ? "Выберите клиента" : "Нет клиентов";
+    return `<option value="">${placeholderText}</option>` + customers.map(c => `<option value="${esc(c.id)}" ${Number(selected) === Number(c.id) ? "selected" : ""}>${esc(c.name)} · ${esc(c.phone)}</option>`).join("");
 }
 
 function vehicleOptions(customerId, selected, extraVehicles = []) {
+    const normalizedCustomerId = Number(customerId || 0);
+    const normalizedSelected = Number(selected || 0);
     const allVehicles = [...(state.data.lookups?.vehicles || state.data.vehicles || []), ...(extraVehicles || [])];
     const seen = new Set();
     const vehicles = allVehicles.filter(vehicle => {
-        if (!vehicle?.id) return false;
-        if (seen.has(Number(vehicle.id))) return false;
-        if (customerId && Number(vehicle.customer_id) !== Number(customerId)) return false;
-        seen.add(Number(vehicle.id));
+        const vehicleId = Number(vehicle?.id || 0);
+        if (!vehicleId) return false;
+        if (seen.has(vehicleId)) return false;
+        if (normalizedCustomerId) {
+            if (Number(vehicle.customer_id) !== normalizedCustomerId) return false;
+        } else if (vehicleId !== normalizedSelected) {
+            return false;
+        }
+        seen.add(vehicleId);
         return true;
     });
-    return `<option value="">Не выбран</option>` + vehicles.map(vehicle => {
+    const placeholder = normalizedCustomerId || normalizedSelected ? "Не выбран" : "Сначала выберите клиента";
+    return `<option value="">${placeholder}</option>` + vehicles.map(vehicle => {
         const unavailable = vehicle.deleted_at || vehicle.deleted_at === 1 || vehicle.vehicle_deleted;
         const selectedAttr = Number(selected) === Number(vehicle.id) ? "selected" : "";
         const disabledAttr = unavailable && !selectedAttr ? "disabled" : "";
@@ -2494,19 +2424,7 @@ function appointmentStatusOptions(selected = "scheduled") {
         .join("");
 }
 
-function inspectionStatusOptions(selected = "draft") {
-    const statuses = state.data?.inspection_statuses || inspectionStatusFallback;
-    return Object.entries(statuses)
-        .map(([key, label]) => `<option value="${esc(key)}" ${(selected || "draft") === key ? "selected" : ""}>${esc(label)}</option>`)
-        .join("");
-}
 
-function inspectionConditionOptions(selected = "ok") {
-    const statuses = state.data?.inspection_conditions || inspectionConditionFallback;
-    return Object.entries(statuses)
-        .map(([key, label]) => `<option value="${esc(key)}" ${(selected || "ok") === key ? "selected" : ""}>${esc(label)}</option>`)
-        .join("");
-}
 
 function itemApprovalOptions(selected = "approved") {
     const statuses = state.data?.item_approval_statuses || itemApprovalFallback;
@@ -2515,15 +2433,6 @@ function itemApprovalOptions(selected = "approved") {
         .join("");
 }
 
-function orderOptions(customerId, vehicleId, selected) {
-    const allOrders = state.data.lookups?.orders || state.data.orders || [];
-    const orders = allOrders.filter(order => {
-        if (customerId && Number(order.customer_id) !== Number(customerId)) return false;
-        if (vehicleId && order.vehicle_id && Number(order.vehicle_id) !== Number(vehicleId)) return false;
-        return true;
-    });
-    return `<option value="">Не выбран</option>` + orders.map(order => `<option value="${esc(order.id)}" ${Number(selected) === Number(order.id) ? "selected" : ""}>${esc(order.number)} · ${esc(orderVehicle(order) || order.customer_name)}</option>`).join("");
-}
 
 function openAppointmentModal(appointment = {}) {
     const lookupCustomers = state.data.lookups?.customers || state.data.customers;
@@ -2536,7 +2445,7 @@ function openAppointmentModal(appointment = {}) {
         );
         return;
     }
-    const selectedCustomer = appointment.customer_id || lookupCustomers[0]?.id || "";
+    const selectedCustomer = appointment.customer_id || "";
     openModal(
         appointment.id ? "Запись клиента" : "Новая запись",
         `<form id="entityForm" class="form-grid">
@@ -2562,115 +2471,6 @@ function openAppointmentModal(appointment = {}) {
     });
 }
 
-const standardInspectionTemplate = [
-    { area: "Тормоза", title: "Тормозные колодки и диски", condition_status: "ok", approval_status: "approved", recommendation: "", estimate: 0 },
-    { area: "Шины", title: "Протектор и давление шин", condition_status: "ok", approval_status: "approved", recommendation: "", estimate: 0 },
-    { area: "Жидкости", title: "Моторное масло, ОЖ, тормозная жидкость", condition_status: "ok", approval_status: "approved", recommendation: "", estimate: 0 },
-    { area: "Подвеска", title: "Люфты, сайлентблоки, амортизаторы", condition_status: "ok", approval_status: "approved", recommendation: "", estimate: 0 },
-    { area: "Свет", title: "Наружное освещение", condition_status: "ok", approval_status: "approved", recommendation: "", estimate: 0 },
-    { area: "АКБ", title: "Состояние аккумулятора", condition_status: "ok", approval_status: "approved", recommendation: "", estimate: 0 }
-];
-
-function openInspectionModal(inspection = {}) {
-    const lookupCustomers = state.data.lookups?.customers || state.data.customers;
-    if (!lookupCustomers.length) {
-        openModal(
-            "Новый осмотр",
-            `<div class="notice">В базе нет клиентов для цифрового осмотра.</div>`,
-            `<button class="btn" type="button" data-save="cancel">Закрыть</button>`,
-            "small"
-        );
-        return;
-    }
-    state.inspectionDraftItems = (inspection.items || standardInspectionTemplate).map(item => ({ ...item }));
-    const selectedCustomer = inspection.customer_id || lookupCustomers[0]?.id || "";
-    const selectedVehicle = inspection.vehicle_id || "";
-    openModal(
-        inspection.id ? "Цифровой осмотр DVI" : "Новый цифровой осмотр",
-        `<form id="inspectionForm" class="stack">
-            <div class="form-grid three">
-                ${selectField("inspection", "customer_id", "Клиент", customerOptions(selectedCustomer), "required")}
-                ${selectField("inspection", "vehicle_id", "Автомобиль", vehicleOptions(selectedCustomer, selectedVehicle))}
-                ${selectField("inspection", "order_id", "Заказ-наряд", orderOptions(selectedCustomer, selectedVehicle, inspection.order_id))}
-                ${selectField("inspection", "status", "Статус", inspectionStatusOptions(inspection.status))}
-                ${inputField("inspection", "inspector", "Механик", `value="${esc(inspection.inspector || "Механик")}"`)}
-                ${inputField("inspection", "inspected_at", "Дата осмотра", `type="datetime-local" value="${inputDateValue(inspection.inspected_at)}"`)}
-                ${textareaField("inspection", "summary", "Итог осмотра", inspection.summary, "", "span-3")}
-            </div>
-            <div class="toolbar">
-                <div class="toolbar-left"><strong>Чек-лист DVI</strong></div>
-                <div class="toolbar-right">
-                    <button class="btn" type="button" id="useInspectionTemplate">Шаблон</button>
-                    <button class="btn" type="button" id="addInspectionItem">+ Пункт</button>
-                </div>
-            </div>
-            <div id="inspectionItemsHost"></div>
-        </form>`,
-        `${inspection.id ? `<button class="btn danger" type="button" data-save="delete-inspection" data-id="${inspection.id}">Удалить</button>` : ""}
-         <button class="btn" type="button" data-save="cancel">Отмена</button>
-         <button class="btn primary" type="button" data-save="inspection" data-id="${inspection.id || ""}">Сохранить</button>`
-    );
-    renderInspectionItems();
-    $("#inspection_customer_id").addEventListener("change", event => {
-        const vehicle = $("#inspection_vehicle_id");
-        vehicle.innerHTML = vehicleOptions(event.target.value, "");
-        vehicle.value = "";
-        vehicle.dispatchEvent(new Event("change", { bubbles: true }));
-        $("#inspection_order_id").innerHTML = orderOptions(event.target.value, "", "");
-        $("#inspection_order_id").value = "";
-    });
-    $("#inspection_vehicle_id").addEventListener("change", event => {
-        $("#inspection_order_id").innerHTML = orderOptions($("#inspection_customer_id").value, event.target.value, "");
-    });
-    $("#addInspectionItem").addEventListener("click", () => {
-        markModalDirty();
-        state.inspectionDraftItems.push({ area: "", title: "", condition_status: "ok", approval_status: "approved", recommendation: "", estimate: 0 });
-        renderInspectionItems();
-    });
-    $("#useInspectionTemplate").addEventListener("click", () => {
-        const hasCustomItems = state.inspectionDraftItems.some(item =>
-            String(item.area || item.title || item.recommendation || "").trim() || Number(item.estimate || 0) > 0
-        );
-        if (hasCustomItems && !confirm("Заменить текущие пункты стандартным шаблоном? Несохраненные пункты будут потеряны.")) return;
-        markModalDirty();
-        state.inspectionDraftItems = standardInspectionTemplate.map(item => ({ ...item }));
-        renderInspectionItems();
-    });
-}
-
-function renderInspectionItems() {
-    const host = $("#inspectionItemsHost");
-    host.innerHTML = `<div class="items-table inspection-items">
-        <table aria-label="Пункты цифрового осмотра">
-            <thead>${tableHead(["Зона", "Пункт", "Состояние", "Согласование", "Рекомендация", {text: "Оценка", className: "money"}, ""])}</thead>
-            <tbody>
-                ${state.inspectionDraftItems.map((item, index) => `
-                    <tr data-inspection-index="${index}">
-                        <td data-label="Зона"><input data-inspection-item="area" aria-label="Зона осмотра" value="${esc(item.area)}" required></td>
-                        <td data-label="Пункт"><input data-inspection-item="title" aria-label="Пункт осмотра" value="${esc(item.title)}" required></td>
-                        <td data-label="Состояние"><select data-inspection-item="condition_status" aria-label="Состояние пункта осмотра">${inspectionConditionOptions(item.condition_status)}</select></td>
-                        <td data-label="Согласование"><select data-inspection-item="approval_status" aria-label="Статус согласования пункта осмотра">${itemApprovalOptions(item.approval_status)}</select></td>
-                        <td data-label="Рекомендация"><input data-inspection-item="recommendation" aria-label="Рекомендация" value="${esc(item.recommendation)}"></td>
-                        <td data-label="Оценка"><input data-inspection-item="estimate" aria-label="Оценка работ" class="money" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(item.estimate || 0)}"></td>
-                        <td data-label="Действия"><button class="btn icon" type="button" data-remove-inspection-item="${index}" title="Удалить" aria-label="Удалить пункт осмотра">×</button></td>
-                    </tr>`).join("")}
-            </tbody>
-        </table>
-    </div>`;
-    $$("[data-inspection-item]", host).forEach(input => {
-        input.addEventListener("input", syncInspectionItemStateOnly);
-        input.addEventListener("change", syncInspectionItemStateOnly);
-    });
-    $$("[data-remove-inspection-item]", host).forEach(button => {
-        button.addEventListener("click", event => {
-            markModalDirty();
-            state.inspectionDraftItems.splice(Number(event.currentTarget.dataset.removeInspectionItem), 1);
-            if (!state.inspectionDraftItems.length) state.inspectionDraftItems.push({ area: "", title: "", condition_status: "ok", approval_status: "approved", recommendation: "", estimate: 0 });
-            renderInspectionItems();
-        });
-    });
-    updateScrollHints(host);
-}
 
 function openCustomerModal(customer = {}) {
     openModal(
@@ -2693,13 +2493,14 @@ function openCustomerModal(customer = {}) {
 
 function openVehicleModal(vehicle = {}) {
     const makes = state.data?.car_catalog?.makes || [];
-    const customers = state.data.lookups?.customers || state.data.customers;
+    const customers = state.data.lookups?.customers || state.data.customers || [];
     const hasCustomers = customers.length > 0;
+    const selectedCustomer = vehicle.customer_id || "";
     openModal(
         vehicle.id ? "Автомобиль" : "Новый автомобиль",
         `<form id="entityForm" class="form-grid">
             ${hasCustomers ? "" : `<div class="notice span-2">В базе нет клиентов для привязки автомобиля.</div>`}
-            ${selectField("vehicle", "customer_id", "Клиент", customerOptions(vehicle.customer_id), "required", "span-2")}
+            ${selectField("vehicle", "customer_id", "Клиент", customerOptions(selectedCustomer), "required", "span-2")}
             ${labeledField("vehicleMake", "Марка", `<input name="make" id="vehicleMake" list="vehicleMakeList" value="${esc(vehicle.make)}"><datalist id="vehicleMakeList">${datalistOptions(makes, vehicle.make)}</datalist>`)}
             ${labeledField("vehicleModel", "Модель", `<input name="model" id="vehicleModel" list="vehicleModelList" value="${esc(vehicle.model)}"><datalist id="vehicleModelList">${datalistOptions(catalogModels(vehicle.make), vehicle.model)}</datalist>`)}
             ${inputField("vehicle", "year", "Год", `type="number" min="1900" max="${new Date().getFullYear() + 1}" value="${esc(vehicle.year || "")}"`)}
@@ -2772,7 +2573,7 @@ function openOrderModal(order = {}) {
         );
         return;
     }
-    const selectedCustomer = order.customer_id || lookupCustomers[0]?.id || "";
+    const selectedCustomer = order.customer_id || "";
     const orderVehicleOption = order.vehicle_id ? {
         id: order.vehicle_id,
         customer_id: selectedCustomer,
@@ -3008,33 +2809,6 @@ async function saveOrder(id) {
     }
 }
 
-async function saveInspection(id) {
-    const form = $("#inspectionForm");
-    if (form && !form.reportValidity()) return;
-    const data = collectForm(form);
-    syncAllInspectionItems();
-    data.items = state.inspectionDraftItems.map(item => ({
-        area: item.area,
-        title: item.title,
-        condition_status: item.condition_status || "ok",
-        approval_status: item.approval_status || ((item.condition_status || "ok") === "ok" ? "approved" : "deferred"),
-        recommendation: item.recommendation,
-        estimate: num(item.estimate, 0)
-    }));
-    const path = id ? `/api/inspections/${id}` : "/api/inspections";
-    const method = id ? "PUT" : "POST";
-    setSaveButtonsBusy(true);
-    try {
-        await api(path, { method, body: JSON.stringify(data) });
-        closeModal(true);
-        await loadData();
-        toast("Осмотр сохранен");
-    } catch (error) {
-        showError(error);
-    } finally {
-        setSaveButtonsBusy(false);
-    }
-}
 
 function syncAllOrderItems() {
     $$("#itemsHost tr[data-index]").forEach(row => {
@@ -3046,33 +2820,6 @@ function syncAllOrderItems() {
     });
 }
 
-function syncAllInspectionItems() {
-    $$("#inspectionItemsHost tr[data-inspection-index]").forEach(row => {
-        const index = Number(row.dataset.inspectionIndex);
-        const item = state.inspectionDraftItems[index];
-        $$("[data-inspection-item]", row).forEach(input => {
-            item[input.dataset.inspectionItem] = input.value;
-        });
-    });
-}
-
-function syncInspectionItemStateOnly(event) {
-    const row = event.target.closest("tr[data-inspection-index]");
-    if (!row) return;
-    const index = Number(row.dataset.inspectionIndex);
-    const item = state.inspectionDraftItems[index];
-    $$("[data-inspection-item]", row).forEach(input => {
-        item[input.dataset.inspectionItem] = input.value;
-    });
-    if (event.target.dataset.inspectionItem === "condition_status") {
-        if (item.condition_status === "ok") {
-            item.approval_status = "approved";
-        } else if (item.approval_status === "approved") {
-            item.approval_status = "deferred";
-        }
-        renderInspectionItems();
-    }
-}
 
 function syncOrderItemStateOnly(event) {
     const row = event.target.closest("tr[data-index]");
@@ -3137,7 +2884,6 @@ document.addEventListener("click", event => {
     if (state.saving) return;
     if (action === "cancel") closeModal();
     else if (action === "appointment") saveEntity("appointments", id).catch(showError);
-    else if (action === "inspection") saveInspection(id).catch(showError);
     else if (action === "customer") saveEntity("customers", id).catch(showError);
     else if (action === "vehicle") saveEntity("vehicles", id).catch(showError);
     else if (action === "inventory") saveEntity("inventory", id).catch(showError);
@@ -3146,7 +2892,6 @@ document.addEventListener("click", event => {
     else if (action === "delete-vehicle") deleteEntity("vehicles", id).catch(showError);
     else if (action === "delete-inventory") deleteEntity("inventory", id).catch(showError);
     else if (action === "delete-appointment") deleteEntity("appointments", id).catch(showError);
-    else if (action === "delete-inspection") deleteEntity("inspections", id).catch(showError);
     else if (action === "delete-order") deleteEntity("orders", id).catch(showError);
     else if (action === "print-order") openPrintOrder(id).catch(showError);
 });

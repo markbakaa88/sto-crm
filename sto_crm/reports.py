@@ -8,7 +8,6 @@ from typing import Any
 
 from .config import (
     APPOINTMENT_STATUSES,
-    INSPECTION_CONDITIONS,
     ITEM_APPROVAL_STATUSES,
     ORDER_STATUSES,
     PREFERRED_CHANNELS,
@@ -33,7 +32,7 @@ def build_reports(
     inventory: list[dict[str, Any]],
     vehicles: list[dict[str, Any]],
     appointments: list[dict[str, Any]],
-    inspections: list[dict[str, Any]],
+    customers: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     now = datetime.now()
     today = now.date()
@@ -182,33 +181,6 @@ def build_reports(
                 "appointments": day_appointments[:5],
             }
         )
-    inspection_alerts = []
-    for inspection in inspections:
-        if inspection.get("status") == "archived":
-            continue
-        for item in inspection.get("items", []):
-            if item.get("condition_status") not in {"attention", "critical"}:
-                continue
-            if str(item.get("approval_status") or "deferred") == "approved":
-                continue
-            inspection_alerts.append(
-                {
-                    "inspection_id": inspection.get("id"),
-                    "customer_name": inspection.get("customer_name"),
-                    "customer_phone": inspection.get("customer_phone"),
-                    "vehicle": order_vehicle_text(inspection),
-                    "inspected_at": inspection.get("inspected_at"),
-                    "area": item.get("area"),
-                    "title": item.get("title"),
-                    "condition_status": item.get("condition_status"),
-                    "approval_status": item.get("approval_status"),
-                    "estimate": round(parse_float(item.get("estimate")), 2),
-                }
-            )
-    inspection_alerts = sorted(
-        inspection_alerts,
-        key=lambda item: (0 if item.get("condition_status") == "critical" else 1, str(item.get("inspected_at") or "")),
-    )
     procurement_plan = []
     for part in low_stock:
         quantity = max(parse_float(part.get("quantity")), 0)
@@ -281,9 +253,7 @@ def build_reports(
     )[:8]
 
     service_sales: dict[str, float] = defaultdict(float)
-    for order in orders:
-        if order.get("status") == "cancelled":
-            continue
+    for order in closed_orders:
         for item in order.get("items", []):
             if item.get("kind") == "service" and item_is_billable(item):
                 service_sales[str(item.get("title"))] += parse_float(item.get("quantity")) * parse_float(item.get("unit_price"))
@@ -338,9 +308,9 @@ def build_reports(
         reverse=True,
     )[:8]
 
-    crm_tasks_count = len(service_reminders) + len(followups_due) + len(authorizations_pending) + len(deferred_work) + len(inspection_alerts)
-    risk_total = len(overdue_orders) + len(low_stock) + len(authorizations_pending) + len(inspection_alerts) + len(deferred_work)
-    risk_points = len(overdue_orders) * 9 + len(low_stock) * 4 + len(authorizations_pending) * 5 + len(inspection_alerts) * 5 + len(deferred_work) * 3
+    crm_tasks_count = len(service_reminders) + len(followups_due) + len(authorizations_pending) + len(deferred_work)
+    risk_total = len(overdue_orders) + len(low_stock) + len(authorizations_pending) + len(deferred_work)
+    risk_points = len(overdue_orders) * 9 + len(low_stock) * 4 + len(authorizations_pending) * 5 + len(deferred_work) * 3
     business_health_score = max(0, min(100, 100 - risk_points))
     if business_health_score >= 85:
         business_health_label = "Отлично"
@@ -416,25 +386,6 @@ def build_reports(
             order_vehicle_text(order),
             order.get("due"),
             str(order.get("promised_at") or ""),
-        )
-
-    for item in inspection_alerts[:10]:
-        condition = str(item.get("condition_status") or "attention")
-        add_action(
-            "inspection_alert",
-            f"DVI: {INSPECTION_CONDITIONS.get(condition, condition).lower()} — {item.get('title') or 'пункт осмотра'}",
-            f"{item.get('area') or 'Осмотр'} · рекомендация на {money(item.get('estimate'))} еще не согласована.",
-            96 if condition == "critical" else 78,
-            "danger" if condition == "critical" else "warning",
-            "inspections",
-            "edit-inspection",
-            item.get("inspection_id"),
-            "Открыть осмотр",
-            str(item.get("customer_name") or ""),
-            str(item.get("customer_phone") or ""),
-            str(item.get("vehicle") or ""),
-            item.get("estimate"),
-            str(item.get("inspected_at") or ""),
         )
 
     for order in authorizations_pending[:8]:
@@ -577,7 +528,7 @@ def build_reports(
         "orders_total": len(orders),
         "active_orders": len(active_orders),
         "closed_orders_count": len(closed_orders),
-        "customers_total": len({int(o.get("customer_id") or 0) for o in orders if o.get("customer_id")}),
+        "customers_total": len(customers) if customers is not None else len({int(o.get("customer_id") or 0) for o in orders if o.get("customer_id")}),
         "vehicles_total": len(vehicles),
         "revenue_month": round(revenue_month, 2),
         "gross_margin_month": round(gross_margin_month, 2),
@@ -594,8 +545,6 @@ def build_reports(
         "low_stock_count": len(low_stock),
         "appointments_today_count": len(appointments_today),
         "appointments_upcoming_count": len(appointments_upcoming),
-        "inspections_count": len(inspections),
-        "inspection_alerts_count": len(inspection_alerts),
         "overdue_orders_count": len(overdue_orders),
         "crm_tasks_count": crm_tasks_count,
         "action_plan": action_plan,
@@ -606,7 +555,6 @@ def build_reports(
         "appointments_today": appointments_today[:8],
         "appointments_upcoming": appointments_upcoming,
         "appointment_load_7_days": appointment_load_7_days,
-        "inspection_alerts": inspection_alerts[:8],
         "low_stock": low_stock[:8],
         "procurement_plan": procurement_plan[:8],
         "service_reminders": service_reminders[:8],

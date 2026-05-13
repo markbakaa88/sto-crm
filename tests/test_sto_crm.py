@@ -264,51 +264,6 @@ class StoCrmTests(unittest.TestCase):
         self.assertEqual(filename, "appointments.csv")
         self.assertIn("Suspension check", content)
 
-    def test_digital_inspection_tracks_critical_items_and_exports(self):
-        customer = self.create_customer("Inspection Customer")
-        vehicle = self.create_vehicle(customer["id"], "I006II")
-        order = sto_crm.create_order(
-            {
-                "customer_id": customer["id"],
-                "vehicle_id": vehicle["id"],
-                "status": "diagnostics",
-                "priority": "normal",
-                "items": [service_item(100)],
-            }
-        )
-
-        inspection = sto_crm.create_inspection(
-            {
-                "customer_id": customer["id"],
-                "vehicle_id": vehicle["id"],
-                "order_id": order["id"],
-                "status": "ready",
-                "inspector": "Tech",
-                "inspected_at": "2099-01-01T11:00",
-                "summary": "Needs approval",
-                "items": [
-                    {
-                        "area": "Brakes",
-                        "title": "Front pads",
-                        "condition_status": "critical",
-                        "approval_status": "deferred",
-                        "recommendation": "Replace",
-                        "estimate": 500,
-                    },
-                    {"area": "Lights", "title": "Headlights", "condition_status": "ok"},
-                ],
-            }
-        )
-
-        self.assertEqual(inspection["critical_count"], 1)
-        self.assertEqual(inspection["recommended_total"], 500)
-        reports = sto_crm.bootstrap_payload()["reports"]
-        self.assertTrue(any(item["title"] == "Front pads" for item in reports["inspection_alerts"]))
-        self.assertGreaterEqual(reports["crm_tasks_count"], 1)
-        filename, content = sto_crm.csv_export("inspections")
-        self.assertEqual(filename, "inspections.csv")
-        self.assertIn("Front pads", content)
-
     def test_frozen_app_uses_localappdata_for_database_by_default(self):
         old_app_dir = sto_crm.app_dir
         old_directory_writable = sto_crm.directory_writable
@@ -348,10 +303,12 @@ class StoCrmTests(unittest.TestCase):
                 CREATE TABLE orders(id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT);
                 CREATE TABLE order_items(id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL);
                 CREATE TABLE appointments(id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL);
-                CREATE TABLE inspections(id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL);
-                CREATE TABLE inspection_items(id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL);
+                CREATE TABLE inspections(id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, vehicle_id INTEGER NOT NULL);
+                CREATE TABLE inspection_items(id INTEGER PRIMARY KEY AUTOINCREMENT, inspection_id INTEGER NOT NULL, title TEXT NOT NULL);
                 INSERT INTO orders(customer_id, created_at, updated_at, deleted_at) VALUES (1, '2020-01-01T10:00', '2020-01-01T11:00', NULL);
                 INSERT INTO order_items(title) VALUES ('Legacy service');
+                INSERT INTO inspections(customer_id, vehicle_id) VALUES (1, 1);
+                INSERT INTO inspection_items(inspection_id, title) VALUES (1, 'Legacy check');
                 """
             )
             conn.commit()
@@ -365,18 +322,19 @@ class StoCrmTests(unittest.TestCase):
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(orders)").fetchall()}
             item_columns = {row["name"] for row in conn.execute("PRAGMA table_info(order_items)").fetchall()}
             appointment_columns = {row["name"] for row in conn.execute("PRAGMA table_info(appointments)").fetchall()}
-            inspection_columns = {row["name"] for row in conn.execute("PRAGMA table_info(inspections)").fetchall()}
-            inspection_item_columns = {row["name"] for row in conn.execute("PRAGMA table_info(inspection_items)").fetchall()}
             indexes = {row["name"] for row in conn.execute("PRAGMA index_list(orders)").fetchall()}
             customer_indexes = {row["name"] for row in conn.execute("PRAGMA index_list(customers)").fetchall()}
             vehicle_indexes = {row["name"] for row in conn.execute("PRAGMA index_list(vehicles)").fetchall()}
             item_indexes = {row["name"] for row in conn.execute("PRAGMA index_list(order_items)").fetchall()}
             appointment_indexes = {row["name"] for row in conn.execute("PRAGMA index_list(appointments)").fetchall()}
-            inspection_indexes = {row["name"] for row in conn.execute("PRAGMA index_list(inspections)").fetchall()}
+            tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
             migrated_number = conn.execute("SELECT number FROM orders WHERE id = 1").fetchone()["number"]
+            archived_inspection = conn.execute("SELECT customer_id, vehicle_id FROM archived_inspections").fetchone()
+            archived_inspection_item = conn.execute("SELECT inspection_id, title FROM archived_inspection_items").fetchone()
         self.assertIn("phone", customer_columns)
         self.assertIn("idx_customers_phone", customer_indexes)
         self.assertIn("plate", vehicle_columns)
+        self.assertIn("mileage_manual", vehicle_columns)
         self.assertIn("idx_vehicles_plate", vehicle_indexes)
         self.assertIn("number", columns)
         self.assertTrue(migrated_number.startswith("СТО-LEGACY-"))
@@ -390,14 +348,15 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn("idx_order_items_inventory", item_indexes)
         self.assertIn("scheduled_at", appointment_columns)
         self.assertIn("vehicle_id", appointment_columns)
-        self.assertIn("inspected_at", inspection_columns)
-        self.assertIn("vehicle_id", inspection_columns)
-        self.assertIn("inspection_id", inspection_item_columns)
-        self.assertIn("condition_status", inspection_item_columns)
         self.assertIn("idx_orders_closed_at", indexes)
         self.assertIn("idx_orders_follow_up_at", indexes)
         self.assertIn("idx_appointments_schedule", appointment_indexes)
-        self.assertIn("idx_inspections_vehicle", inspection_indexes)
+        self.assertNotIn("inspections", tables)
+        self.assertNotIn("inspection_items", tables)
+        self.assertIn("archived_inspections", tables)
+        self.assertIn("archived_inspection_items", tables)
+        self.assertEqual(dict(archived_inspection), {"customer_id": 1, "vehicle_id": 1})
+        self.assertEqual(dict(archived_inspection_item), {"inspection_id": 1, "title": "Legacy check"})
 
     def test_order_mileage_sync_reconciles_removed_max_odometer_without_overwriting_manual_mileage(self):
         customer = self.create_customer("Mileage Customer")
@@ -446,7 +405,22 @@ class StoCrmTests(unittest.TestCase):
         with sto_crm.db() as conn:
             self.assertEqual(sto_crm.get_vehicle(conn, vehicle["id"])["mileage"], 3000)
 
-        manual_vehicle = self.create_vehicle(customer["id"], "M002LG")
+        baseline_vehicle = self.create_vehicle(customer["id"], "M002LG")
+        baseline_order = sto_crm.create_order(
+            {
+                "customer_id": customer["id"],
+                "vehicle_id": baseline_vehicle["id"],
+                "status": "new",
+                "priority": "normal",
+                "odometer": 5000,
+                "items": [service_item(10)],
+            }
+        )
+        sto_crm.delete_order(baseline_order["id"])
+        with sto_crm.db() as conn:
+            self.assertEqual(sto_crm.get_vehicle(conn, baseline_vehicle["id"])["mileage"], baseline_vehicle["mileage"])
+
+        manual_vehicle = self.create_vehicle(customer["id"], "M003LG")
         manual_order = sto_crm.create_order(
             {
                 "customer_id": customer["id"],
@@ -470,6 +444,37 @@ class StoCrmTests(unittest.TestCase):
         )
         with sto_crm.db() as conn:
             self.assertEqual(sto_crm.get_vehicle(conn, manual_vehicle["id"])["mileage"], manual_vehicle["mileage"])
+
+        confirmed_vehicle = self.create_vehicle(customer["id"], "M004LG")
+        confirmed_order = sto_crm.create_order(
+            {
+                "customer_id": customer["id"],
+                "vehicle_id": confirmed_vehicle["id"],
+                "status": "new",
+                "priority": "normal",
+                "odometer": 10000,
+                "items": [service_item(10)],
+            }
+        )
+        with sto_crm.db() as conn:
+            synced = sto_crm.get_vehicle(conn, confirmed_vehicle["id"])
+        self.assertEqual(synced["mileage"], 10000)
+        sto_crm.update_vehicle(
+            confirmed_vehicle["id"],
+            {
+                "customer_id": customer["id"],
+                "make": synced["make"],
+                "model": synced["model"],
+                "year": synced["year"],
+                "plate": synced["plate"],
+                "vin": synced["vin"],
+                "mileage": synced["mileage"],
+                "notes": synced["notes"],
+            },
+        )
+        sto_crm.delete_order(confirmed_order["id"])
+        with sto_crm.db() as conn:
+            self.assertEqual(sto_crm.get_vehicle(conn, confirmed_vehicle["id"])["mileage"], 10000)
 
     def test_closed_order_tracks_closed_at_normalizes_money_and_restores_stock(self):
         customer = self.create_customer("Stock Customer")
@@ -532,11 +537,47 @@ class StoCrmTests(unittest.TestCase):
         # статус) — по-прежнему блокируется.
         noop = sto_crm.update_order(order["id"], payload)
         self.assertEqual(noop["status"], "cancelled")
+        self.assertEqual(sto_crm.delete_inventory(part["id"]), {"deleted": True})
+        noop_after_deleted_part = sto_crm.update_order(order["id"], payload)
+        self.assertEqual(noop_after_deleted_part["status"], "cancelled")
 
         reopened = dict(payload)
         reopened["status"] = "in_progress"
         with self.assertRaises(ValueError):
             sto_crm.update_order(order["id"], reopened)
+        changed_deleted_part = dict(payload)
+        changed_deleted_part["items"] = [
+            service_item(100),
+            {"kind": "part", "inventory_id": part["id"], "title": "Test part", "quantity": 2, "unit_price": 50, "unit_cost": 20},
+        ]
+        with self.assertRaisesRegex(ValueError, "повторно открыть или изменить"):
+            sto_crm.update_order(order["id"], changed_deleted_part)
+
+        deleted_before_cancel_part = sto_crm.create_inventory({"name": "Legacy deleted stock", "quantity": 1, "price": 30, "cost": 10})
+        deleted_before_cancel_order = sto_crm.create_order(
+            {
+                "customer_id": customer["id"],
+                "vehicle_id": vehicle["id"],
+                "status": "closed",
+                "priority": "normal",
+                "items": [
+                    {"kind": "part", "inventory_id": deleted_before_cancel_part["id"], "title": deleted_before_cancel_part["name"], "quantity": 0.5, "unit_price": 30, "unit_cost": 10},
+                ],
+            }
+        )
+        with sto_crm.db() as conn:
+            conn.execute("UPDATE inventory SET deleted_at = ? WHERE id = ?", (sto_crm.now_iso(), deleted_before_cancel_part["id"]))
+        cancel_deleted_payload = {
+            "customer_id": customer["id"],
+            "vehicle_id": vehicle["id"],
+            "status": "cancelled",
+            "priority": "normal",
+            "items": [
+                {"kind": "part", "inventory_id": deleted_before_cancel_part["id"], "title": deleted_before_cancel_part["name"], "quantity": 0.5, "unit_price": 30, "unit_cost": 10},
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "Восстановите позицию склада"):
+            sto_crm.update_order(deleted_before_cancel_order["id"], cancel_deleted_payload)
 
     def test_closed_order_survives_when_vehicle_is_soft_deleted(self):
         customer = self.create_customer("Orphan Customer")
@@ -568,6 +609,10 @@ class StoCrmTests(unittest.TestCase):
         self.assertEqual(fetched["id"], order["id"])
         self.assertEqual(fetched.get("vehicle_deleted"), 1)
         self.assertIsNone(fetched.get("vehicle_plate"))
+        listed = [item for item in sto_crm.list_orders("", "all") if item["id"] == order["id"]]
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0].get("vehicle_deleted"), 1)
+        self.assertIsNone(listed[0].get("vehicle_plate"))
 
     def test_order_allows_external_part_without_inventory_and_does_not_consume_stock(self):
         customer = self.create_customer("External Part Customer")
@@ -941,6 +986,39 @@ class StoCrmTests(unittest.TestCase):
                 )
                 response = recv_http_response(client)
             self.assertNotIn("500", response.splitlines()[0])
+
+            with socket.create_connection(("127.0.0.1", server.server_port), timeout=5) as client:
+                body = json.dumps({"name": "Wrong route"}).encode("utf-8")
+                client.sendall(
+                    (
+                        "POST /api/customers/999/extra HTTP/1.1\r\n"
+                        f"Host: 127.0.0.1:{server.server_port}\r\n"
+                        "Content-Type: application/json\r\n"
+                        f"X-CSRF-Token: {sto_crm.RUNTIME.csrf_token}\r\n"
+                        f"Content-Length: {len(body)}\r\n"
+                        "Connection: close\r\n"
+                        "\r\n"
+                    ).encode("ascii") + body
+                )
+                response = recv_http_response(client)
+            self.assertIn("404", response.splitlines()[0])
+            self.assertFalse(any(customer["name"] == "Wrong route" for customer in sto_crm.list_customers("")))
+
+            with socket.create_connection(("127.0.0.1", server.server_port), timeout=5) as client:
+                body = json.dumps({"name": "Missing id"}).encode("utf-8")
+                client.sendall(
+                    (
+                        "PUT /api/customers HTTP/1.1\r\n"
+                        f"Host: 127.0.0.1:{server.server_port}\r\n"
+                        "Content-Type: application/json\r\n"
+                        f"X-CSRF-Token: {sto_crm.RUNTIME.csrf_token}\r\n"
+                        f"Content-Length: {len(body)}\r\n"
+                        "Connection: close\r\n"
+                        "\r\n"
+                    ).encode("ascii") + body
+                )
+                response = recv_http_response(client)
+            self.assertIn("404", response.splitlines()[0])
         finally:
             server.shutdown()
             server.server_close()
@@ -1160,16 +1238,12 @@ class StoCrmTests(unittest.TestCase):
             sto_crm.create_appointment({"customer_id": customer["id"], "vehicle_id": vehicle["id"], "scheduled_at": "2099-03-01T10:00", "status": "maybe"})
         with self.assertRaisesRegex(ValueError, "тип позиции"):
             sto_crm.create_order({"customer_id": customer["id"], "vehicle_id": vehicle["id"], "status": "new", "priority": "normal", "items": [{"kind": "fee", "title": "Bad", "quantity": 1}]})
-        with self.assertRaisesRegex(ValueError, "состояние"):
-            sto_crm.create_inspection({"customer_id": customer["id"], "vehicle_id": vehicle["id"], "status": "draft", "items": [{"title": "Bad", "condition_status": "broken"}]})
 
     def test_malformed_items_are_rejected_as_validation_errors(self):
         customer = self.create_customer("Malformed Items")
         vehicle = self.create_vehicle(customer["id"], "M001AL")
         with self.assertRaisesRegex(ValueError, "Позиция заказ-наряда"):
             sto_crm.create_order({"customer_id": customer["id"], "vehicle_id": vehicle["id"], "status": "new", "priority": "normal", "items": [123]})
-        with self.assertRaisesRegex(ValueError, "Пункт осмотра"):
-            sto_crm.create_inspection({"customer_id": customer["id"], "vehicle_id": vehicle["id"], "status": "draft", "items": ["bad"]})
 
     def test_user_numeric_fields_reject_garbage_instead_of_defaulting(self):
         customer = self.create_customer("Strict Numbers")
@@ -1487,6 +1561,39 @@ class StoCrmTests(unittest.TestCase):
         reports = sto_crm.bootstrap_payload()["reports"]
         self.assertTrue(any(item["customer_id"] == customer["id"] for item in reports["vip_customers"]))
 
+    def test_reports_count_all_customers_and_top_services_use_closed_sales(self):
+        customer_with_open_order = self.create_customer("Open report customer")
+        customer_without_orders = self.create_customer("No orders report customer")
+        vehicle = self.create_vehicle(customer_with_open_order["id"], "R001PT")
+        sto_crm.create_order(
+            {
+                "customer_id": customer_with_open_order["id"],
+                "vehicle_id": vehicle["id"],
+                "status": "new",
+                "priority": "normal",
+                "items": [{"kind": "service", "title": "Draft-only service", "quantity": 1, "unit_price": 999}],
+            }
+        )
+        sto_crm.create_order(
+            {
+                "customer_id": customer_with_open_order["id"],
+                "vehicle_id": vehicle["id"],
+                "status": "closed",
+                "priority": "normal",
+                "items": [{"kind": "service", "title": "Closed service", "quantity": 1, "unit_price": 100}],
+            }
+        )
+
+        reports = sto_crm.bootstrap_payload()["reports"]
+        self.assertGreaterEqual(reports["customers_total"], 2)
+        self.assertEqual(
+            reports["customers_total"],
+            len([customer_with_open_order, customer_without_orders]),
+        )
+        top_service_titles = [item["title"] for item in reports["top_services"]]
+        self.assertIn("Closed service", top_service_titles)
+        self.assertNotIn("Draft-only service", top_service_titles)
+
     def test_crud_writes_persist_after_reopening_connection(self):
         customer = sto_crm.create_customer({"name": "Persistent Customer", "phone": "+7000"})
         vehicle = sto_crm.create_vehicle({"customer_id": customer["id"], "make": "Toyota", "model": "Camry"})
@@ -1773,32 +1880,6 @@ class StoCrmTests(unittest.TestCase):
                 },
             )
 
-    def test_delete_order_with_linked_inspection_is_blocked(self):
-        customer = self.create_customer("Inspection Link")
-        vehicle = self.create_vehicle(customer["id"], "I001LK")
-        order = sto_crm.create_order(
-            {
-                "customer_id": customer["id"],
-                "vehicle_id": vehicle["id"],
-                "status": "new",
-                "priority": "normal",
-                "items": [service_item(10)],
-            }
-        )
-        sto_crm.create_inspection(
-            {
-                "customer_id": customer["id"],
-                "vehicle_id": vehicle["id"],
-                "order_id": order["id"],
-                "status": "draft",
-                "items": [{"area": "Test", "title": "Linked", "condition_status": "ok"}],
-            }
-        )
-        with self.assertRaisesRegex(ValueError, "осмотры"):
-            sto_crm.delete_order(order["id"])
-        with sto_crm.db() as conn:
-            self.assertEqual(sto_crm.get_order(conn, order["id"])["id"], order["id"])
-
     def test_inventory_quantity_can_change_when_closed_history_is_not_billable(self):
         customer = self.create_customer("Non Billable Inventory")
         vehicle = self.create_vehicle(customer["id"], "B001NB")
@@ -1861,8 +1942,6 @@ class StoCrmTests(unittest.TestCase):
             sto_crm.list_orders("", "bad-status")
         with self.assertRaisesRegex(ValueError, "статус"):
             sto_crm.list_appointments("", "bad-status")
-        with self.assertRaisesRegex(ValueError, "статус"):
-            sto_crm.list_inspections("", "bad-status")
 
     def test_home_page_has_professional_accessibility_and_dirty_state_hooks(self):
         html = sto_crm.INDEX_HTML
@@ -1876,7 +1955,6 @@ class StoCrmTests(unittest.TestCase):
         self.assertNotIn('<div class="field"><label>', html)
         self.assertIn('inputField("customer", "name"', html)
         self.assertIn('selectField("order", "customer_id"', html)
-        self.assertIn('selectField("inspection", "customer_id"', html)
         self.assertIn('modalDirty', html)
         self.assertIn('pipelineBoard(r.pipeline_by_status || [])', html)
         self.assertIn('appointmentTimeline(r.appointment_load_7_days || [])', html)
@@ -1886,7 +1964,6 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('action-center', html)
         self.assertIn('data-route-target=', html)
         self.assertIn('findAppointmentById(id)', html)
-        self.assertIn('findInspectionById(id)', html)
         self.assertIn('findCustomerById(id)', html)
         self.assertIn('findVehicleById(id)', html)
         self.assertIn('findInventoryById(id)', html)
@@ -1906,7 +1983,6 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('Источник запчасти', html)
         self.assertIn('discountPreview', html)
         self.assertIn('aria-label="Удалить позицию заказ-наряда"', html)
-        self.assertIn('aria-label="Удалить пункт осмотра"', html)
         self.assertIn('id="appStatus"', html)
         self.assertIn('<a class="skip-link" href="#content">К основному содержанию</a>', html)
         self.assertIn('function contextStripHtml()', html)
@@ -1914,6 +1990,9 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('function updateNavigationBadges()', html)
         self.assertIn('data-nav-badge="dashboard"', html)
         self.assertIn('data-nav-badge="updates"', html)
+        self.assertNotIn('data-route="inspections"', html)
+        self.assertNotIn('new-inspection', html)
+        self.assertNotIn('openInspectionModal', html)
         self.assertIn('lastLoadedAt', html)
         self.assertIn('try {', html)
         self.assertIn('viewHtml = renderers[state.route]();', html)
@@ -1930,7 +2009,6 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('aria-label="Открыть клиента ${esc(c.name || c.id)}"', html)
         self.assertIn('function classToken(', html)
         self.assertIn('aria-label="Тип позиции"', html)
-        self.assertIn('aria-label="Зона осмотра"', html)
         self.assertIn('aria-label="Фильтр по марке или модели"', html)
         self.assertIn('role="group" aria-label="Фильтр заказов по статусу"', html)
         self.assertIn('role="option" data-command-index', html)
@@ -1944,8 +2022,6 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('if (state.route === "orders" && state.status !== "all")', html)
         self.assertIn('const needsRouteFilterReload = hasOrderFilter && (', html)
         self.assertIn('data-reload-before-action="1"', html)
-        self.assertIn('else if (item.approval_status === "approved")', html)
-        self.assertIn('item.approval_status = "deferred"', html)
         self.assertIn('function exportUrl(entity)', html)
         self.assertIn('async function downloadCsv(entity)', html)
         self.assertIn('data-action="export-csv"', html)
@@ -1955,7 +2031,6 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('openPrintOrder(id)', html)
         self.assertIn('window.open("about:blank", "_blank")', html)
         self.assertIn('printWindow.opener = null;', html)
-        self.assertNotIn('window.open("about:blank", "_blank", "noopener,noreferrer")', html)
         self.assertNotIn('window.open("about:blank", "_blank", "noreferrer")', html)
         self.assertIn('data-action="duplicate-order"', html)
         self.assertIn('aria-label="Печать заказ-наряда', html)
@@ -1974,6 +2049,28 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('min="0.01" required value="${esc(item.quantity || 1)}"', html)
         self.assertIn('const invalidItems = state.orderDraftItems.filter(item => !String(item.title || "").trim() || num(item.quantity, 0) <= 0);', html)
         self.assertEqual(html.count('applyFormError('), 3)
+
+    def test_frontend_shortcuts_customer_selection_and_layout_contracts(self):
+        html = sto_crm.INDEX_HTML
+        self.assertIn('const routeKeys = { d: "dashboard", p: "dashboard"', html)
+        self.assertIn('k: "catalog"', html)
+        self.assertNotIn('openInspectionModal', html)
+        self.assertIn('keys: "G D", run: () => setRoute("dashboard")', html)
+        self.assertIn('keys: "G K", run: () => setRoute("catalog")', html)
+        self.assertIn('data-tooltip="Каталог марок и моделей · G K"', html)
+        self.assertIn('const placeholderText = customers.length ? "Выберите клиента" : "Нет клиентов";', html)
+        self.assertIn('data-tooltip="Создать заказ-наряд · N O"', html)
+        self.assertIn('Новый заказ <kbd>N O</kbd>', html)
+        self.assertIn('const placeholder = normalizedCustomerId || normalizedSelected ? "Не выбран" : "Сначала выберите клиента";', html)
+        self.assertIn('} else if (vehicleId !== normalizedSelected) {', html)
+        self.assertIn('const selectedCustomer = appointment.customer_id || "";', html)
+        self.assertIn('const selectedCustomer = vehicle.customer_id || "";', html)
+        self.assertIn('const selectedCustomer = order.customer_id || "";', html)
+        self.assertNotIn('lookupCustomers[0]?.id', html)
+        self.assertIn('html { min-height: 100%; background: var(--bg); overflow-x: clip; }', html)
+        self.assertIn('.sr-only.scroll-hint-sr { width: 1px !important;', html)
+        self.assertIn('@media (max-width: 860px) { [data-tooltip]::after { display: none; } }', html)
+        self.assertIn('return normalize(value) || normalize(fallback) || "#";', html)
 
     def test_github_update_helpers_select_and_compare_release_assets(self):
         release = {
@@ -2278,7 +2375,7 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('function viewHeading(', html)
         self.assertIn('view-heading-actions', html)
         self.assertIn('Календарь приемки', html)
-        self.assertIn('Digital Vehicle Inspection', html)
+        self.assertNotIn('Digital Vehicle Inspection', html)
         self.assertIn('Заказ-наряды', html)
         self.assertIn('Каталог автомобилей', html)
         self.assertIn('Отчеты и аналитика', html)

@@ -11,52 +11,89 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 $RequiredPythonMajor = 3
 $RequiredPythonMinor = 13
 
-function Resolve-Python {
-    $candidates = @()
-    $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
-    if ($pythonCommand) {
-        $candidates += $pythonCommand.Source
-    }
-    $pyCommand = Get-Command py -ErrorAction SilentlyContinue
-    if ($pyCommand) {
-        $candidates += $pyCommand.Source
-    }
-
-    foreach ($candidate in $candidates | Where-Object { $_ } | Select-Object -Unique) {
-        if (Test-Path -LiteralPath $candidate) {
-            return $candidate
-        }
-    }
-    throw "Python not found. Install Python only for rebuilding; release\STO_CRM.exe runs without Python."
-}
-
-function Invoke-Checked {
+function New-PythonCandidate {
     param(
         [Parameter(Mandatory = $true)]
         [string]$FilePath,
 
         [string[]]$ArgumentList = @()
     )
-    & $FilePath @ArgumentList
-    if ($LASTEXITCODE -ne 0) {
-        throw "Command failed with code ${LASTEXITCODE}: $FilePath $($ArgumentList -join ' ')"
-    }
+    [pscustomobject]@{ FilePath = $FilePath; ArgumentList = $ArgumentList }
 }
 
-function Assert-CompatiblePython {
+function Get-PythonVersion {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$PythonPath
+        [pscustomobject]$Python
     )
-    $version = & $PythonPath -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"
+    $version = & $Python.FilePath @($Python.ArgumentList + @("-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"))
     if ($LASTEXITCODE -ne 0) {
-        throw "Failed to determine Python version: $PythonPath"
+        return $null
     }
-    $parts = $version.Split('.')
-    if ([int]$parts[0] -ne $RequiredPythonMajor -or [int]$parts[1] -ne $RequiredPythonMinor) {
-        throw "Python $RequiredPythonMajor.$RequiredPythonMinor is required for reproducible release builds, got $version at $PythonPath."
+    return [string]$version
+}
+
+function Format-CommandForLog {
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Command
+    )
+    return (@($Command.FilePath) + @($Command.ArgumentList) | Where-Object { $_ }) -join ' '
+}
+
+function Test-CompatiblePython {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Version
+    )
+    $parts = $Version.Split('.')
+    return [int]$parts[0] -eq $RequiredPythonMajor -and [int]$parts[1] -eq $RequiredPythonMinor
+}
+
+function Resolve-Python {
+    $candidates = @()
+    $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+    if ($pythonCommand) {
+        $candidates += New-PythonCandidate -FilePath $pythonCommand.Source
     }
-    Write-Host "Using Python $version"
+    $python313Command = Get-Command python3.13 -ErrorAction SilentlyContinue
+    if ($python313Command) {
+        $candidates += New-PythonCandidate -FilePath $python313Command.Source
+    }
+    $pyCommand = Get-Command py -ErrorAction SilentlyContinue
+    if ($pyCommand) {
+        $candidates += New-PythonCandidate -FilePath $pyCommand.Source -ArgumentList @("-3.13")
+        $candidates += New-PythonCandidate -FilePath $pyCommand.Source
+    }
+
+    $seen = @{}
+    foreach ($candidate in $candidates) {
+        $key = Format-CommandForLog $candidate
+        if ($seen.ContainsKey($key)) { continue }
+        $seen[$key] = $true
+        if (-not (Test-Path -LiteralPath $candidate.FilePath)) { continue }
+        $version = Get-PythonVersion $candidate
+        if (-not $version) { continue }
+        if (Test-CompatiblePython $version) {
+            Write-Host "Using Python $version ($key)"
+            return $candidate
+        }
+        Write-Host "Skipping Python $version ($key); need $RequiredPythonMajor.$RequiredPythonMinor."
+    }
+    throw "Python $RequiredPythonMajor.$RequiredPythonMinor not found. Install Python only for rebuilding; release\STO_CRM.exe runs without Python."
+}
+
+function Invoke-Checked {
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Command,
+
+        [string[]]$ArgumentList = @()
+    )
+    & $Command.FilePath @($Command.ArgumentList + $ArgumentList)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Command failed with code ${LASTEXITCODE}: $(Format-CommandForLog $Command) $($ArgumentList -join ' ')"
+    }
 }
 
 function Remove-DirectoryIfExists {
@@ -182,7 +219,6 @@ function Invoke-ReleaseSmokeTest {
 Push-Location $ProjectRoot
 try {
     $python = Resolve-Python
-    Assert-CompatiblePython -PythonPath $python
     $sourcePath = Join-Path $ProjectRoot "sto_crm.py"
     $specPath = Join-Path $ProjectRoot "STO_CRM.spec"
     $buildDir = Join-Path $ProjectRoot "build"

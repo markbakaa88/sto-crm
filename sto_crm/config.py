@@ -60,16 +60,3 @@ ITEM_APPROVAL_STATUSES = {
     "declined": "Отказ",
 }
 BILLABLE_ITEM_STATUSES = {"approved"}
-
-INSPECTION_STATUSES = {
-    "draft": "Черновик",
-    "ready": "Готов",
-    "sent": "Отправлен клиенту",
-    "archived": "Архив",
-}
-
-INSPECTION_CONDITIONS = {
-    "ok": "Норма",
-    "attention": "Внимание",
-    "critical": "Критично",
-}

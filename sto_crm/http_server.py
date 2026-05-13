@@ -25,19 +25,16 @@ from .runtime import clean_text, parse_int_field, redact_sensitive_query, safe_l
 from .services import (
     create_appointment,
     create_customer,
-    create_inspection,
     create_inventory,
     create_order,
     create_vehicle,
     delete_appointment,
     delete_customer,
-    delete_inspection,
     delete_inventory,
     delete_order,
     delete_vehicle,
     update_appointment,
     update_customer,
-    update_inspection,
     update_inventory,
     update_order,
     update_vehicle,
@@ -171,22 +168,31 @@ class CRMHandler(BaseHTTPRequestHandler):
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
 
-            record_id = parse_int_field(parts[2], "идентификатор записи") if len(parts) > 2 else 0
-
-            if entity == "customers":
-                self.route_entity(method, record_id, payload, create_customer, update_customer, delete_customer)
-            elif entity == "vehicles":
-                self.route_entity(method, record_id, payload, create_vehicle, update_vehicle, delete_vehicle)
-            elif entity == "inventory":
-                self.route_entity(method, record_id, payload, create_inventory, update_inventory, delete_inventory)
-            elif entity == "appointments":
-                self.route_entity(method, record_id, payload, create_appointment, update_appointment, delete_appointment)
-            elif entity == "inspections":
-                self.route_entity(method, record_id, payload, create_inspection, update_inspection, delete_inspection)
-            elif entity == "orders":
-                self.route_entity(method, record_id, payload, create_order, update_order, delete_order)
-            else:
+            entity_routes = {
+                "customers": (create_customer, update_customer, delete_customer),
+                "vehicles": (create_vehicle, update_vehicle, delete_vehicle),
+                "inventory": (create_inventory, update_inventory, delete_inventory),
+                "appointments": (create_appointment, update_appointment, delete_appointment),
+                "orders": (create_order, update_order, delete_order),
+            }
+            route = entity_routes.get(entity)
+            if not route:
                 self.send_error_json(404, "Маршрут не найден.")
+                return
+            if method == "POST":
+                if len(parts) != 2:
+                    self.send_error_json(404, "Маршрут не найден.")
+                    return
+                record_id = 0
+            elif method in {"PUT", "DELETE"}:
+                if len(parts) != 3:
+                    self.send_error_json(404, "Маршрут не найден.")
+                    return
+                record_id = parse_int_field(parts[2], "идентификатор записи")
+            else:
+                self.send_error_json(405, "Метод не поддерживается.")
+                return
+            self.route_entity(method, record_id, payload, *route)
         except ValueError as exc:
             self.send_error_json(400, str(exc))
         except PermissionError as exc:

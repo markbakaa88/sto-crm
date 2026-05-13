@@ -11,8 +11,6 @@ from .config import (
     APPOINTMENT_STATUSES,
     BILLABLE_ITEM_STATUSES,
     EMAIL_RE,
-    INSPECTION_CONDITIONS,
-    INSPECTION_STATUSES,
     ITEM_APPROVAL_STATUSES,
     ORDER_PRIORITIES,
     ORDER_STATUSES,
@@ -160,7 +158,12 @@ def validate_inventory(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def validate_order(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
+def validate_order(
+    conn: sqlite3.Connection,
+    payload: dict[str, Any],
+    *,
+    allow_deleted_inventory_ids: set[int] | None = None,
+) -> dict[str, Any]:
     customer_id = parse_int_field(payload.get("customer_id"), "клиент")
     if not customer_id or not active_exists(conn, "customers", customer_id):
         raise ValueError("Выберите действующего клиента.")
@@ -179,7 +182,7 @@ def validate_order(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[st
     raw_items = payload.get("items") or []
     if not isinstance(raw_items, list):
         raise ValueError("Позиции заказ-наряда должны быть списком.")
-    items = [validate_order_item(conn, item) for item in raw_items]
+    items = [validate_order_item(conn, item, allow_deleted_inventory_ids=allow_deleted_inventory_ids) for item in raw_items]
     items = [item for item in items if item["title"]]
     if not items:
         raise ValueError("Добавьте хотя бы одну работу или запчасть.")
@@ -238,81 +241,6 @@ def validate_appointment(conn: sqlite3.Connection, payload: dict[str, Any]) -> d
     }
 
 
-def validate_inspection(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
-    customer_id = parse_int_field(payload.get("customer_id"), "клиент")
-    if not customer_id or not active_exists(conn, "customers", customer_id):
-        raise ValueError("Выберите действующего клиента.")
-
-    vehicle_id_raw = parse_int_field(payload.get("vehicle_id"), "автомобиль") or None
-    vehicle_id = ensure_vehicle_belongs_to_customer(conn, vehicle_id_raw, customer_id)
-
-    order_id = parse_int_field(payload.get("order_id"), "заказ-наряд") or None
-    if order_id:
-        order = conn.execute(
-            """
-            SELECT customer_id, vehicle_id
-            FROM orders
-            WHERE id = ? AND deleted_at IS NULL
-            """,
-            (order_id,),
-        ).fetchone()
-        if not order:
-            raise ValueError("Выберите действующий заказ-наряд.")
-        if int(order["customer_id"]) != customer_id:
-            raise ValueError("Выбранный заказ-наряд принадлежит другому клиенту.")
-        if vehicle_id and order["vehicle_id"] and int(order["vehicle_id"]) != vehicle_id:
-            raise ValueError("Заказ-наряд привязан к другому автомобилю.")
-        if not vehicle_id and order["vehicle_id"]:
-            vehicle_id = ensure_vehicle_belongs_to_customer(conn, int(order["vehicle_id"]), customer_id, required=True)
-
-    status = clean_text(payload.get("status"), 30, "draft")
-    if status not in INSPECTION_STATUSES:
-        raise ValueError("Некорректный статус осмотра.")
-
-    inspected_at = parse_datetime_local(payload.get("inspected_at"), "дата осмотра")
-    if not inspected_at:
-        inspected_at = datetime.now().replace(microsecond=0).isoformat(timespec="minutes")
-
-    raw_items = payload.get("items") or []
-    if not isinstance(raw_items, list):
-        raise ValueError("Пункты осмотра должны быть списком.")
-    items = [validate_inspection_item(item) for item in raw_items]
-    items = [item for item in items if item["title"]]
-    if not items:
-        raise ValueError("Добавьте хотя бы один пункт осмотра.")
-
-    return {
-        "customer_id": customer_id,
-        "vehicle_id": vehicle_id,
-        "order_id": order_id,
-        "status": status,
-        "inspector": clean_text(payload.get("inspector"), 120),
-        "inspected_at": inspected_at,
-        "summary": clean_multiline(payload.get("summary"), 2500),
-        "items": items,
-    }
-
-
-def validate_inspection_item(payload: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(payload, dict):
-        raise ValueError("Пункт осмотра должен быть JSON-объектом.")
-    condition_status = clean_text(payload.get("condition_status"), 30, "ok")
-    if condition_status not in INSPECTION_CONDITIONS:
-        raise ValueError("Некорректное состояние пункта осмотра.")
-    default_approval = "approved" if condition_status == "ok" else "deferred"
-    approval_status = clean_text(payload.get("approval_status"), 30, default_approval)
-    if approval_status not in ITEM_APPROVAL_STATUSES:
-        raise ValueError("Некорректный статус согласования пункта осмотра.")
-    return {
-        "area": clean_text(payload.get("area"), 120),
-        "title": clean_text(payload.get("title"), 220),
-        "condition_status": condition_status,
-        "approval_status": approval_status,
-        "recommendation": clean_multiline(payload.get("recommendation"), 2000),
-        "estimate": require_non_negative_float(payload.get("estimate"), "оценка пункта осмотра"),
-    }
-
-
 def normalize_order_money(order_data: dict[str, Any]) -> None:
     items = order_data.get("items", [])
     subtotal = sum(
@@ -327,7 +255,12 @@ def normalize_order_money(order_data: dict[str, Any]) -> None:
     order_data["paid"] = min(parse_float(order_data.get("paid")), total)
 
 
-def validate_order_item(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
+def validate_order_item(
+    conn: sqlite3.Connection,
+    payload: dict[str, Any],
+    *,
+    allow_deleted_inventory_ids: set[int] | None = None,
+) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("Позиция заказ-наряда должна быть JSON-объектом.")
     kind = clean_text(payload.get("kind"), 20, "service")
@@ -347,10 +280,11 @@ def validate_order_item(conn: sqlite3.Connection, payload: dict[str, Any]) -> di
 
     if kind == "part" and inventory_id:
         part = conn.execute(
-            "SELECT id, name, price, cost FROM inventory WHERE id = ? AND deleted_at IS NULL",
+            "SELECT id, name, price, cost, deleted_at FROM inventory WHERE id = ?",
             (inventory_id,),
         ).fetchone()
-        if not part:
+        allowed_deleted = inventory_id in (allow_deleted_inventory_ids or set())
+        if not part or (part["deleted_at"] and not allowed_deleted):
             raise ValueError("Выбранная складская позиция не найдена.")
         if not title:
             title = str(part["name"])
@@ -384,7 +318,7 @@ def item_is_billable(item: dict[str, Any]) -> bool:
 
 
 def active_exists(conn: sqlite3.Connection, table: str, record_id: int) -> bool:
-    if table not in {"customers", "vehicles", "inventory", "orders", "appointments", "inspections"}:
+    if table not in {"customers", "vehicles", "inventory", "orders", "appointments"}:
         return False
     row = conn.execute(f"SELECT 1 FROM {table} WHERE id = ? AND deleted_at IS NULL", (record_id,)).fetchone()
     return row is not None

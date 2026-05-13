@@ -84,6 +84,7 @@ def init_db(seed_demo: bool = False) -> None:
                     plate TEXT NOT NULL DEFAULT '',
                     vin TEXT NOT NULL DEFAULT '',
                     mileage INTEGER NOT NULL DEFAULT 0,
+                    mileage_manual INTEGER NOT NULL DEFAULT 0,
                     mileage_order_id INTEGER,
                     next_service_at TEXT NOT NULL DEFAULT '',
                     next_service_mileage INTEGER NOT NULL DEFAULT 0,
@@ -165,32 +166,6 @@ def init_db(seed_demo: bool = False) -> None:
                     deleted_at TEXT
                 );
 
-                CREATE TABLE IF NOT EXISTS inspections (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    customer_id INTEGER NOT NULL REFERENCES customers(id),
-                    vehicle_id INTEGER REFERENCES vehicles(id),
-                    order_id INTEGER REFERENCES orders(id),
-                    status TEXT NOT NULL DEFAULT 'draft',
-                    inspector TEXT NOT NULL DEFAULT '',
-                    inspected_at TEXT NOT NULL DEFAULT '',
-                    summary TEXT NOT NULL DEFAULT '',
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    deleted_at TEXT
-                );
-
-                CREATE TABLE IF NOT EXISTS inspection_items (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    inspection_id INTEGER NOT NULL REFERENCES inspections(id) ON DELETE CASCADE,
-                    area TEXT NOT NULL DEFAULT '',
-                    title TEXT NOT NULL,
-                    condition_status TEXT NOT NULL DEFAULT 'ok',
-                    approval_status TEXT NOT NULL DEFAULT 'approved',
-                    recommendation TEXT NOT NULL DEFAULT '',
-                    estimate REAL NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL
-                );
-
                 """
             )
             ensure_schema(conn)
@@ -208,6 +183,43 @@ def ensure_column(conn: sqlite3.Connection, table: str, column: str, definition:
         return False
     conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
     return True
+
+
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    ).fetchone()
+    return row is not None
+
+
+def _next_archive_table_name(conn: sqlite3.Connection, base_name: str) -> str:
+    candidate = base_name
+    suffix = 2
+    while _table_exists(conn, candidate):
+        candidate = f"{base_name}_{suffix}"
+        suffix += 1
+    return candidate
+
+
+def archive_removed_table(conn: sqlite3.Connection, table: str, archive_base: str) -> bool:
+    """Move a removed feature table out of the live schema without losing data."""
+    if not _table_exists(conn, table):
+        return False
+    archive_name = _next_archive_table_name(conn, archive_base)
+    conn.execute(f"ALTER TABLE {table} RENAME TO {archive_name}")
+    safe_log(f"Legacy-таблица {table} сохранена как {archive_name}; активная CRM её больше не использует.")
+    return True
+
+
+def drop_removed_tables(conn: sqlite3.Connection) -> None:
+    """Archive tables from removed modules instead of destructively dropping user data."""
+    removed_tables = (
+        ("inspection_items", "archived_inspection_items"),
+        ("inspections", "archived_inspections"),
+    )
+    for table, archive_base in removed_tables:
+        archive_removed_table(conn, table, archive_base)
 
 
 def active_duplicate_values(conn: sqlite3.Connection, table: str, column: str, limit: int = 5) -> list[sqlite3.Row]:
@@ -281,6 +293,8 @@ def ensure_unique_index(conn: sqlite3.Connection, statement: str, table: str, co
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
+    drop_removed_tables(conn)
+
     ensure_column(conn, "customers", "phone", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "customers", "email", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "customers", "source", "TEXT NOT NULL DEFAULT ''")
@@ -296,7 +310,19 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "vehicles", "year", "INTEGER NOT NULL DEFAULT 0")
     ensure_column(conn, "vehicles", "plate", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "vehicles", "vin", "TEXT NOT NULL DEFAULT ''")
-    ensure_column(conn, "vehicles", "mileage", "INTEGER NOT NULL DEFAULT 0")
+    mileage_added = ensure_column(conn, "vehicles", "mileage", "INTEGER NOT NULL DEFAULT 0")
+    manual_mileage_added = ensure_column(conn, "vehicles", "mileage_manual", "INTEGER NOT NULL DEFAULT 0")
+    if mileage_added or manual_mileage_added:
+        # Legacy rows did not keep a separate manual odometer baseline.  Seed it
+        # from the currently visible vehicle mileage so future order rollbacks do
+        # not destructively reset the card to zero.
+        conn.execute(
+            """
+            UPDATE vehicles
+            SET mileage_manual = COALESCE(NULLIF(mileage_manual, 0), mileage, 0)
+            WHERE COALESCE(mileage_manual, 0) = 0 AND COALESCE(mileage, 0) > 0
+            """
+        )
     ensure_column(conn, "vehicles", "mileage_order_id", "INTEGER")
     ensure_column(conn, "vehicles", "next_service_at", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "vehicles", "next_service_mileage", "INTEGER NOT NULL DEFAULT 0")
@@ -375,6 +401,14 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "order_items", "unit_price", "REAL NOT NULL DEFAULT 0")
     ensure_column(conn, "order_items", "unit_cost", "REAL NOT NULL DEFAULT 0")
     ensure_column(conn, "order_items", "created_at", "TEXT NOT NULL DEFAULT ''")
+    orphan_items = conn.execute("SELECT COUNT(*) FROM order_items WHERE COALESCE(order_id, 0) = 0").fetchone()[0]
+    if orphan_items:
+        orders = conn.execute("SELECT id FROM orders WHERE deleted_at IS NULL ORDER BY id LIMIT 2").fetchall()
+        if len(orders) == 1:
+            conn.execute("UPDATE order_items SET order_id = ? WHERE COALESCE(order_id, 0) = 0", (int(orders[0]["id"]),))
+            safe_log(f"Legacy-позиции заказ-нарядов привязаны к единственному заказу: {orphan_items}.")
+        else:
+            safe_log(f"В legacy-БД найдены позиции заказ-нарядов без связи с заказом: {orphan_items}.")
 
     ensure_column(conn, "appointments", "customer_id", "INTEGER NOT NULL DEFAULT 0")
     ensure_column(conn, "appointments", "vehicle_id", "INTEGER")
@@ -388,25 +422,6 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "appointments", "updated_at", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "appointments", "deleted_at", "TEXT")
 
-    ensure_column(conn, "inspections", "customer_id", "INTEGER NOT NULL DEFAULT 0")
-    ensure_column(conn, "inspections", "vehicle_id", "INTEGER")
-    ensure_column(conn, "inspections", "order_id", "INTEGER REFERENCES orders(id)")
-    ensure_column(conn, "inspections", "status", "TEXT NOT NULL DEFAULT 'draft'")
-    ensure_column(conn, "inspections", "inspector", "TEXT NOT NULL DEFAULT ''")
-    ensure_column(conn, "inspections", "inspected_at", "TEXT NOT NULL DEFAULT ''")
-    ensure_column(conn, "inspections", "summary", "TEXT NOT NULL DEFAULT ''")
-    ensure_column(conn, "inspections", "created_at", "TEXT NOT NULL DEFAULT ''")
-    ensure_column(conn, "inspections", "updated_at", "TEXT NOT NULL DEFAULT ''")
-    ensure_column(conn, "inspections", "deleted_at", "TEXT")
-
-    ensure_column(conn, "inspection_items", "inspection_id", "INTEGER NOT NULL DEFAULT 0")
-    ensure_column(conn, "inspection_items", "area", "TEXT NOT NULL DEFAULT ''")
-    ensure_column(conn, "inspection_items", "title", "TEXT NOT NULL DEFAULT ''")
-    ensure_column(conn, "inspection_items", "condition_status", "TEXT NOT NULL DEFAULT 'ok'")
-    ensure_column(conn, "inspection_items", "approval_status", "TEXT NOT NULL DEFAULT 'approved'")
-    ensure_column(conn, "inspection_items", "recommendation", "TEXT NOT NULL DEFAULT ''")
-    ensure_column(conn, "inspection_items", "estimate", "REAL NOT NULL DEFAULT 0")
-    ensure_column(conn, "inspection_items", "created_at", "TEXT NOT NULL DEFAULT ''")
 
     conn.execute("CREATE INDEX IF NOT EXISTS idx_customers_active_name ON customers(deleted_at, name)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)")
@@ -420,9 +435,6 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_schedule ON appointments(deleted_at, scheduled_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_customer ON appointments(customer_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_inspections_vehicle ON inspections(deleted_at, vehicle_id, inspected_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_inspections_customer ON inspections(customer_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_inspection_items_inspection ON inspection_items(inspection_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_closed_at ON orders(closed_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_follow_up_at ON orders(follow_up_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_vehicles_next_service ON vehicles(next_service_at, next_service_mileage)")

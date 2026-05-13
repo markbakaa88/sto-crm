@@ -20,7 +20,6 @@ from .validation import (
     item_is_billable,
     validate_appointment,
     validate_customer,
-    validate_inspection,
     validate_inventory,
     validate_order,
     validate_vehicle,
@@ -31,12 +30,6 @@ def _query_get_order(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]
     from .queries import get_order
 
     return get_order(conn, record_id)
-
-
-def _inspection_totals(items: list[dict[str, Any]]) -> dict[str, float]:
-    from .queries import inspection_totals
-
-    return inspection_totals(items)
 
 
 def create_customer(payload: dict[str, Any]) -> dict[str, Any]:
@@ -86,15 +79,6 @@ def delete_customer(record_id: int) -> dict[str, Any]:
         appointments_count = active_appointment_count_for_customer(conn, record_id)
         if appointments_count:
             raise ValueError("У клиента есть активные записи в календаре. Завершите или отмените их перед удалением клиента.")
-        inspections_count = conn.execute(
-            """
-            SELECT COUNT(*) FROM inspections
-            WHERE customer_id = ? AND deleted_at IS NULL
-            """,
-            (record_id,),
-        ).fetchone()[0]
-        if inspections_count:
-            raise ValueError("У клиента есть цифровые осмотры. Сначала удалите или перенесите связанные осмотры.")
         stamp = now_iso()
         for vehicle in conn.execute(
             "SELECT id FROM vehicles WHERE customer_id = ? AND deleted_at IS NULL", (record_id,)
@@ -126,9 +110,9 @@ def create_vehicle(payload: dict[str, Any]) -> dict[str, Any]:
         stamp = now_iso()
         cur = conn.execute(
             """
-            INSERT INTO vehicles(customer_id, make, model, year, plate, vin, mileage, next_service_at,
+            INSERT INTO vehicles(customer_id, make, model, year, plate, vin, mileage, mileage_manual, next_service_at,
                                  next_service_mileage, notes, created_at, updated_at)
-            VALUES (:customer_id, :make, :model, :year, :plate, :vin, :mileage, :next_service_at,
+            VALUES (:customer_id, :make, :model, :year, :plate, :vin, :mileage, :mileage, :next_service_at,
                     :next_service_mileage, :notes, :created_at, :updated_at)
             """,
             {**data, "created_at": stamp, "updated_at": stamp},
@@ -139,7 +123,7 @@ def create_vehicle(payload: dict[str, Any]) -> dict[str, Any]:
 def update_vehicle(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
     with write_db() as conn:
         old = conn.execute(
-            "SELECT customer_id, mileage, mileage_order_id FROM vehicles WHERE id = ? AND deleted_at IS NULL",
+            "SELECT customer_id FROM vehicles WHERE id = ? AND deleted_at IS NULL",
             (record_id,),
         ).fetchone()
         if not old:
@@ -156,31 +140,24 @@ def update_vehicle(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError("Нельзя сменить клиента у автомобиля с заказ-нарядами.")
             if active_appointment_count_for_vehicle(conn, record_id):
                 raise ValueError("Нельзя сменить клиента у автомобиля с активными записями в календаре.")
-            inspections_count = conn.execute(
-                "SELECT COUNT(*) FROM inspections WHERE vehicle_id = ? AND deleted_at IS NULL",
-                (record_id,),
-            ).fetchone()[0]
-            if inspections_count:
-                raise ValueError("Нельзя сменить клиента у автомобиля с цифровыми осмотрами.")
-        old_mileage_order_id = parse_int(old["mileage_order_id"])
-        # Сохраняем привязку к заказу-источнику ТОЛЬКО если пробег не изменился
-        # И ранее уже был синхронизирован с заказом. Иначе ручной пробег, случайно
-        # совпавший с заказным, был бы ошибочно помечен как синхронизированный.
-        mileage_order_id = (
-            old_mileage_order_id
-            if old_mileage_order_id and parse_int(old["mileage"]) == data["mileage"]
-            else None
-        )
+        # Любое сохранение карточки автомобиля считается явным ручным подтверждением
+        # видимого пробега.  Это защищает baseline от отката к старому значению,
+        # если текущий пробег пришёл из заказ-наряда и этот заказ позже удалят или
+        # отвяжут от автомобиля.
         conn.execute(
             """
             UPDATE vehicles
             SET customer_id=:customer_id, make=:make, model=:model, year=:year, plate=:plate,
-                vin=:vin, mileage=:mileage, next_service_at=:next_service_at,
-                next_service_mileage=:next_service_mileage, notes=:notes,
-                mileage_order_id=:mileage_order_id, updated_at=:updated_at
+                vin=:vin, mileage=:mileage, mileage_manual=:mileage,
+                mileage_order_id=NULL, next_service_at=:next_service_at,
+                next_service_mileage=:next_service_mileage, notes=:notes, updated_at=:updated_at
             WHERE id=:id AND deleted_at IS NULL
             """,
-            {**data, "mileage_order_id": mileage_order_id, "updated_at": now_iso(), "id": record_id},
+            {
+                **data,
+                "updated_at": now_iso(),
+                "id": record_id,
+            },
         )
         return get_vehicle(conn, record_id)
 
@@ -201,15 +178,6 @@ def delete_vehicle(record_id: int) -> dict[str, Any]:
         appointments_count = active_appointment_count_for_vehicle(conn, record_id)
         if appointments_count:
             raise ValueError("По автомобилю есть активные записи в календаре. Завершите или отмените их перед удалением автомобиля.")
-        inspections_count = conn.execute(
-            """
-            SELECT COUNT(*) FROM inspections
-            WHERE vehicle_id = ? AND deleted_at IS NULL
-            """,
-            (record_id,),
-        ).fetchone()[0]
-        if inspections_count:
-            raise ValueError("По автомобилю есть цифровые осмотры. Сначала удалите или измените связанные осмотры.")
         stamp = now_iso()
         conn.execute("UPDATE vehicles SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL", (stamp, stamp, record_id))
         return {"deleted": True}
@@ -296,135 +264,6 @@ def get_appointment(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
     if not row:
         raise KeyError("Запись не найдена.")
     return dict(row)
-
-
-def create_inspection(payload: dict[str, Any]) -> dict[str, Any]:
-    with write_db() as conn:
-        data = validate_inspection(conn, payload)
-        stamp = now_iso()
-        cur = conn.execute(
-            """
-            INSERT INTO inspections(customer_id, vehicle_id, order_id, status, inspector, inspected_at,
-                                    summary, created_at, updated_at)
-            VALUES (:customer_id, :vehicle_id, :order_id, :status, :inspector, :inspected_at,
-                    :summary, :created_at, :updated_at)
-            """,
-            {**{k: v for k, v in data.items() if k != "items"}, "created_at": stamp, "updated_at": stamp},
-        )
-        inspection_id = int(cur.lastrowid)
-        insert_inspection_items(conn, inspection_id, data["items"])
-        return get_inspection(conn, inspection_id)
-
-
-def update_inspection(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
-    with write_db() as conn:
-        if not active_exists(conn, "inspections", record_id):
-            raise KeyError("Осмотр не найден.")
-        data = validate_inspection(conn, payload)
-        old_items = list_inspection_items(conn, record_id)
-        conn.execute(
-            """
-            UPDATE inspections
-            SET customer_id=:customer_id, vehicle_id=:vehicle_id, order_id=:order_id,
-                status=:status, inspector=:inspector, inspected_at=:inspected_at,
-                summary=:summary, updated_at=:updated_at
-            WHERE id=:id AND deleted_at IS NULL
-            """,
-            {**{k: v for k, v in data.items() if k != "items"}, "updated_at": now_iso(), "id": record_id},
-        )
-        conn.execute("DELETE FROM inspection_items WHERE inspection_id=?", (record_id,))
-        preserved_item_stamps = {
-            inspection_item_signature(item): str(item.get("created_at") or "")
-            for item in old_items
-            if item.get("created_at")
-        }
-        insert_inspection_items(conn, record_id, data["items"], preserved_timestamps=preserved_item_stamps)
-        return get_inspection(conn, record_id)
-
-
-def delete_inspection(record_id: int) -> dict[str, Any]:
-    with write_db() as conn:
-        if not active_exists(conn, "inspections", record_id):
-            raise KeyError("Осмотр не найден.")
-        stamp = now_iso()
-        conn.execute("UPDATE inspections SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL", (stamp, stamp, record_id))
-        return {"deleted": True}
-
-
-def insert_inspection_items(
-    conn: sqlite3.Connection,
-    inspection_id: int,
-    items: list[dict[str, Any]],
-    *,
-    preserved_timestamps: dict[tuple, str] | None = None,
-) -> None:
-    stamp = now_iso()
-    preserved = preserved_timestamps or {}
-    rows = []
-    for item in items:
-        signature = inspection_item_signature(item)
-        created_at = preserved.get(signature) or stamp
-        rows.append({**item, "inspection_id": inspection_id, "created_at": created_at})
-    conn.executemany(
-        """
-        INSERT INTO inspection_items(inspection_id, area, title, condition_status, approval_status,
-                                     recommendation, estimate, created_at)
-        VALUES (:inspection_id, :area, :title, :condition_status, :approval_status,
-                :recommendation, :estimate, :created_at)
-        """,
-        rows,
-    )
-
-
-def inspection_item_signature(item: dict[str, Any]) -> tuple[Any, ...]:
-    return (
-        str(item.get("area") or ""),
-        str(item.get("title") or ""),
-        str(item.get("condition_status") or ""),
-        str(item.get("approval_status") or ""),
-        str(item.get("recommendation") or ""),
-        round(parse_float(item.get("estimate")), 2),
-    )
-
-
-def list_inspection_items(conn: sqlite3.Connection, inspection_id: int) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        """
-        SELECT *
-        FROM inspection_items
-        WHERE inspection_id=?
-        ORDER BY id
-        """,
-        (inspection_id,),
-    ).fetchall()
-    return [dict(row) for row in rows]
-
-
-def get_inspection(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
-    row = conn.execute(
-        """
-        SELECT i.*, c.name AS customer_name, c.phone AS customer_phone,
-               v.make AS vehicle_make, v.model AS vehicle_model, v.year AS vehicle_year,
-               v.plate AS vehicle_plate, v.vin AS vehicle_vin,
-               o.number AS order_number
-        FROM inspections i
-        JOIN customers c ON c.id = i.customer_id
-        LEFT JOIN vehicles v ON v.id = i.vehicle_id
-        LEFT JOIN orders o ON o.id = i.order_id
-        WHERE i.id = ?
-          AND i.deleted_at IS NULL
-          AND c.deleted_at IS NULL
-          AND (i.vehicle_id IS NULL OR v.deleted_at IS NULL)
-          AND (i.order_id IS NULL OR o.deleted_at IS NULL)
-        """,
-        (record_id,),
-    ).fetchone()
-    if not row:
-        raise KeyError("Осмотр не найден.")
-    inspection = dict(row)
-    inspection["items"] = list_inspection_items(conn, record_id)
-    inspection.update(_inspection_totals(inspection["items"]))
-    return inspection
 
 
 def create_inventory(payload: dict[str, Any]) -> dict[str, Any]:
@@ -522,7 +361,11 @@ def sync_vehicle_mileage_from_order(conn: sqlite3.Connection, vehicle_id: int | 
     conn.execute(
         """
         UPDATE vehicles
-        SET mileage = CASE WHEN mileage < ? THEN ? ELSE mileage END,
+        SET mileage_manual = CASE
+                WHEN mileage_order_id IS NULL AND mileage > mileage_manual THEN mileage
+                ELSE mileage_manual
+            END,
+            mileage = CASE WHEN mileage < ? THEN ? ELSE mileage END,
             mileage_order_id = CASE WHEN mileage < ? THEN ? ELSE mileage_order_id END,
             updated_at = CASE WHEN mileage < ? THEN ? ELSE updated_at END
         WHERE id = ? AND deleted_at IS NULL
@@ -547,7 +390,7 @@ def reconcile_vehicle_mileage_after_order_change(
     if not vehicle_id or not previous_order_id or previous_odometer <= 0:
         return
     row = conn.execute(
-        "SELECT mileage, mileage_order_id FROM vehicles WHERE id = ? AND deleted_at IS NULL",
+        "SELECT mileage, mileage_manual, mileage_order_id FROM vehicles WHERE id = ? AND deleted_at IS NULL",
         (vehicle_id,),
     ).fetchone()
     if (
@@ -569,10 +412,12 @@ def reconcile_vehicle_mileage_after_order_change(
         """,
         (vehicle_id,),
     ).fetchone()
+    manual_odometer = parse_int(row["mileage_manual"])
     max_order_odometer = parse_int(max_order["odometer"] if max_order else 0)
-    if max_order_odometer >= previous_odometer:
+    target_odometer = max(manual_odometer, max_order_odometer)
+    if target_odometer >= previous_odometer:
         return
-    max_order_id = int(max_order["id"]) if max_order else None
+    max_order_id = int(max_order["id"]) if max_order and max_order_odometer >= manual_odometer else None
     stamp = now_iso()
     conn.execute(
         """
@@ -580,7 +425,7 @@ def reconcile_vehicle_mileage_after_order_change(
         SET mileage = ?, mileage_order_id = ?, updated_at = ?
         WHERE id = ? AND deleted_at IS NULL AND mileage = ?
         """,
-        (max_order_odometer, max_order_id, stamp, vehicle_id, previous_odometer),
+        (target_odometer, max_order_id, stamp, vehicle_id, previous_odometer),
     )
 
 
@@ -621,7 +466,15 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         if not old:
             raise KeyError("Заказ-наряд не найден.")
         old_items = list_order_items(conn, record_id)
-        data = validate_order(conn, payload)
+        old_deleted_inventory_ids = {
+            int(item["inventory_id"])
+            for item in old_items
+            if item.get("inventory_id")
+            and item.get("inventory_deleted_at")
+            and str(old["closed_at"] or "")
+            and str(old["status"]) in {"closed", "cancelled"}
+        }
+        data = validate_order(conn, payload, allow_deleted_inventory_ids=old_deleted_inventory_ids)
         old_status = str(old["status"])
         new_status = data["status"]
         closed_at = compute_closed_at(old_status, str(old["closed_at"] or ""), new_status)
@@ -697,16 +550,6 @@ def delete_order(record_id: int) -> dict[str, Any]:
                 "Закрытый заказ-наряд сначала переведите в статус «Отменен», "
                 "чтобы возврат складских остатков был явным."
             )
-        linked_inspections_count = conn.execute(
-            """
-            SELECT COUNT(*)
-            FROM inspections
-            WHERE order_id = ? AND deleted_at IS NULL
-            """,
-            (record_id,),
-        ).fetchone()[0]
-        if linked_inspections_count:
-            raise ValueError("К заказ-наряду привязаны цифровые осмотры. Сначала удалите или отвяжите связанные осмотры.")
         old_items = list_order_items(conn, record_id)
         apply_inventory_delta(conn, str(old["status"]), "", old_items, [])
         stamp = now_iso()
@@ -746,7 +589,7 @@ def insert_order_items(
 def list_order_items(conn: sqlite3.Connection, order_id: int) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
-        SELECT oi.*, i.sku AS inventory_sku, i.name AS inventory_name
+        SELECT oi.*, i.sku AS inventory_sku, i.name AS inventory_name, i.deleted_at AS inventory_deleted_at
         FROM order_items oi
         LEFT JOIN inventory i ON i.id = oi.inventory_id
         WHERE oi.order_id=?
