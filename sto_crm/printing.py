@@ -197,6 +197,8 @@ def print_order_html(order: dict[str, Any]) -> str:
             .document {{ width: 100%; margin: 0; padding: 0; border: 0; border-radius: 0; box-shadow: none; }}
             .table-scroll {{ overflow: visible; }}
             table {{ min-width: 0; }}
+            th, td {{ padding: 6px 8px; }}
+            .summary-grid, .notes-grid {{ gap: 8px; margin: 10px 0; }}
             .box {{ break-inside: avoid; }}
             .totals, .sign {{ break-inside: avoid; }}
         }}

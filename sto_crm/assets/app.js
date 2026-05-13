@@ -1179,27 +1179,32 @@ function tableHead(labels) {
     }).join("")}</tr>`;
 }
 
-function labeledField(id, label, controlHtml, span = "") {
-    return `<div class="field ${esc(span)}"><label for="${esc(id)}">${esc(label)}</label>${controlHtml}</div>`;
+function labeledField(id, label, controlHtml, span = "", hint = "") {
+    const hintId = hint ? `${id}_hint` : "";
+    const control = hint
+        ? String(controlHtml).replace(/<(input|select|textarea)\b(?![^>]*\baria-describedby=)/i, `<$1 aria-describedby="${esc(hintId)}"`)
+        : controlHtml;
+    const hintHtml = hint ? `<div class="field-hint" id="${esc(hintId)}">${esc(hint)}</div>` : "";
+    return `<div class="field ${esc(span)}"><label for="${esc(id)}">${esc(label)}</label>${control}${hintHtml}</div>`;
 }
 
 function fieldId(formScope, name) {
     return `${formScope}_${name}`.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
-function inputField(formScope, name, label, attributes = "", span = "") {
+function inputField(formScope, name, label, attributes = "", span = "", hint = "") {
     const id = fieldId(formScope, name);
-    return labeledField(id, label, `<input id="${id}" name="${esc(name)}" ${attributes}>`, span);
+    return labeledField(id, label, `<input id="${id}" name="${esc(name)}" ${attributes}>`, span, hint);
 }
 
-function selectField(formScope, name, label, optionsHtml, attributes = "", span = "") {
+function selectField(formScope, name, label, optionsHtml, attributes = "", span = "", hint = "") {
     const id = fieldId(formScope, name);
-    return labeledField(id, label, `<select id="${id}" name="${esc(name)}" ${attributes}>${optionsHtml}</select>`, span);
+    return labeledField(id, label, `<select id="${id}" name="${esc(name)}" ${attributes}>${optionsHtml}</select>`, span, hint);
 }
 
-function textareaField(formScope, name, label, value = "", attributes = "", span = "") {
+function textareaField(formScope, name, label, value = "", attributes = "", span = "", hint = "") {
     const id = fieldId(formScope, name);
-    return labeledField(id, label, `<textarea id="${id}" name="${esc(name)}" ${attributes}>${esc(value)}</textarea>`, span);
+    return labeledField(id, label, `<textarea id="${id}" name="${esc(name)}" ${attributes}>${esc(value)}</textarea>`, span, hint);
 }
 
 function renderDashboard() {
@@ -1217,13 +1222,25 @@ function renderDashboard() {
             { label: "Новый заказ", action: "new-order", className: "primary" },
             { label: "Запись", action: "new-appointment", className: "ghost" }
         ])}
+        <section class="business-hints" aria-label="Визуальные подсказки панели">
+            <strong>Подсказки:</strong>
+            <span class="hint-chip"><span class="hint-dot" aria-hidden="true"></span>Индекс 0–100 показывает здоровье смены</span>
+            <span class="hint-chip"><span class="hint-dot warning" aria-hidden="true"></span>Приоритет — что открыть первым</span>
+            <span class="hint-chip"><span class="hint-dot danger" aria-hidden="true"></span>Красный и янтарный — зона риска</span>
+        </section>
         <section class="workspace-grid dashboard-focus-grid">
-            <div class="panel action-center action-center-large">
-                <div class="panel-head">
-                    <h2>План смены ${helpTip("Автоматический список важных действий: просрочки, сметы, follow-up, сервисные напоминания и закупка.")}</h2>
-                    <span class="count-pill">${r.action_plan_total || 0}</span>
+            <div class="dashboard-main-stack">
+                <div class="panel action-center action-center-large">
+                    <div class="panel-head">
+                        <h2>План смены ${helpTip("Автоматический список важных действий: просрочки, сметы, follow-up, сервисные напоминания и закупка.")}</h2>
+                        <span class="count-pill">${r.action_plan_total || 0}</span>
+                    </div>
+                    <div class="panel-body">${actionPlanList(r.action_plan || [])}</div>
                 </div>
-                <div class="panel-body">${actionPlanList(r.action_plan || [])}</div>
+                <details class="panel dashboard-details" open>
+                    <summary><span>Последние заказы</span><span class="count-pill">${recent.length}</span></summary>
+                    ${ordersTable(recent, true)}
+                </details>
             </div>
             <aside class="dashboard-rail dashboard-support" aria-label="Краткий контроль смены">
                 <div class="panel">
@@ -1247,10 +1264,6 @@ function renderDashboard() {
                 </div>
             </aside>
         </section>
-        <details class="panel dashboard-details">
-            <summary><span>Последние заказы</span><span class="count-pill">${recent.length}</span></summary>
-            ${ordersTable(recent, true)}
-        </details>
     `;
 }
 
@@ -2455,8 +2468,8 @@ function openAppointmentModal(appointment = {}) {
             ${inputField("appointment", "duration_minutes", "Длительность, мин", `type="number" min="15" step="15" value="${esc(appointment.duration_minutes || 60)}"`)}
             ${selectField("appointment", "status", "Статус", appointmentStatusOptions(appointment.status))}
             ${inputField("appointment", "advisor", "Мастер-приемщик", `value="${esc(appointment.advisor || "Администратор")}"`)}
-            ${inputField("appointment", "reason", "Причина визита", `value="${esc(appointment.reason)}" placeholder="ТО, диагностика, замена шин"`, "span-2")}
-            ${textareaField("appointment", "notes", "Заметки", appointment.notes, "", "span-2")}
+            ${inputField("appointment", "reason", "Причина визита", `value="${esc(appointment.reason)}" placeholder="ТО, диагностика, замена шин"`, "span-2", "Коротко сформулируйте цель визита — текст увидит администратор в календаре.")}
+            ${textareaField("appointment", "notes", "Заметки", appointment.notes, "placeholder=\"Что уточнить при приемке\"", "span-2", "Внутренние детали: ожидания клиента, симптомы, важные договоренности.")}
         </form>`,
         `${appointment.id ? `<button class="btn danger" type="button" data-save="delete-appointment" data-id="${appointment.id}">Удалить</button>` : ""}
          <button class="btn" type="button" data-save="cancel">Отмена</button>
@@ -2476,13 +2489,13 @@ function openCustomerModal(customer = {}) {
     openModal(
         customer.id ? "Клиент" : "Новый клиент",
         `<form id="entityForm" class="form-grid">
-            ${inputField("customer", "name", "Имя", `value="${esc(customer.name)}" required`)}
-            ${inputField("customer", "phone", "Телефон", `type="tel" value="${esc(customer.phone)}" inputmode="tel" autocomplete="tel" placeholder="+7 900 000-00-00"`)}
-            ${inputField("customer", "email", "Email", `type="email" value="${esc(customer.email)}" inputmode="email" autocomplete="email"`)}
-            ${inputField("customer", "source", "Источник", `value="${esc(customer.source)}"`)}
-            ${selectField("customer", "preferred_channel", "Канал связи", channelOptions(customer.preferred_channel))}
-            <label class="check-field" for="customer_reminder_consent"><input id="customer_reminder_consent" type="checkbox" name="reminder_consent" value="1" ${Number(customer.reminder_consent ?? 1) ? "checked" : ""}> Сервисные напоминания</label>
-            ${textareaField("customer", "notes", "Заметки", customer.notes, "", "span-2")}
+            ${inputField("customer", "name", "Имя", `value="${esc(customer.name)}" required`, "", "ФИО клиента или название организации — будет видно в заказах, записях и отчётах.")}
+            ${inputField("customer", "phone", "Телефон", `type="tel" value="${esc(customer.phone)}" inputmode="tel" autocomplete="tel" placeholder="+7 900 000-00-00"`, "", "Основной номер для подтверждений, напоминаний и быстрых звонков.")}
+            ${inputField("customer", "email", "Email", `type="email" value="${esc(customer.email)}" inputmode="email" autocomplete="email"`, "", "Необязательно: удобно для счетов, актов и рассылок.")}
+            ${inputField("customer", "source", "Источник", `value="${esc(customer.source)}" placeholder="Рекомендация, сайт, 2ГИС"`, "", "Помогает оценивать эффективность каналов привлечения.")}
+            ${selectField("customer", "preferred_channel", "Канал связи", channelOptions(customer.preferred_channel), "", "", "Выберите канал, через который клиенту удобнее получать сообщения.")}
+            <label class="check-field" for="customer_reminder_consent"><input id="customer_reminder_consent" type="checkbox" name="reminder_consent" value="1" ${Number(customer.reminder_consent ?? 1) ? "checked" : ""}> <span><strong>Сервисные напоминания</strong><small>Разрешить плановые follow-up и уведомления о ТО.</small></span></label>
+            ${textareaField("customer", "notes", "Заметки", customer.notes, "placeholder=\"Особенности общения, скидки, предпочтения\"", "span-2", "Внутренняя информация для администраторов и мастеров.")}
         </form>`,
         `${customer.id ? `<button class="btn danger" type="button" data-save="delete-customer" data-id="${customer.id}">Удалить</button>` : ""}
          <button class="btn" type="button" data-save="cancel">Отмена</button>
@@ -2500,16 +2513,16 @@ function openVehicleModal(vehicle = {}) {
         vehicle.id ? "Автомобиль" : "Новый автомобиль",
         `<form id="entityForm" class="form-grid">
             ${hasCustomers ? "" : `<div class="notice span-2">В базе нет клиентов для привязки автомобиля.</div>`}
-            ${selectField("vehicle", "customer_id", "Клиент", customerOptions(selectedCustomer), "required", "span-2")}
-            ${labeledField("vehicleMake", "Марка", `<input name="make" id="vehicleMake" list="vehicleMakeList" value="${esc(vehicle.make)}"><datalist id="vehicleMakeList">${datalistOptions(makes, vehicle.make)}</datalist>`)}
-            ${labeledField("vehicleModel", "Модель", `<input name="model" id="vehicleModel" list="vehicleModelList" value="${esc(vehicle.model)}"><datalist id="vehicleModelList">${datalistOptions(catalogModels(vehicle.make), vehicle.model)}</datalist>`)}
-            ${inputField("vehicle", "year", "Год", `type="number" min="1900" max="${new Date().getFullYear() + 1}" value="${esc(vehicle.year || "")}"`)}
-            ${inputField("vehicle", "plate", "Госномер", `value="${esc(vehicle.plate)}" autocomplete="off" maxlength="40" autocapitalize="characters" spellcheck="false"`)}
-            ${inputField("vehicle", "vin", "VIN", `value="${esc(vehicle.vin)}" maxlength="17" minlength="17" pattern="[A-HJ-NPR-Za-hj-npr-z0-9]{17}" title="VIN должен содержать 17 символов без I, O и Q" autocomplete="off" autocapitalize="characters" spellcheck="false"`)}
-            ${inputField("vehicle", "mileage", "Пробег, км", `type="number" inputmode="numeric" step="1" min="0" value="${esc(vehicle.mileage || "")}"`)}
-            ${inputField("vehicle", "next_service_at", "Следующий сервис", `type="date" value="${esc(String(vehicle.next_service_at || "").slice(0, 10))}"`)}
-            ${inputField("vehicle", "next_service_mileage", "Сервисный пробег", `type="number" inputmode="numeric" step="1" min="0" value="${esc(vehicle.next_service_mileage || "")}"`)}
-            ${textareaField("vehicle", "notes", "Заметки", vehicle.notes, "", "span-2")}
+            ${selectField("vehicle", "customer_id", "Клиент", customerOptions(selectedCustomer), "required", "span-2", "Автомобиль будет связан с выбранным клиентом и доступен в заказ-нарядах.")}
+            ${labeledField("vehicleMake", "Марка", `<input name="make" id="vehicleMake" list="vehicleMakeList" value="${esc(vehicle.make)}" placeholder="Toyota"><datalist id="vehicleMakeList">${datalistOptions(makes, vehicle.make)}</datalist>`, "", "Начните вводить марку — CRM подскажет значения из офлайн-каталога.")}
+            ${labeledField("vehicleModel", "Модель", `<input name="model" id="vehicleModel" list="vehicleModelList" value="${esc(vehicle.model)}" placeholder="Camry"><datalist id="vehicleModelList">${datalistOptions(catalogModels(vehicle.make), vehicle.model)}</datalist>`, "", "Список моделей обновляется после выбора марки.")}
+            ${inputField("vehicle", "year", "Год", `type="number" min="1900" max="${new Date().getFullYear() + 1}" value="${esc(vehicle.year || "")}"`, "", "Используется в карточках, поиске и печатной форме.")}
+            ${inputField("vehicle", "plate", "Госномер", `value="${esc(vehicle.plate)}" autocomplete="off" maxlength="40" autocapitalize="characters" spellcheck="false" placeholder="A123AA"`, "", "Будет автоматически приведён к верхнему регистру.")}
+            ${inputField("vehicle", "vin", "VIN", `value="${esc(vehicle.vin)}" maxlength="17" minlength="17" pattern="[A-HJ-NPR-Za-hj-npr-z0-9]{17}" title="VIN должен содержать 17 символов без I, O и Q" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="17 символов"`, "", "17 символов без I, O и Q; удобно для идентификации авто.")}
+            ${inputField("vehicle", "mileage", "Пробег, км", `type="number" inputmode="numeric" step="1" min="0" value="${esc(vehicle.mileage || "")}"`, "", "Актуальный пробег синхронизируется с заказ-нарядами.")}
+            ${inputField("vehicle", "next_service_at", "Следующий сервис", `type="date" value="${esc(String(vehicle.next_service_at || "").slice(0, 10))}"`, "", "Дата появится в плане смены как сервисное напоминание.")}
+            ${inputField("vehicle", "next_service_mileage", "Сервисный пробег", `type="number" inputmode="numeric" step="1" min="0" value="${esc(vehicle.next_service_mileage || "")}"`, "", "Порог пробега для следующего ТО.")}
+            ${textareaField("vehicle", "notes", "Заметки", vehicle.notes, "placeholder=\"Особенности авто, история, рекомендации\"", "span-2", "Внутренние заметки по автомобилю.")}
         </form>`,
         `${vehicle.id ? `<button class="btn danger" type="button" data-save="delete-vehicle" data-id="${vehicle.id}">Удалить</button>` : ""}
          <button class="btn" type="button" data-save="cancel">Отмена</button>
@@ -2621,6 +2634,12 @@ function openOrderModal(order = {}) {
                     <button class="btn" type="button" id="addPart">+ Запчасть</button>
                 </div>
             </div>
+            <div class="business-hints" aria-label="Подсказки заказ-наряда">
+                <strong>Подсказки:</strong>
+                <span class="hint-chip"><span class="hint-dot" aria-hidden="true"></span>Согласовано — входит в сумму</span>
+                <span class="hint-chip"><span class="hint-dot warning" aria-hidden="true"></span>Отложено/отказ — не списывает склад</span>
+                <span class="hint-chip"><span class="hint-dot danger" aria-hidden="true"></span>К оплате пересчитывается сразу</span>
+            </div>
             <div class="notice">Запчасть можно выбрать со склада или указать вручную как «вне склада» — такие позиции не списывают остатки, но учитываются в сумме заказ-наряда.</div>
             <div id="itemsHost"></div>
         </form>`,
@@ -2669,7 +2688,7 @@ function renderOrderItems() {
                         </select></td>
                         <td data-label="Источник"><select class="source-select" data-item="inventory_id" aria-label="Источник запчасти" ${item.kind !== "part" ? "disabled" : ""}>${partSourceOptions(item)}</select>${partSourceHint(item)}</td>
                         <td data-label="Наименование"><input data-item="title" aria-label="Наименование позиции" value="${esc(item.title)}" required></td>
-                        <td data-label="Согласование"><select data-item="approval_status" aria-label="Статус согласования позиции">${itemApprovalOptions(item.approval_status)}</select></td>
+                        <td data-label="Согласование"><select data-item="approval_status" aria-label="Статус согласования позиции">${itemApprovalOptions(item.approval_status)}</select><div class="cell-note">Согласовано — в сумму; отложено/отказ — без списания и оплаты.</div></td>
                         <td data-label="Кол-во"><input data-item="quantity" aria-label="Количество" type="number" inputmode="decimal" step="0.01" min="0.01" required value="${esc(item.quantity || 1)}"></td>
                         <td data-label="Цена"><input data-item="unit_price" aria-label="Цена" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(item.unit_price || 0)}"></td>
                         <td data-label="Себест."><input data-item="unit_cost" aria-label="Себестоимость" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(item.unit_cost || 0)}"></td>
