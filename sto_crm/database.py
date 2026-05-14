@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator
 
 from . import runtime as _runtime
 from .config import APP_VERSION, LOOKUP_LIMIT
@@ -12,6 +12,7 @@ from .runtime import clean_multiline, now_iso, parse_int, safe_log
 
 
 def _seed_demo_data() -> None:
+    # Lazy import разрывает цикл seed → database.
     from .seed import seed_demo_data
 
     seed_demo_data()

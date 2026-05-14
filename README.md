@@ -84,7 +84,7 @@ python .\sto_crm.py --demo
 
 ## Пересборка `.exe`
 
-Требования для сборки: Windows/PowerShell, установленный Python (или `py` launcher). `build.ps1` устанавливает/проверяет совместимую версию PyInstaller через `pip`, поэтому для первого запуска может понадобиться интернет или заранее прогретый pip-cache.
+Требования для сборки: Windows/PowerShell, Python 3.13 (или `py` launcher), желательно Node.js для локальной проверки синтаксиса `app.js`. `build.ps1` устанавливает/проверяет совместимые dev-зависимости через `pip`, поэтому для первого запуска может понадобиться интернет или заранее прогретый pip-cache. Если Node.js не установлен, локальный скрипт пропустит JS syntax-check; GitHub Actions всё равно выполняет эту проверку.
 
 ```powershell
 .\build.ps1
@@ -109,6 +109,10 @@ python -m PyInstaller --clean .\STO_CRM.spec
 ```powershell
 python -m compileall -q .\sto_crm.py .\sto_crm .\tests
 python -m unittest discover -v
+python -m coverage run -m pytest -q
+python -m coverage report --fail-under=85
+python .\tests\check_frontend_contracts.py
+node --check .\sto_crm\assets\app.js
 ```
 
 Дополнительные инструменты разработки устанавливаются отдельно:
@@ -132,14 +136,14 @@ python -m pytest -q
 
 ```json
 {
-  "version": "1.17.1",
-  "tag": "v1.17.1",
-  "name": "СТО CRM 1.17.1",
+  "version": "1.17.2",
+  "tag": "v1.17.2",
+  "name": "СТО CRM 1.17.2",
   "asset": {
     "name": "STO_CRM.exe",
     "size": 12345678,
     "sha256": "...",
-    "download_url": "https://github.com/markbakaa88/sto-crm/releases/download/v1.17.1/STO_CRM.exe"
+    "download_url": "https://github.com/markbakaa88/sto-crm/releases/download/v1.17.2/STO_CRM.exe"
   }
 }
 ```

@@ -40,8 +40,17 @@ jobs:
       - name: Compile sources
         run: python -m compileall -q sto_crm.py sto_crm tests
 
-      - name: Run pytest
-        run: python -m pytest -q
+      - name: Check frontend JavaScript syntax
+        run: node --check sto_crm/assets/app.js
+
+      - name: Run pytest with coverage
+        run: python -m coverage run -m pytest -q
+
+      - name: Report coverage
+        run: python -m coverage report --fail-under=85
+
+      - name: Check frontend contracts
+        run: python tests/check_frontend_contracts.py
 
       - name: Run ruff
         run: python -m ruff check .

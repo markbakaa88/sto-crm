@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
 import re
-import sqlite3
 import secrets
+import sqlite3
 import subprocess
 import urllib.error
 import urllib.parse
@@ -389,10 +390,8 @@ def download_release_asset(asset: dict[str, Any], target: Path) -> dict[str, Any
                 sha256.update(chunk)
                 output.write(chunk)
             output.flush()
-            try:
+            with contextlib.suppress(OSError, AttributeError):
                 os.fsync(output.fileno())
-            except (OSError, AttributeError):
-                pass
         if expected_size and total != expected_size:
             raise RuntimeError("Размер скачанного обновления не совпадает с размером в GitHub Release.")
         if total <= 0:

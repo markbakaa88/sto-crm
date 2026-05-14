@@ -232,8 +232,20 @@ try {
 
     Invoke-Checked $python @("-m", "compileall", "-q", $sourcePath, (Join-Path $ProjectRoot "sto_crm"), (Join-Path $ProjectRoot "tests"))
     Invoke-Checked $python @("-m", "unittest", "discover", "-v")
-    Invoke-Checked $python @("-m", "pytest", "-q")
+    Invoke-Checked $python @("-m", "coverage", "run", "-m", "pytest", "-q")
+    Invoke-Checked $python @("-m", "coverage", "report", "--fail-under=85")
+    Invoke-Checked $python @((Join-Path $ProjectRoot "tests\check_frontend_contracts.py"))
     Invoke-Checked $python @("-m", "ruff", "check", ".")
+
+    $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
+    if ($nodeCommand) {
+        & $nodeCommand.Source "--check" (Join-Path $ProjectRoot "sto_crm\assets\app.js")
+        if ($LASTEXITCODE -ne 0) {
+            throw "Command failed with code ${LASTEXITCODE}: node --check sto_crm\assets\app.js"
+        }
+    } else {
+        Write-Host "Node.js not found; skipping app.js syntax check. CI still verifies frontend syntax."
+    }
 
     Remove-DirectoryIfExists $buildDir
     Remove-DirectoryIfExists $distDir

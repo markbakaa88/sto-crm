@@ -15,6 +15,7 @@
 </head>
 <body>
 <a class="skip-link" href="#content">К основному содержанию</a>
+<div class="app-progress" id="appProgress" role="progressbar" aria-hidden="true" aria-label="Загрузка данных"></div>
 <div class="app">
     <aside class="sidebar" aria-label="Навигация CRM">
         <div class="brand">
@@ -56,7 +57,7 @@
             <div class="search">
                 <span aria-hidden="true">⌕</span>
                 <label class="sr-only" for="globalSearch">Поиск по клиентам, автомобилям, заказам и складу</label>
-                <input id="globalSearch" placeholder="Поиск: клиент, авто, заказ, склад" autocomplete="off" aria-label="Поиск по клиентам, автомобилям, заказам и складу" aria-keyshortcuts="/">
+                <input id="globalSearch" placeholder="Поиск по CRM" autocomplete="off" aria-label="Поиск по клиентам, автомобилям, заказам и складу" aria-keyshortcuts="/">
                 <button class="search-clear" id="clearSearch" type="button" aria-label="Очистить поиск" title="Очистить поиск (Esc)" hidden>×</button>
                 <kbd class="search-hint" aria-hidden="true">/</kbd>
             </div>
@@ -84,7 +85,7 @@
                 <button type="button" class="btn ghost" id="commandBtn" title="Командная палитра Ctrl+K" aria-label="Открыть командную палитру" data-tooltip="Командная палитра · Ctrl+K">⌘K</button>
                 <button type="button" class="btn icon" id="refreshBtn" title="Обновить" aria-label="Обновить данные" data-tooltip="Обновить · R">↻</button>
                 <div class="system-menu" id="systemMenuRoot">
-                    <button type="button" class="btn ghost system-menu-button" id="systemMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="systemMenu" title="Системные действия CRM" data-tooltip="Система и настройки"><span>Система</span><span aria-hidden="true">⋯</span></button>
+                    <button type="button" class="btn ghost system-menu-button" id="systemMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="systemMenu" title="Системные действия CRM" data-tooltip="Система и настройки"><span>Система</span><span aria-hidden="true">▾</span></button>
                     <div class="system-menu-panel" id="systemMenu" role="menu" aria-label="Системные действия CRM" hidden>
                         <button type="button" role="menuitem" class="system-menu-item" id="themeToggle" title="Тёмная/светлая тема" aria-label="Переключить тёмную или светлую тему" aria-pressed="false"><span data-menu-icon aria-hidden="true">◐</span><span data-menu-label>Тема</span></button>
                         <button type="button" role="menuitem" class="system-menu-item" id="densityToggle" title="Плотность интерфейса" aria-label="Переключить плотность интерфейса" aria-pressed="false"><span data-menu-icon aria-hidden="true">↕</span><span data-menu-label>Плотность</span></button>
@@ -114,7 +115,7 @@
             <div class="status-center" id="statusCenter">СТО CRM</div>
             <div class="status-right">
                 <span class="status-item" id="statusSync" data-tooltip="Последняя синхронизация"><span aria-hidden="true">↻</span><span id="statusSyncText">—</span></span>
-                <span class="status-item" id="statusBackup" data-tooltip="Резервная копия"><span aria-hidden="true">⇩</span><span id="statusBackupText">Бэкап не создан</span></span>
+                <button type="button" class="status-item status-item-btn" id="statusBackup" data-action="backup-now" data-tooltip="Создать резервную копию сейчас"><span aria-hidden="true">⇩</span><span id="statusBackupText">Бэкап не создан</span></button>
                 <span class="status-item" id="statusVersion" data-tooltip="Версия и сборка"><span aria-hidden="true">⬢</span><span id="statusVersionText">v—</span></span>
                 <span class="status-item" id="statusClock" data-tooltip="Локальное время"><span aria-hidden="true">⌚</span><span id="statusClockText">--:--</span></span>
             </div>

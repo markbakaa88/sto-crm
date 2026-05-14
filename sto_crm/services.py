@@ -27,6 +27,7 @@ from .validation import (
 
 
 def _query_get_order(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
+    # Lazy import разрывает цикл queries → services.
     from .queries import get_order
 
     return get_order(conn, record_id)

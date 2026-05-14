@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import secrets
 import socket
@@ -136,9 +137,7 @@ class CRMHandler(BaseHTTPRequestHandler):
                 token = self.headers.get("X-CSRF-Token") or self.headers.get("X-CRM-CSRF-Token") or ""
                 if not secrets.compare_digest(token, _runtime.RUNTIME.csrf_token):
                     raise PermissionError("Экспорт доступен только из интерфейса CRM.")
-                entity = path.rsplit("/", 1)[-1]
-                if entity.endswith(".csv"):
-                    entity = entity[:-4]
+                entity = path.rsplit("/", 1)[-1].removesuffix(".csv")
                 filename, content = csv_export(entity)
                 self.send_bytes(
                     content.encode("utf-8"),
@@ -315,10 +314,8 @@ class CRMHandler(BaseHTTPRequestHandler):
             length = 0
         if length <= 0:
             return
-        try:
+        with contextlib.suppress(OSError, ValueError):
             self.rfile.read(min(length, MAX_BODY_BYTES + 1))
-        except (OSError, ValueError):
-            pass
 
     def read_json(self) -> dict[str, Any]:
         raw_length = self.headers.get("Content-Length")

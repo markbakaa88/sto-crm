@@ -10,9 +10,10 @@ import sys
 import threading
 import time
 import webbrowser
+from collections.abc import Iterator
 from contextlib import closing
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from . import runtime as _runtime
 from .config import APP_NAME, DEFAULT_PORT

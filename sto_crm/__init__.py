@@ -3,40 +3,17 @@
 Historically the project exposed almost everything from one `sto_crm.py` module.
 The implementation is now split by responsibility, while this package keeps the
 old `import sto_crm` API stable for tests, scripts and local integrations.
+
+All standard-library symbols that used to live at module level (``sto_crm.os``,
+``sto_crm.datetime``, ``sto_crm.sys`` и т.д.) публикуются автоматически через
+``_publish_module_symbols`` из сабмодулей, поэтому дублирующие
+``import foo as foo`` здесь не нужны и только засоряют линтеров.
 """
 
 from __future__ import annotations
 
-import argparse as argparse
-import base64 as base64
-import csv as csv
-import hashlib as hashlib
-import html as html
-import io as io
-import json as json
-import math as math
-import os as os
-import re as re
-import secrets as secrets
-import signal as signal
-import socket as socket
-import sqlite3 as sqlite3
-import subprocess as subprocess
-import sys as sys
-import threading as threading
-import time as time
-import traceback as traceback
+import sys
 import types
-import urllib as urllib
-import webbrowser as webbrowser
-import zlib as zlib
-from collections import defaultdict as defaultdict
-from contextlib import closing as closing, contextmanager as contextmanager
-from dataclasses import dataclass as dataclass
-from datetime import datetime as datetime, timedelta as timedelta
-from pathlib import Path as Path
-from typing import Any as Any, Iterator as Iterator
-from http.server import BaseHTTPRequestHandler as BaseHTTPRequestHandler, ThreadingHTTPServer as ThreadingHTTPServer
 
 from . import catalog as catalog
 from . import cli as cli
@@ -54,7 +31,7 @@ from . import updates as updates
 from . import validation as validation
 from . import web as web
 
-_IMPLEMENTATION_MODULES = [
+_IMPLEMENTATION_MODULES = (
     config,
     runtime,
     catalog,
@@ -70,7 +47,7 @@ _IMPLEMENTATION_MODULES = [
     http_server,
     cli,
     seed,
-]
+)
 
 
 def _publish_module_symbols() -> None:
@@ -103,4 +80,4 @@ class _StoCrmFacade(types.ModuleType):
 
 sys.modules[__name__].__class__ = _StoCrmFacade
 
-__all__ = sorted(name for name in globals() if not name.startswith("_"))
+__all__ = tuple(sorted(name for name in globals() if not name.startswith("_")))

@@ -49,7 +49,7 @@ def print_order_html(order: dict[str, Any]) -> str:
             </tr>
             """
         )
-    rows_html = "".join(rows) or "<tr><td colspan=\"7\" class=\"empty-row\">В заказ-наряде нет позиций.</td></tr>"
+    rows_html = "".join(rows) or '<tr><td colspan="7" class="empty-row">В заказ-наряде нет позиций.</td></tr>'
     return f"""<!doctype html>
 <html lang="ru">
 <head>

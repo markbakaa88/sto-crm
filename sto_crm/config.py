@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 APP_NAME = "СТО CRM"
-APP_VERSION = "1.17.1"
+APP_VERSION = "1.17.2"
 DEFAULT_PORT = 8765
 MAX_BODY_BYTES = 2_000_000
 LOOKUP_LIMIT = 5_000
