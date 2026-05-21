@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import math
 import sqlite3
 from collections import defaultdict
 from typing import Any
 
-from .config import APPOINTMENT_STATUSES, ORDER_STATUSES
+from .config import APPOINTMENT_STATUSES, MAX_FINANCIAL_TOTAL, ORDER_STATUSES
 from .database import db
 from .runtime import parse_float, search_needle, sql_limit
 from .services import list_order_items
@@ -116,7 +117,9 @@ def list_inventory(q: str = "", limit: int | None = 1000) -> list[dict[str, Any]
         return [dict(row) for row in rows]
 
 
-def list_appointments(q: str = "", status: str = "all", limit: int | None = 1000) -> list[dict[str, Any]]:
+def list_appointments(
+    q: str = "", status: str = "all", limit: int | None = 1000
+) -> list[dict[str, Any]]:
     if status not in {"all", *APPOINTMENT_STATUSES}:
         raise ValueError("Некорректный статус записи.")
     with db() as conn:
@@ -132,7 +135,9 @@ def list_appointments(q: str = "", status: str = "all", limit: int | None = 1000
                      OR CASEFOLD(v.model) LIKE ? ESCAPE '\\' OR CASEFOLD(a.reason) LIKE ? ESCAPE '\\' OR CASEFOLD(a.advisor) LIKE ? ESCAPE '\\')
             """
             needle = search_needle(q)
-            params.extend([needle, needle, needle, needle, needle, needle, needle, needle, needle])
+            params.extend(
+                [needle, needle, needle, needle, needle, needle, needle, needle, needle]
+            )
         limit_sql, limit_params = sql_limit(limit)
         params.extend(limit_params)
         rows = conn.execute(
@@ -155,7 +160,9 @@ def list_appointments(q: str = "", status: str = "all", limit: int | None = 1000
         return [dict(row) for row in rows]
 
 
-def list_orders(q: str = "", status: str = "", limit: int | None = 1000) -> list[dict[str, Any]]:
+def list_orders(
+    q: str = "", status: str = "", limit: int | None = 1000
+) -> list[dict[str, Any]]:
     if status and status != "all" and status not in ORDER_STATUSES:
         raise ValueError("Некорректный статус заказа.")
     with db() as conn:
@@ -171,7 +178,9 @@ def list_orders(q: str = "", status: str = "", limit: int | None = 1000) -> list
                      OR CASEFOLD(v.make) LIKE ? ESCAPE '\\' OR CASEFOLD(v.model) LIKE ? ESCAPE '\\' OR CASEFOLD(o.complaint) LIKE ? ESCAPE '\\')
             """
             needle = search_needle(q)
-            params.extend([needle, needle, needle, needle, needle, needle, needle, needle, needle])
+            params.extend(
+                [needle, needle, needle, needle, needle, needle, needle, needle, needle]
+            )
         limit_sql, limit_params = sql_limit(limit)
         params.extend(limit_params)
         rows = conn.execute(
@@ -245,7 +254,9 @@ def get_order(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
     return order
 
 
-def attach_items_and_totals(conn: sqlite3.Connection, orders: list[dict[str, Any]]) -> None:
+def attach_items_and_totals(
+    conn: sqlite3.Connection, orders: list[dict[str, Any]]
+) -> None:
     if not orders:
         return
     order_ids = [int(order["id"]) for order in orders]
@@ -269,21 +280,52 @@ def attach_items_and_totals(conn: sqlite3.Connection, orders: list[dict[str, Any
         order.update(calculate_totals(order, items))
 
 
-def calculate_totals(order: dict[str, Any], items: list[dict[str, Any]]) -> dict[str, float]:
+def _finite_total(value: float) -> float:
+    if not math.isfinite(value) or abs(value) > MAX_FINANCIAL_TOTAL:
+        return 0.0
+    return value
+
+
+def calculate_totals(
+    order: dict[str, Any], items: list[dict[str, Any]]
+) -> dict[str, float]:
     billable_items = [item for item in items if item_is_billable(item)]
-    service_total = sum(parse_float(i.get("quantity")) * parse_float(i.get("unit_price")) for i in billable_items if i.get("kind") == "service")
-    parts_total = sum(parse_float(i.get("quantity")) * parse_float(i.get("unit_price")) for i in billable_items if i.get("kind") == "part")
-    cost_total = sum(parse_float(i.get("quantity")) * parse_float(i.get("unit_cost")) for i in billable_items)
-    subtotal = service_total + parts_total
+    service_total = _finite_total(
+        sum(
+            _finite_total(
+                parse_float(i.get("quantity")) * parse_float(i.get("unit_price"))
+            )
+            for i in billable_items
+            if i.get("kind") == "service"
+        )
+    )
+    parts_total = _finite_total(
+        sum(
+            _finite_total(
+                parse_float(i.get("quantity")) * parse_float(i.get("unit_price"))
+            )
+            for i in billable_items
+            if i.get("kind") == "part"
+        )
+    )
+    cost_total = _finite_total(
+        sum(
+            _finite_total(
+                parse_float(i.get("quantity")) * parse_float(i.get("unit_cost"))
+            )
+            for i in billable_items
+        )
+    )
+    subtotal = _finite_total(service_total + parts_total)
     discount = min(max(parse_float(order.get("discount")), 0), subtotal)
-    taxable = max(subtotal - discount, 0)
+    taxable = _finite_total(max(subtotal - discount, 0))
     tax_rate = min(max(parse_float(order.get("tax_rate")), 0), 100)
-    tax = taxable * tax_rate / 100
-    total = taxable + tax
+    tax = _finite_total(taxable * tax_rate / 100)
+    total = _finite_total(taxable + tax)
     paid = min(max(parse_float(order.get("paid")), 0), total)
-    due = max(total - paid, 0)
-    gross_margin = taxable - cost_total
-    margin_percent = (gross_margin / taxable * 100) if taxable else 0
+    due = _finite_total(max(total - paid, 0))
+    gross_margin = _finite_total(taxable - cost_total)
+    margin_percent = _finite_total(gross_margin / taxable * 100) if taxable else 0
     return {
         "service_total": round(service_total, 2),
         "parts_total": round(parts_total, 2),

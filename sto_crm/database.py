@@ -19,10 +19,14 @@ def _seed_demo_data() -> None:
 
 
 def connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(_runtime.RUNTIME.db_path, timeout=30, isolation_level="DEFERRED")
+    conn = sqlite3.connect(
+        _runtime.RUNTIME.db_path, timeout=30, isolation_level="DEFERRED"
+    )
     conn.row_factory = sqlite3.Row
     try:
-        conn.create_function("CASEFOLD", 1, lambda value: str(value or "").casefold(), deterministic=True)
+        conn.create_function(
+            "CASEFOLD", 1, lambda value: str(value or "").casefold(), deterministic=True
+        )
     except sqlite3.NotSupportedError:
         conn.create_function("CASEFOLD", 1, lambda value: str(value or "").casefold())
     conn.execute("PRAGMA foreign_keys = ON")
@@ -178,8 +182,12 @@ def init_db(seed_demo: bool = False) -> None:
         _seed_demo_data()
 
 
-def ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> bool:
-    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+def ensure_column(
+    conn: sqlite3.Connection, table: str, column: str, definition: str
+) -> bool:
+    columns = {
+        row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
     if column in columns:
         return False
     conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
@@ -203,13 +211,17 @@ def _next_archive_table_name(conn: sqlite3.Connection, base_name: str) -> str:
     return candidate
 
 
-def archive_removed_table(conn: sqlite3.Connection, table: str, archive_base: str) -> bool:
+def archive_removed_table(
+    conn: sqlite3.Connection, table: str, archive_base: str
+) -> bool:
     """Move a removed feature table out of the live schema without losing data."""
     if not _table_exists(conn, table):
         return False
     archive_name = _next_archive_table_name(conn, archive_base)
     conn.execute(f"ALTER TABLE {table} RENAME TO {archive_name}")
-    safe_log(f"Legacy-таблица {table} сохранена как {archive_name}; активная CRM её больше не использует.")
+    safe_log(
+        f"Legacy-таблица {table} сохранена как {archive_name}; активная CRM её больше не использует."
+    )
     return True
 
 
@@ -223,7 +235,9 @@ def drop_removed_tables(conn: sqlite3.Connection) -> None:
         archive_removed_table(conn, table, archive_base)
 
 
-def active_duplicate_values(conn: sqlite3.Connection, table: str, column: str, limit: int = 5) -> list[sqlite3.Row]:
+def active_duplicate_values(
+    conn: sqlite3.Connection, table: str, column: str, limit: int = 5
+) -> list[sqlite3.Row]:
     allowed_columns = {
         ("inventory", "sku"),
         ("vehicles", "vin"),
@@ -245,7 +259,9 @@ def active_duplicate_values(conn: sqlite3.Connection, table: str, column: str, l
     ).fetchall()
 
 
-def resolve_active_duplicate_values(conn: sqlite3.Connection, table: str, column: str, label: str) -> int:
+def resolve_active_duplicate_values(
+    conn: sqlite3.Connection, table: str, column: str, label: str
+) -> int:
     resolved = 0
     stamp = now_iso()
     for duplicate in active_duplicate_values(conn, table, column, LOOKUP_LIMIT):
@@ -268,24 +284,37 @@ def resolve_active_duplicate_values(conn: sqlite3.Connection, table: str, column
                 f"Системная миграция {APP_VERSION}: очищено дублирующее значение поля «{label}» "
                 f"({original_value}); исходное значение оставлено у записи id {kept_id} ({kept_value})."
             )
-            notes = clean_multiline("\n".join(part for part in [str(row["notes"] or "").strip(), note] if part), 2000)
-            conn.execute(f"UPDATE {table} SET {column} = '', notes = ?, updated_at = ? WHERE id = ?", (notes, stamp, int(row["id"])))
+            notes = clean_multiline(
+                "\n".join(
+                    part for part in [str(row["notes"] or "").strip(), note] if part
+                ),
+                2000,
+            )
+            conn.execute(
+                f"UPDATE {table} SET {column} = '', notes = ?, updated_at = ? WHERE id = ?",
+                (notes, stamp, int(row["id"])),
+            )
             resolved += 1
     return resolved
 
 
-def ensure_unique_index(conn: sqlite3.Connection, statement: str, table: str, column: str, label: str) -> None:
+def ensure_unique_index(
+    conn: sqlite3.Connection, statement: str, table: str, column: str, label: str
+) -> None:
     try:
         conn.execute(statement)
     except sqlite3.IntegrityError as exc:
         resolved = resolve_active_duplicate_values(conn, table, column, label)
         if resolved:
-            safe_log(f"Исправлены активные дубли поля «{label}»: очищено значений у записей: {resolved}.")
+            safe_log(
+                f"Исправлены активные дубли поля «{label}»: очищено значений у записей: {resolved}."
+            )
             conn.execute(statement)
             return
         duplicates = active_duplicate_values(conn, table, column)
         details = "; ".join(
-            f"{row['value']} — {row['count']} записей (id: {row['ids']})" for row in duplicates
+            f"{row['value']} — {row['count']} записей (id: {row['ids']})"
+            for row in duplicates
         ) or str(exc)
         raise RuntimeError(
             f"Невозможно включить защиту уникальности для поля «{label}»: найдены активные дубли. "
@@ -299,7 +328,9 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "customers", "phone", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "customers", "email", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "customers", "source", "TEXT NOT NULL DEFAULT ''")
-    ensure_column(conn, "customers", "preferred_channel", "TEXT NOT NULL DEFAULT 'phone'")
+    ensure_column(
+        conn, "customers", "preferred_channel", "TEXT NOT NULL DEFAULT 'phone'"
+    )
     ensure_column(conn, "customers", "reminder_consent", "INTEGER NOT NULL DEFAULT 1")
     ensure_column(conn, "customers", "notes", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "customers", "created_at", "TEXT NOT NULL DEFAULT ''")
@@ -311,8 +342,12 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "vehicles", "year", "INTEGER NOT NULL DEFAULT 0")
     ensure_column(conn, "vehicles", "plate", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "vehicles", "vin", "TEXT NOT NULL DEFAULT ''")
-    mileage_added = ensure_column(conn, "vehicles", "mileage", "INTEGER NOT NULL DEFAULT 0")
-    manual_mileage_added = ensure_column(conn, "vehicles", "mileage_manual", "INTEGER NOT NULL DEFAULT 0")
+    mileage_added = ensure_column(
+        conn, "vehicles", "mileage", "INTEGER NOT NULL DEFAULT 0"
+    )
+    manual_mileage_added = ensure_column(
+        conn, "vehicles", "mileage_manual", "INTEGER NOT NULL DEFAULT 0"
+    )
     if mileage_added or manual_mileage_added:
         # Legacy rows did not keep a separate manual odometer baseline.  Seed it
         # from the currently visible vehicle mileage so future order rollbacks do
@@ -326,7 +361,9 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         )
     ensure_column(conn, "vehicles", "mileage_order_id", "INTEGER")
     ensure_column(conn, "vehicles", "next_service_at", "TEXT NOT NULL DEFAULT ''")
-    ensure_column(conn, "vehicles", "next_service_mileage", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(
+        conn, "vehicles", "next_service_mileage", "INTEGER NOT NULL DEFAULT 0"
+    )
     ensure_column(conn, "vehicles", "notes", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "vehicles", "created_at", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "vehicles", "updated_at", "TEXT NOT NULL DEFAULT ''")
@@ -367,7 +404,9 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "orders", "created_at", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "orders", "updated_at", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "orders", "deleted_at", "TEXT")
-    columns = {row["name"] for row in conn.execute("PRAGMA table_info(orders)").fetchall()}
+    columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(orders)").fetchall()
+    }
     if "closed_at" not in columns:
         conn.execute("ALTER TABLE orders ADD COLUMN closed_at TEXT NOT NULL DEFAULT ''")
     conn.execute(
@@ -377,8 +416,13 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         WHERE status = 'closed' AND COALESCE(closed_at, '') = ''
         """
     )
-    for row in conn.execute("SELECT id FROM orders WHERE COALESCE(number, '') = '' ORDER BY id").fetchall():
-        conn.execute("UPDATE orders SET number = ? WHERE id = ?", (f"СТО-LEGACY-{int(row['id']):06d}", int(row["id"])))
+    for row in conn.execute(
+        "SELECT id FROM orders WHERE COALESCE(number, '') = '' ORDER BY id"
+    ).fetchall():
+        conn.execute(
+            "UPDATE orders SET number = ? WHERE id = ?",
+            (f"СТО-LEGACY-{int(row['id']):06d}", int(row["id"])),
+        )
     duplicate_numbers = conn.execute(
         """
         SELECT number
@@ -389,32 +433,53 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         """
     ).fetchall()
     for duplicate in duplicate_numbers:
-        rows = conn.execute("SELECT id, number FROM orders WHERE number = ? ORDER BY id", (duplicate["number"],)).fetchall()
+        rows = conn.execute(
+            "SELECT id, number FROM orders WHERE number = ? ORDER BY id",
+            (duplicate["number"],),
+        ).fetchall()
         for row in rows[1:]:
-            conn.execute("UPDATE orders SET number = ? WHERE id = ?", (f"{row['number']}-{int(row['id']):06d}", int(row["id"])))
+            conn.execute(
+                "UPDATE orders SET number = ? WHERE id = ?",
+                (f"{row['number']}-{int(row['id']):06d}", int(row["id"])),
+            )
 
     ensure_column(conn, "order_items", "order_id", "INTEGER NOT NULL DEFAULT 0")
     ensure_column(conn, "order_items", "kind", "TEXT NOT NULL DEFAULT 'service'")
     ensure_column(conn, "order_items", "inventory_id", "INTEGER")
     ensure_column(conn, "order_items", "title", "TEXT NOT NULL DEFAULT ''")
-    ensure_column(conn, "order_items", "approval_status", "TEXT NOT NULL DEFAULT 'approved'")
+    ensure_column(
+        conn, "order_items", "approval_status", "TEXT NOT NULL DEFAULT 'approved'"
+    )
     ensure_column(conn, "order_items", "quantity", "REAL NOT NULL DEFAULT 1")
     ensure_column(conn, "order_items", "unit_price", "REAL NOT NULL DEFAULT 0")
     ensure_column(conn, "order_items", "unit_cost", "REAL NOT NULL DEFAULT 0")
     ensure_column(conn, "order_items", "created_at", "TEXT NOT NULL DEFAULT ''")
-    orphan_items = conn.execute("SELECT COUNT(*) FROM order_items WHERE COALESCE(order_id, 0) = 0").fetchone()[0]
+    orphan_items = conn.execute(
+        "SELECT COUNT(*) FROM order_items WHERE COALESCE(order_id, 0) = 0"
+    ).fetchone()[0]
     if orphan_items:
-        orders = conn.execute("SELECT id FROM orders WHERE deleted_at IS NULL ORDER BY id LIMIT 2").fetchall()
+        orders = conn.execute(
+            "SELECT id FROM orders WHERE deleted_at IS NULL ORDER BY id LIMIT 2"
+        ).fetchall()
         if len(orders) == 1:
-            conn.execute("UPDATE order_items SET order_id = ? WHERE COALESCE(order_id, 0) = 0", (int(orders[0]["id"]),))
-            safe_log(f"Legacy-позиции заказ-нарядов привязаны к единственному заказу: {orphan_items}.")
+            conn.execute(
+                "UPDATE order_items SET order_id = ? WHERE COALESCE(order_id, 0) = 0",
+                (int(orders[0]["id"]),),
+            )
+            safe_log(
+                f"Legacy-позиции заказ-нарядов привязаны к единственному заказу: {orphan_items}."
+            )
         else:
-            safe_log(f"В legacy-БД найдены позиции заказ-нарядов без связи с заказом: {orphan_items}.")
+            safe_log(
+                f"В legacy-БД найдены позиции заказ-нарядов без связи с заказом: {orphan_items}."
+            )
 
     ensure_column(conn, "appointments", "customer_id", "INTEGER NOT NULL DEFAULT 0")
     ensure_column(conn, "appointments", "vehicle_id", "INTEGER")
     ensure_column(conn, "appointments", "scheduled_at", "TEXT NOT NULL DEFAULT ''")
-    ensure_column(conn, "appointments", "duration_minutes", "INTEGER NOT NULL DEFAULT 60")
+    ensure_column(
+        conn, "appointments", "duration_minutes", "INTEGER NOT NULL DEFAULT 60"
+    )
     ensure_column(conn, "appointments", "status", "TEXT NOT NULL DEFAULT 'scheduled'")
     ensure_column(conn, "appointments", "advisor", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "appointments", "reason", "TEXT NOT NULL DEFAULT ''")
@@ -423,23 +488,44 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "appointments", "updated_at", "TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "appointments", "deleted_at", "TEXT")
 
-
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_customers_active_name ON customers(deleted_at, name)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_customers_active_name ON customers(deleted_at, name)"
+    )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_vehicles_active_customer ON vehicles(deleted_at, customer_id)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_vehicles_active_customer ON vehicles(deleted_at, customer_id)"
+    )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_vehicles_plate ON vehicles(plate)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_inventory_active_name ON inventory(deleted_at, name)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_active_status ON orders(deleted_at, status)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_inventory_active_name ON inventory(deleted_at, name)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_orders_active_status ON orders(deleted_at, status)"
+    )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_deleted ON orders(deleted_at)")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_number ON orders(number)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_schedule ON appointments(deleted_at, scheduled_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_customer ON appointments(customer_id)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_appointments_schedule ON appointments(deleted_at, scheduled_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_appointments_customer ON appointments(customer_id)"
+    )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_closed_at ON orders(closed_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_follow_up_at ON orders(follow_up_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_vehicles_next_service ON vehicles(next_service_at, next_service_mileage)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_order_items_inventory ON order_items(inventory_id)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_orders_follow_up_at ON orders(follow_up_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_vehicles_next_service ON vehicles(next_service_at, next_service_mileage)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_order_items_inventory ON order_items(inventory_id)"
+    )
     unique_indexes = (
         (
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_inventory_sku_active ON inventory(CASEFOLD(sku)) WHERE deleted_at IS NULL AND sku <> ''",

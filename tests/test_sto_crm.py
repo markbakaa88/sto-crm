@@ -3,6 +3,7 @@ import contextlib
 import hashlib
 import io
 import json
+import math
 import os
 import sqlite3
 import socket
@@ -19,7 +20,13 @@ import sto_crm
 
 
 def service_item(price=100):
-    return {"kind": "service", "title": "Labor", "quantity": 1, "unit_price": price, "unit_cost": 0}
+    return {
+        "kind": "service",
+        "title": "Labor",
+        "quantity": 1,
+        "unit_price": price,
+        "unit_cost": 0,
+    }
 
 
 def recv_http_response(client, limit=65536):
@@ -46,12 +53,14 @@ class StoCrmTests(unittest.TestCase):
         self.old_runtime = sto_crm.RUNTIME
         self.old_safe_log = sto_crm.safe_log
         sto_crm.safe_log = lambda _message: None
-        sto_crm.RUNTIME = sto_crm.Runtime(Path(self.tempdir.name) / "test.sqlite3", time.time(), "test-csrf-token")
+        sto_crm.RUNTIME = sto_crm.Runtime(
+            Path(self.tempdir.name) / "test.sqlite3", time.time(), "test-csrf-token"
+        )
         sto_crm.init_db()
 
     def tearDown(self):
         # Очищаем тестовую БД перед удалением временной директории
-        if hasattr(self, 'tempdir'):
+        if hasattr(self, "tempdir"):
             try:
                 sto_crm.RUNTIME = self.old_runtime
             except Exception:
@@ -60,7 +69,9 @@ class StoCrmTests(unittest.TestCase):
         self.tempdir.cleanup()
 
     def create_customer(self, name):
-        return sto_crm.create_customer({"name": name, "phone": "", "email": "", "source": "", "notes": ""})
+        return sto_crm.create_customer(
+            {"name": name, "phone": "", "email": "", "source": "", "notes": ""}
+        )
 
     def create_vehicle(self, customer_id, plate):
         return sto_crm.create_vehicle(
@@ -103,7 +114,10 @@ class StoCrmTests(unittest.TestCase):
         self.assertGreaterEqual(catalog["stats"]["makes"], 250)
         self.assertGreaterEqual(catalog["stats"]["models"], 2500)
         self.assertGreaterEqual(catalog["stats"]["empty_makes"], 0)
-        self.assertEqual(len(catalog["makes"]), len(set(make.casefold() for make in catalog["makes"])))
+        self.assertEqual(
+            len(catalog["makes"]),
+            len(set(make.casefold() for make in catalog["makes"])),
+        )
         self.assertIn("Lada", catalog["makes"])
         self.assertIn("Toyota", catalog["makes"])
         self.assertIn("Acura", catalog["makes"])
@@ -111,8 +125,14 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn("Costin Sports Car", catalog["makes"])
         self.assertIn("Vesta", catalog["models"]["Lada"])
         self.assertIn("Camry", catalog["models"]["Toyota"])
-        self.assertEqual(len(catalog["models"]["Toyota"]), len(set(model.casefold() for model in catalog["models"]["Toyota"])))
-        self.assertEqual(catalog["models"]["Toyota"], sorted(catalog["models"]["Toyota"], key=str.casefold))
+        self.assertEqual(
+            len(catalog["models"]["Toyota"]),
+            len(set(model.casefold() for model in catalog["models"]["Toyota"])),
+        )
+        self.assertEqual(
+            catalog["models"]["Toyota"],
+            sorted(catalog["models"]["Toyota"], key=str.casefold),
+        )
 
     def test_catalog_csv_export_includes_all_makes_and_models(self):
         filename, content = sto_crm.csv_export("catalog")
@@ -173,13 +193,26 @@ class StoCrmTests(unittest.TestCase):
         reports = payload["reports"]
         self.assertEqual(customer["preferred_channel"], "sms")
         self.assertEqual(customer["reminder_consent"], 1)
-        self.assertTrue(any(item["id"] == vehicle["id"] for item in reports["service_reminders"]))
-        self.assertTrue(any(item["id"] == estimate["id"] for item in reports["authorizations_pending"]))
-        self.assertTrue(any(item["id"] == closed["id"] for item in reports["followups_due"]))
+        self.assertTrue(
+            any(item["id"] == vehicle["id"] for item in reports["service_reminders"])
+        )
+        self.assertTrue(
+            any(
+                item["id"] == estimate["id"]
+                for item in reports["authorizations_pending"]
+            )
+        )
+        self.assertTrue(
+            any(item["id"] == closed["id"] for item in reports["followups_due"])
+        )
         self.assertGreaterEqual(reports["crm_tasks_count"], 3)
 
         muted_customer = sto_crm.create_customer(
-            {"name": "Do Not Contact", "preferred_channel": "none", "reminder_consent": 1}
+            {
+                "name": "Do Not Contact",
+                "preferred_channel": "none",
+                "reminder_consent": 1,
+            }
         )
         muted_vehicle = sto_crm.create_vehicle(
             {
@@ -191,15 +224,32 @@ class StoCrmTests(unittest.TestCase):
             }
         )
         muted_reports = sto_crm.bootstrap_payload()["reports"]
-        self.assertFalse(any(item["id"] == muted_vehicle["id"] for item in muted_reports["service_reminders"]))
         self.assertFalse(
-            any(item["type"] == "service_reminder" and item["record_id"] == muted_vehicle["id"] for item in muted_reports["action_plan"])
+            any(
+                item["id"] == muted_vehicle["id"]
+                for item in muted_reports["service_reminders"]
+            )
+        )
+        self.assertFalse(
+            any(
+                item["type"] == "service_reminder"
+                and item["record_id"] == muted_vehicle["id"]
+                for item in muted_reports["action_plan"]
+            )
         )
 
     def test_declined_order_items_are_not_billed_or_consumed_and_become_crm_tasks(self):
         customer = self.create_customer("Deferred Customer")
         vehicle = self.create_vehicle(customer["id"], "D004DD")
-        part = sto_crm.create_inventory({"sku": "DECL", "name": "Declined part", "quantity": 1, "price": 50, "cost": 25})
+        part = sto_crm.create_inventory(
+            {
+                "sku": "DECL",
+                "name": "Declined part",
+                "quantity": 1,
+                "price": 50,
+                "cost": 25,
+            }
+        )
 
         order = sto_crm.create_order(
             {
@@ -227,7 +277,9 @@ class StoCrmTests(unittest.TestCase):
         with sto_crm.db() as conn:
             self.assertEqual(sto_crm.get_inventory(conn, part["id"])["quantity"], 1)
         reports = sto_crm.bootstrap_payload()["reports"]
-        self.assertTrue(any(item["title"] == "Declined part" for item in reports["deferred_work"]))
+        self.assertTrue(
+            any(item["title"] == "Declined part" for item in reports["deferred_work"])
+        )
 
     def test_appointments_reject_wrong_vehicle_and_report_today(self):
         first = self.create_customer("Appointment One")
@@ -244,7 +296,11 @@ class StoCrmTests(unittest.TestCase):
                 }
             )
 
-        today_slot = sto_crm.datetime.now().replace(hour=10, minute=0, second=0, microsecond=0).isoformat(timespec="minutes")
+        today_slot = (
+            sto_crm.datetime.now()
+            .replace(hour=10, minute=0, second=0, microsecond=0)
+            .isoformat(timespec="minutes")
+        )
         appointment = sto_crm.create_appointment(
             {
                 "customer_id": first["id"],
@@ -258,8 +314,15 @@ class StoCrmTests(unittest.TestCase):
         )
 
         payload = sto_crm.bootstrap_payload()
-        self.assertTrue(any(item["id"] == appointment["id"] for item in payload["appointments"]))
-        self.assertTrue(any(item["id"] == appointment["id"] for item in payload["reports"]["appointments_today"]))
+        self.assertTrue(
+            any(item["id"] == appointment["id"] for item in payload["appointments"])
+        )
+        self.assertTrue(
+            any(
+                item["id"] == appointment["id"]
+                for item in payload["reports"]["appointments_today"]
+            )
+        )
         filename, content = sto_crm.csv_export("appointments")
         self.assertEqual(filename, "appointments.csv")
         self.assertIn("Suspension check", content)
@@ -274,10 +337,14 @@ class StoCrmTests(unittest.TestCase):
 
         try:
             sto_crm.app_dir = lambda: Path(self.tempdir.name) / "ReadOnlyApp"
-            sto_crm.directory_writable = lambda directory: str(directory).startswith(str(fallback))
+            sto_crm.directory_writable = lambda directory: str(directory).startswith(
+                str(fallback)
+            )
             sto_crm.sys.frozen = True
             os.environ["LOCALAPPDATA"] = str(fallback)
-            self.assertEqual(sto_crm.default_db_path(), fallback / "STO_CRM" / "sto_crm.sqlite3")
+            self.assertEqual(
+                sto_crm.default_db_path(), fallback / "STO_CRM" / "sto_crm.sqlite3"
+            )
             self.assertTrue((fallback / "STO_CRM").is_dir())
         finally:
             sto_crm.app_dir = old_app_dir
@@ -317,20 +384,61 @@ class StoCrmTests(unittest.TestCase):
 
         sto_crm.init_db()
         with sto_crm.db() as conn:
-            customer_columns = {row["name"] for row in conn.execute("PRAGMA table_info(customers)").fetchall()}
-            vehicle_columns = {row["name"] for row in conn.execute("PRAGMA table_info(vehicles)").fetchall()}
-            columns = {row["name"] for row in conn.execute("PRAGMA table_info(orders)").fetchall()}
-            item_columns = {row["name"] for row in conn.execute("PRAGMA table_info(order_items)").fetchall()}
-            appointment_columns = {row["name"] for row in conn.execute("PRAGMA table_info(appointments)").fetchall()}
-            indexes = {row["name"] for row in conn.execute("PRAGMA index_list(orders)").fetchall()}
-            customer_indexes = {row["name"] for row in conn.execute("PRAGMA index_list(customers)").fetchall()}
-            vehicle_indexes = {row["name"] for row in conn.execute("PRAGMA index_list(vehicles)").fetchall()}
-            item_indexes = {row["name"] for row in conn.execute("PRAGMA index_list(order_items)").fetchall()}
-            appointment_indexes = {row["name"] for row in conn.execute("PRAGMA index_list(appointments)").fetchall()}
-            tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
-            migrated_number = conn.execute("SELECT number FROM orders WHERE id = 1").fetchone()["number"]
-            archived_inspection = conn.execute("SELECT customer_id, vehicle_id FROM archived_inspections").fetchone()
-            archived_inspection_item = conn.execute("SELECT inspection_id, title FROM archived_inspection_items").fetchone()
+            customer_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(customers)").fetchall()
+            }
+            vehicle_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(vehicles)").fetchall()
+            }
+            columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(orders)").fetchall()
+            }
+            item_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(order_items)").fetchall()
+            }
+            appointment_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(appointments)").fetchall()
+            }
+            indexes = {
+                row["name"]
+                for row in conn.execute("PRAGMA index_list(orders)").fetchall()
+            }
+            customer_indexes = {
+                row["name"]
+                for row in conn.execute("PRAGMA index_list(customers)").fetchall()
+            }
+            vehicle_indexes = {
+                row["name"]
+                for row in conn.execute("PRAGMA index_list(vehicles)").fetchall()
+            }
+            item_indexes = {
+                row["name"]
+                for row in conn.execute("PRAGMA index_list(order_items)").fetchall()
+            }
+            appointment_indexes = {
+                row["name"]
+                for row in conn.execute("PRAGMA index_list(appointments)").fetchall()
+            }
+            tables = {
+                row["name"]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            migrated_number = conn.execute(
+                "SELECT number FROM orders WHERE id = 1"
+            ).fetchone()["number"]
+            archived_inspection = conn.execute(
+                "SELECT customer_id, vehicle_id FROM archived_inspections"
+            ).fetchone()
+            archived_inspection_item = conn.execute(
+                "SELECT inspection_id, title FROM archived_inspection_items"
+            ).fetchone()
         self.assertIn("phone", customer_columns)
         self.assertIn("idx_customers_phone", customer_indexes)
         self.assertIn("plate", vehicle_columns)
@@ -356,9 +464,14 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn("archived_inspections", tables)
         self.assertIn("archived_inspection_items", tables)
         self.assertEqual(dict(archived_inspection), {"customer_id": 1, "vehicle_id": 1})
-        self.assertEqual(dict(archived_inspection_item), {"inspection_id": 1, "title": "Legacy check"})
+        self.assertEqual(
+            dict(archived_inspection_item),
+            {"inspection_id": 1, "title": "Legacy check"},
+        )
 
-    def test_order_mileage_sync_reconciles_removed_max_odometer_without_overwriting_manual_mileage(self):
+    def test_order_mileage_sync_reconciles_removed_max_odometer_without_overwriting_manual_mileage(
+        self,
+    ):
         customer = self.create_customer("Mileage Customer")
         vehicle = self.create_vehicle(customer["id"], "M001LG")
         low = sto_crm.create_order(
@@ -418,7 +531,10 @@ class StoCrmTests(unittest.TestCase):
         )
         sto_crm.delete_order(baseline_order["id"])
         with sto_crm.db() as conn:
-            self.assertEqual(sto_crm.get_vehicle(conn, baseline_vehicle["id"])["mileage"], baseline_vehicle["mileage"])
+            self.assertEqual(
+                sto_crm.get_vehicle(conn, baseline_vehicle["id"])["mileage"],
+                baseline_vehicle["mileage"],
+            )
 
         manual_vehicle = self.create_vehicle(customer["id"], "M003LG")
         manual_order = sto_crm.create_order(
@@ -443,7 +559,10 @@ class StoCrmTests(unittest.TestCase):
             },
         )
         with sto_crm.db() as conn:
-            self.assertEqual(sto_crm.get_vehicle(conn, manual_vehicle["id"])["mileage"], manual_vehicle["mileage"])
+            self.assertEqual(
+                sto_crm.get_vehicle(conn, manual_vehicle["id"])["mileage"],
+                manual_vehicle["mileage"],
+            )
 
         confirmed_vehicle = self.create_vehicle(customer["id"], "M004LG")
         confirmed_order = sto_crm.create_order(
@@ -474,7 +593,9 @@ class StoCrmTests(unittest.TestCase):
         )
         sto_crm.delete_order(confirmed_order["id"])
         with sto_crm.db() as conn:
-            self.assertEqual(sto_crm.get_vehicle(conn, confirmed_vehicle["id"])["mileage"], 10000)
+            self.assertEqual(
+                sto_crm.get_vehicle(conn, confirmed_vehicle["id"])["mileage"], 10000
+            )
 
     def test_closed_order_tracks_closed_at_normalizes_money_and_restores_stock(self):
         customer = self.create_customer("Stock Customer")
@@ -511,7 +632,14 @@ class StoCrmTests(unittest.TestCase):
             "payment_method": "",
             "items": [
                 service_item(100),
-                {"kind": "part", "inventory_id": part["id"], "title": "Test part", "quantity": 1, "unit_price": 50, "unit_cost": 20},
+                {
+                    "kind": "part",
+                    "inventory_id": part["id"],
+                    "title": "Test part",
+                    "quantity": 1,
+                    "unit_price": 50,
+                    "unit_cost": 20,
+                },
             ],
         }
 
@@ -548,12 +676,21 @@ class StoCrmTests(unittest.TestCase):
         changed_deleted_part = dict(payload)
         changed_deleted_part["items"] = [
             service_item(100),
-            {"kind": "part", "inventory_id": part["id"], "title": "Test part", "quantity": 2, "unit_price": 50, "unit_cost": 20},
+            {
+                "kind": "part",
+                "inventory_id": part["id"],
+                "title": "Test part",
+                "quantity": 2,
+                "unit_price": 50,
+                "unit_cost": 20,
+            },
         ]
         with self.assertRaisesRegex(ValueError, "повторно открыть или изменить"):
             sto_crm.update_order(order["id"], changed_deleted_part)
 
-        deleted_before_cancel_part = sto_crm.create_inventory({"name": "Legacy deleted stock", "quantity": 1, "price": 30, "cost": 10})
+        deleted_before_cancel_part = sto_crm.create_inventory(
+            {"name": "Legacy deleted stock", "quantity": 1, "price": 30, "cost": 10}
+        )
         deleted_before_cancel_order = sto_crm.create_order(
             {
                 "customer_id": customer["id"],
@@ -561,23 +698,42 @@ class StoCrmTests(unittest.TestCase):
                 "status": "closed",
                 "priority": "normal",
                 "items": [
-                    {"kind": "part", "inventory_id": deleted_before_cancel_part["id"], "title": deleted_before_cancel_part["name"], "quantity": 0.5, "unit_price": 30, "unit_cost": 10},
+                    {
+                        "kind": "part",
+                        "inventory_id": deleted_before_cancel_part["id"],
+                        "title": deleted_before_cancel_part["name"],
+                        "quantity": 0.5,
+                        "unit_price": 30,
+                        "unit_cost": 10,
+                    },
                 ],
             }
         )
         with sto_crm.db() as conn:
-            conn.execute("UPDATE inventory SET deleted_at = ? WHERE id = ?", (sto_crm.now_iso(), deleted_before_cancel_part["id"]))
+            conn.execute(
+                "UPDATE inventory SET deleted_at = ? WHERE id = ?",
+                (sto_crm.now_iso(), deleted_before_cancel_part["id"]),
+            )
         cancel_deleted_payload = {
             "customer_id": customer["id"],
             "vehicle_id": vehicle["id"],
             "status": "cancelled",
             "priority": "normal",
             "items": [
-                {"kind": "part", "inventory_id": deleted_before_cancel_part["id"], "title": deleted_before_cancel_part["name"], "quantity": 0.5, "unit_price": 30, "unit_cost": 10},
+                {
+                    "kind": "part",
+                    "inventory_id": deleted_before_cancel_part["id"],
+                    "title": deleted_before_cancel_part["name"],
+                    "quantity": 0.5,
+                    "unit_price": 30,
+                    "unit_cost": 10,
+                },
             ],
         }
         with self.assertRaisesRegex(ValueError, "Восстановите позицию склада"):
-            sto_crm.update_order(deleted_before_cancel_order["id"], cancel_deleted_payload)
+            sto_crm.update_order(
+                deleted_before_cancel_order["id"], cancel_deleted_payload
+            )
 
     def test_closed_order_survives_when_vehicle_is_soft_deleted(self):
         customer = self.create_customer("Orphan Customer")
@@ -593,13 +749,16 @@ class StoCrmTests(unittest.TestCase):
         )
         # Перевод в отмену освобождает авто от активных заказов на уровне проверок
         # удаления, но закрытый/отменённый заказ должен продолжать открываться.
-        sto_crm.update_order(order["id"], {
-            "customer_id": customer["id"],
-            "vehicle_id": vehicle["id"],
-            "status": "cancelled",
-            "priority": "normal",
-            "items": [service_item(500)],
-        })
+        sto_crm.update_order(
+            order["id"],
+            {
+                "customer_id": customer["id"],
+                "vehicle_id": vehicle["id"],
+                "status": "cancelled",
+                "priority": "normal",
+                "items": [service_item(500)],
+            },
+        )
         with sto_crm.db() as conn:
             conn.execute(
                 "UPDATE vehicles SET deleted_at = ? WHERE id = ?",
@@ -609,15 +768,43 @@ class StoCrmTests(unittest.TestCase):
         self.assertEqual(fetched["id"], order["id"])
         self.assertEqual(fetched.get("vehicle_deleted"), 1)
         self.assertIsNone(fetched.get("vehicle_plate"))
-        listed = [item for item in sto_crm.list_orders("", "all") if item["id"] == order["id"]]
+        listed = [
+            item for item in sto_crm.list_orders("", "all") if item["id"] == order["id"]
+        ]
         self.assertEqual(len(listed), 1)
         self.assertEqual(listed[0].get("vehicle_deleted"), 1)
         self.assertIsNone(listed[0].get("vehicle_plate"))
 
-    def test_order_allows_external_part_without_inventory_and_does_not_consume_stock(self):
+        # Legacy/manual databases can contain historical orders whose vehicle was
+        # soft-deleted outside normal UI rules. Such protected orders must still
+        # allow a no-op save so the operator is not trapped in an unreadable card.
+        noop = sto_crm.update_order(
+            order["id"],
+            {
+                "customer_id": customer["id"],
+                "vehicle_id": vehicle["id"],
+                "status": "cancelled",
+                "priority": "normal",
+                "items": [service_item(500)],
+            },
+        )
+        self.assertEqual(noop["status"], "cancelled")
+        self.assertEqual(noop.get("vehicle_deleted"), 1)
+
+    def test_order_allows_external_part_without_inventory_and_does_not_consume_stock(
+        self,
+    ):
         customer = self.create_customer("External Part Customer")
         vehicle = self.create_vehicle(customer["id"], "X404XP")
-        stock_part = sto_crm.create_inventory({"sku": "STOCK", "name": "Stock part", "quantity": 2, "price": 50, "cost": 20})
+        stock_part = sto_crm.create_inventory(
+            {
+                "sku": "STOCK",
+                "name": "Stock part",
+                "quantity": 2,
+                "price": 50,
+                "cost": 20,
+            }
+        )
 
         order = sto_crm.create_order(
             {
@@ -627,18 +814,35 @@ class StoCrmTests(unittest.TestCase):
                 "priority": "normal",
                 "items": [
                     service_item(100),
-                    {"kind": "part", "inventory_id": stock_part["id"], "title": "Stock part", "quantity": 1, "unit_price": 50, "unit_cost": 20},
-                    {"kind": "part", "title": "External ordered part", "quantity": 2, "unit_price": 75, "unit_cost": 45},
+                    {
+                        "kind": "part",
+                        "inventory_id": stock_part["id"],
+                        "title": "Stock part",
+                        "quantity": 1,
+                        "unit_price": 50,
+                        "unit_cost": 20,
+                    },
+                    {
+                        "kind": "part",
+                        "title": "External ordered part",
+                        "quantity": 2,
+                        "unit_price": 75,
+                        "unit_cost": 45,
+                    },
                 ],
             }
         )
 
         self.assertEqual(order["parts_total"], 200)
         self.assertEqual(order["total"], 300)
-        external_item = next(item for item in order["items"] if item["title"] == "External ordered part")
+        external_item = next(
+            item for item in order["items"] if item["title"] == "External ordered part"
+        )
         self.assertIsNone(external_item["inventory_id"])
         with sto_crm.db() as conn:
-            self.assertEqual(sto_crm.get_inventory(conn, stock_part["id"])["quantity"], 1)
+            self.assertEqual(
+                sto_crm.get_inventory(conn, stock_part["id"])["quantity"], 1
+            )
 
     def test_external_part_requires_manual_title(self):
         customer = self.create_customer("External Part Validation")
@@ -658,7 +862,15 @@ class StoCrmTests(unittest.TestCase):
     def test_closed_order_shortage_rolls_back_without_partial_order(self):
         customer = self.create_customer("Shortage Customer")
         vehicle = self.create_vehicle(customer["id"], "Q009QQ")
-        part = sto_crm.create_inventory({"sku": "LOW", "name": "Low stock part", "quantity": 1, "price": 10, "cost": 5})
+        part = sto_crm.create_inventory(
+            {
+                "sku": "LOW",
+                "name": "Low stock part",
+                "quantity": 1,
+                "price": 10,
+                "cost": 5,
+            }
+        )
 
         with self.assertRaisesRegex(ValueError, "Недостаточно"):
             sto_crm.create_order(
@@ -669,20 +881,36 @@ class StoCrmTests(unittest.TestCase):
                     "priority": "normal",
                     "items": [
                         service_item(10),
-                        {"kind": "part", "inventory_id": part["id"], "title": part["name"], "quantity": 2, "unit_price": 10, "unit_cost": 5},
+                        {
+                            "kind": "part",
+                            "inventory_id": part["id"],
+                            "title": part["name"],
+                            "quantity": 2,
+                            "unit_price": 10,
+                            "unit_cost": 5,
+                        },
                     ],
                 }
             )
 
         with sto_crm.db() as conn:
             self.assertEqual(sto_crm.get_inventory(conn, part["id"])["quantity"], 1)
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM orders WHERE deleted_at IS NULL").fetchone()[0], 0)
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM order_items").fetchone()[0], 0)
+            self.assertEqual(
+                conn.execute(
+                    "SELECT COUNT(*) FROM orders WHERE deleted_at IS NULL"
+                ).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                conn.execute("SELECT COUNT(*) FROM order_items").fetchone()[0], 0
+            )
 
     def test_entities_with_order_history_are_not_deleted(self):
         customer = self.create_customer("History Customer")
         vehicle = self.create_vehicle(customer["id"], "C003CC")
-        part = sto_crm.create_inventory({"name": "History part", "quantity": 1, "price": 10})
+        part = sto_crm.create_inventory(
+            {"name": "History part", "quantity": 1, "price": 10}
+        )
         order = sto_crm.create_order(
             {
                 "customer_id": customer["id"],
@@ -691,7 +919,14 @@ class StoCrmTests(unittest.TestCase):
                 "priority": "normal",
                 "items": [
                     service_item(10),
-                    {"kind": "part", "inventory_id": part["id"], "title": part["name"], "quantity": 1, "unit_price": 10, "unit_cost": 1},
+                    {
+                        "kind": "part",
+                        "inventory_id": part["id"],
+                        "title": part["name"],
+                        "quantity": 1,
+                        "unit_price": 10,
+                        "unit_cost": 1,
+                    },
                 ],
             }
         )
@@ -704,11 +939,62 @@ class StoCrmTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "заказ"):
             sto_crm.delete_inventory(part["id"])
 
+    def test_cancelled_open_order_cannot_be_reopened(self):
+        customer = self.create_customer("Cancelled Flow")
+        vehicle = self.create_vehicle(customer["id"], "K777AN")
+        order = sto_crm.create_order(
+            {
+                "customer_id": customer["id"],
+                "vehicle_id": vehicle["id"],
+                "status": "cancelled",
+                "priority": "normal",
+                "items": [service_item(25)],
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "нельзя повторно открыть"):
+            sto_crm.update_order(
+                order["id"],
+                {
+                    "customer_id": customer["id"],
+                    "vehicle_id": vehicle["id"],
+                    "status": "in_progress",
+                    "priority": "normal",
+                    "items": [service_item(25)],
+                },
+            )
 
-    def test_closed_order_must_be_cancelled_before_delete_to_make_stock_return_explicit(self):
+    def test_order_status_regression_is_rejected(self):
+        customer = self.create_customer("Status Flow")
+        vehicle = self.create_vehicle(customer["id"], "K778AN")
+        order = sto_crm.create_order(
+            {
+                "customer_id": customer["id"],
+                "vehicle_id": vehicle["id"],
+                "status": "done",
+                "priority": "normal",
+                "items": [service_item(25)],
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "Некорректный переход"):
+            sto_crm.update_order(
+                order["id"],
+                {
+                    "customer_id": customer["id"],
+                    "vehicle_id": vehicle["id"],
+                    "status": "diagnostics",
+                    "priority": "normal",
+                    "items": [service_item(25)],
+                },
+            )
+
+    def test_closed_order_must_be_cancelled_before_delete_to_make_stock_return_explicit(
+        self,
+    ):
         customer = self.create_customer("Void Customer")
         vehicle = self.create_vehicle(customer["id"], "V000ID")
-        part = sto_crm.create_inventory({"name": "Void part", "quantity": 2, "price": 10, "cost": 5})
+        part = sto_crm.create_inventory(
+            {"name": "Void part", "quantity": 2, "price": 10, "cost": 5}
+        )
         order = sto_crm.create_order(
             {
                 "customer_id": customer["id"],
@@ -717,7 +1003,14 @@ class StoCrmTests(unittest.TestCase):
                 "priority": "normal",
                 "items": [
                     service_item(10),
-                    {"kind": "part", "inventory_id": part["id"], "title": part["name"], "quantity": 1, "unit_price": 10, "unit_cost": 5},
+                    {
+                        "kind": "part",
+                        "inventory_id": part["id"],
+                        "title": part["name"],
+                        "quantity": 1,
+                        "unit_price": 10,
+                        "unit_cost": 5,
+                    },
                 ],
             }
         )
@@ -737,7 +1030,14 @@ class StoCrmTests(unittest.TestCase):
             "priority": "normal",
             "items": [
                 service_item(10),
-                {"kind": "part", "inventory_id": part["id"], "title": part["name"], "quantity": 1, "unit_price": 10, "unit_cost": 5},
+                {
+                    "kind": "part",
+                    "inventory_id": part["id"],
+                    "title": part["name"],
+                    "quantity": 1,
+                    "unit_price": 10,
+                    "unit_cost": 5,
+                },
             ],
         }
         cancelled = sto_crm.update_order(order["id"], payload)
@@ -792,12 +1092,22 @@ class StoCrmTests(unittest.TestCase):
             )
 
     def test_csv_export_escapes_formula_values(self):
-        sto_crm.create_customer({"name": "=cmd|' /C calc'!A0", "phone": "+7999", "email": "", "source": "  =cmd|' /C calc'!A0", "notes": "-note"})
+        sto_crm.create_customer(
+            {
+                "name": "=cmd|' /C calc'!A0",
+                "phone": "+7999",
+                "email": "",
+                "source": "  =cmd|' /C calc'!A0",
+                "notes": "-note",
+            }
+        )
         sto_crm.create_customer({"name": "\u200b =hidden", "phone": "\ufeff =hidden"})
         _filename, content = sto_crm.csv_export("customers")
         self.assertIn("'=cmd|' /C calc'!A0", content)
         self.assertIn("'+7999", content)
-        self.assertIn("'=cmd|' /C calc'!A0", content)  # clean_text collapses whitespace, csv_cell escapes leading =
+        self.assertIn(
+            "'=cmd|' /C calc'!A0", content
+        )  # clean_text collapses whitespace, csv_cell escapes leading =
         self.assertIn("'-note", content)
         self.assertEqual(sto_crm.csv_cell("\ufeff=hidden"), "'\ufeff=hidden")
         self.assertEqual(sto_crm.csv_cell("\u200b=hidden"), "'\u200b=hidden")
@@ -828,7 +1138,11 @@ class StoCrmTests(unittest.TestCase):
             url,
             data=json.dumps({}).encode("utf-8"),
             method="POST",
-            headers={"Content-Type": "application/json", "Origin": "http://example.com", "X-CSRF-Token": sto_crm.RUNTIME.csrf_token},
+            headers={
+                "Content-Type": "application/json",
+                "Origin": "http://example.com",
+                "X-CSRF-Token": sto_crm.RUNTIME.csrf_token,
+            },
         )
 
         try:
@@ -849,19 +1163,27 @@ class StoCrmTests(unittest.TestCase):
         try:
             with urllib.request.urlopen(f"{base}/", timeout=5) as response:
                 self.assertEqual(response.status, 200)
-                self.assertIn("default-src 'self'", response.headers["Content-Security-Policy"])
+                self.assertIn(
+                    "default-src 'self'", response.headers["Content-Security-Policy"]
+                )
                 self.assertEqual(response.headers["X-Frame-Options"], "DENY")
                 self.assertEqual(response.headers["Connection"], "close")
 
             with urllib.request.urlopen(f"{base}/favicon.ico", timeout=5) as response:
                 self.assertEqual(response.status, 200)
-                self.assertEqual(response.headers["Content-Type"], "image/svg+xml; charset=utf-8")
+                self.assertEqual(
+                    response.headers["Content-Type"], "image/svg+xml; charset=utf-8"
+                )
                 self.assertIn(b"<svg", response.read())
 
-            favicon_head_request = urllib.request.Request(f"{base}/favicon.svg", method="HEAD")
+            favicon_head_request = urllib.request.Request(
+                f"{base}/favicon.svg", method="HEAD"
+            )
             with urllib.request.urlopen(favicon_head_request, timeout=5) as response:
                 self.assertEqual(response.status, 200)
-                self.assertEqual(response.headers["Content-Type"], "image/svg+xml; charset=utf-8")
+                self.assertEqual(
+                    response.headers["Content-Type"], "image/svg+xml; charset=utf-8"
+                )
                 self.assertEqual(response.read(), b"")
 
             with self.assertRaises(urllib.error.HTTPError) as error:
@@ -889,13 +1211,19 @@ class StoCrmTests(unittest.TestCase):
             head_request = urllib.request.Request(f"{base}/api/health", method="HEAD")
             with urllib.request.urlopen(head_request, timeout=5) as response:
                 self.assertEqual(response.status, 200)
-                self.assertEqual(response.headers["Content-Type"], "application/json; charset=utf-8")
+                self.assertEqual(
+                    response.headers["Content-Type"], "application/json; charset=utf-8"
+                )
                 self.assertEqual(response.read(), b"")
 
-            options_request = urllib.request.Request(f"{base}/api/health", method="OPTIONS")
+            options_request = urllib.request.Request(
+                f"{base}/api/health", method="OPTIONS"
+            )
             with urllib.request.urlopen(options_request, timeout=5) as response:
                 self.assertEqual(response.status, 204)
-                self.assertEqual(response.headers["Allow"], "GET, POST, PUT, DELETE, OPTIONS")
+                self.assertEqual(
+                    response.headers["Allow"], "GET, POST, PUT, DELETE, OPTIONS"
+                )
                 self.assertEqual(response.headers["Connection"], "close")
 
             cross_origin_options = urllib.request.Request(
@@ -908,7 +1236,9 @@ class StoCrmTests(unittest.TestCase):
             self.assertEqual(error.exception.code, 403)
             error.exception.close()
 
-            with socket.create_connection(("127.0.0.1", server.server_port), timeout=5) as client:
+            with socket.create_connection(
+                ("127.0.0.1", server.server_port), timeout=5
+            ) as client:
                 client.sendall(
                     (
                         "GET /api/bootstrap HTTP/1.1\r\n"
@@ -920,7 +1250,9 @@ class StoCrmTests(unittest.TestCase):
                 response = recv_http_response(client)
             self.assertIn("403", response.splitlines()[0])
 
-            with socket.create_connection(("127.0.0.1", server.server_port), timeout=5) as client:
+            with socket.create_connection(
+                ("127.0.0.1", server.server_port), timeout=5
+            ) as client:
                 client.sendall(
                     (
                         "POST /api/backup HTTP/1.1\r\n"
@@ -936,7 +1268,9 @@ class StoCrmTests(unittest.TestCase):
                 response = recv_http_response(client)
             self.assertIn("400", response.splitlines()[0])
 
-            with socket.create_connection(("127.0.0.1", server.server_port), timeout=5) as client:
+            with socket.create_connection(
+                ("127.0.0.1", server.server_port), timeout=5
+            ) as client:
                 client.sendall(
                     (
                         "POST /api/backup HTTP/1.1\r\n"
@@ -953,7 +1287,9 @@ class StoCrmTests(unittest.TestCase):
                 response = recv_http_response(client)
             self.assertIn("403", response.splitlines()[0])
 
-            with socket.create_connection(("127.0.0.1", server.server_port), timeout=5) as client:
+            with socket.create_connection(
+                ("127.0.0.1", server.server_port), timeout=5
+            ) as client:
                 client.sendall(
                     (
                         "POST /api/customers HTTP/1.1\r\n"
@@ -963,14 +1299,17 @@ class StoCrmTests(unittest.TestCase):
                         "Content-Length: 1\r\n"
                         "Connection: close\r\n"
                         "\r\n"
-                    ).encode("ascii") + b"\xff"
+                    ).encode("ascii")
+                    + b"\xff"
                 )
                 response = recv_http_response(client)
             self.assertIn("400", response.splitlines()[0])
             self.assertIn("Некорректный JSON", response)
             self.assertNotIn("codec", response)
 
-            with socket.create_connection(("127.0.0.1", server.server_port), timeout=5) as client:
+            with socket.create_connection(
+                ("127.0.0.1", server.server_port), timeout=5
+            ) as client:
                 client.sendall(
                     (
                         "POST /api/backup HTTP/1.1\r\n"
@@ -987,7 +1326,9 @@ class StoCrmTests(unittest.TestCase):
                 response = recv_http_response(client)
             self.assertNotIn("500", response.splitlines()[0])
 
-            with socket.create_connection(("127.0.0.1", server.server_port), timeout=5) as client:
+            with socket.create_connection(
+                ("127.0.0.1", server.server_port), timeout=5
+            ) as client:
                 body = json.dumps({"name": "Wrong route"}).encode("utf-8")
                 client.sendall(
                     (
@@ -998,13 +1339,21 @@ class StoCrmTests(unittest.TestCase):
                         f"Content-Length: {len(body)}\r\n"
                         "Connection: close\r\n"
                         "\r\n"
-                    ).encode("ascii") + body
+                    ).encode("ascii")
+                    + body
                 )
                 response = recv_http_response(client)
             self.assertIn("404", response.splitlines()[0])
-            self.assertFalse(any(customer["name"] == "Wrong route" for customer in sto_crm.list_customers("")))
+            self.assertFalse(
+                any(
+                    customer["name"] == "Wrong route"
+                    for customer in sto_crm.list_customers("")
+                )
+            )
 
-            with socket.create_connection(("127.0.0.1", server.server_port), timeout=5) as client:
+            with socket.create_connection(
+                ("127.0.0.1", server.server_port), timeout=5
+            ) as client:
                 body = json.dumps({"name": "Missing id"}).encode("utf-8")
                 client.sendall(
                     (
@@ -1015,7 +1364,8 @@ class StoCrmTests(unittest.TestCase):
                         f"Content-Length: {len(body)}\r\n"
                         "Connection: close\r\n"
                         "\r\n"
-                    ).encode("ascii") + body
+                    ).encode("ascii")
+                    + body
                 )
                 response = recv_http_response(client)
             self.assertIn("404", response.splitlines()[0])
@@ -1026,7 +1376,9 @@ class StoCrmTests(unittest.TestCase):
     def test_filtered_bootstrap_keeps_full_form_lookups(self):
         customer = self.create_customer("Lookup Customer")
         vehicle = self.create_vehicle(customer["id"], "L777UP")
-        part = sto_crm.create_inventory({"name": "Lookup part", "quantity": 5, "price": 10})
+        part = sto_crm.create_inventory(
+            {"name": "Lookup part", "quantity": 5, "price": 10}
+        )
         sto_crm.create_order(
             {
                 "customer_id": customer["id"],
@@ -1036,7 +1388,14 @@ class StoCrmTests(unittest.TestCase):
                 "complaint": "rare-search-token",
                 "items": [
                     service_item(10),
-                    {"kind": "part", "inventory_id": part["id"], "title": part["name"], "quantity": 1, "unit_price": 10, "unit_cost": 1},
+                    {
+                        "kind": "part",
+                        "inventory_id": part["id"],
+                        "title": part["name"],
+                        "quantity": 1,
+                        "unit_price": 10,
+                        "unit_cost": 1,
+                    },
                 ],
             }
         )
@@ -1044,9 +1403,17 @@ class StoCrmTests(unittest.TestCase):
         payload = sto_crm.bootstrap_payload("rare-search-token", "all")
         self.assertEqual(len(payload["orders"]), 1)
         self.assertEqual(payload["customers"], [])
-        self.assertTrue(any(item["id"] == customer["id"] for item in payload["lookups"]["customers"]))
-        self.assertTrue(any(item["id"] == vehicle["id"] for item in payload["lookups"]["vehicles"]))
-        self.assertTrue(any(item["id"] == part["id"] for item in payload["lookups"]["inventory"]))
+        self.assertTrue(
+            any(
+                item["id"] == customer["id"] for item in payload["lookups"]["customers"]
+            )
+        )
+        self.assertTrue(
+            any(item["id"] == vehicle["id"] for item in payload["lookups"]["vehicles"])
+        )
+        self.assertTrue(
+            any(item["id"] == part["id"] for item in payload["lookups"]["inventory"])
+        )
 
     def test_active_orders_sort_before_closed_urgent_orders(self):
         customer = self.create_customer("Sort Customer")
@@ -1084,7 +1451,15 @@ class StoCrmTests(unittest.TestCase):
     def test_margin_is_calculated_before_tax(self):
         totals = sto_crm.calculate_totals(
             {"discount": 10, "tax_rate": 20, "paid": 0},
-            [{"kind": "service", "title": "Labor", "quantity": 1, "unit_price": 100, "unit_cost": 60}],
+            [
+                {
+                    "kind": "service",
+                    "title": "Labor",
+                    "quantity": 1,
+                    "unit_price": 100,
+                    "unit_cost": 60,
+                }
+            ],
         )
         self.assertEqual(totals["subtotal"], 100)
         self.assertEqual(totals["tax"], 18)
@@ -1110,6 +1485,47 @@ class StoCrmTests(unittest.TestCase):
             sto_crm.parse_int_field(True, "идентификатор")
         self.assertEqual(sto_crm.parse_bool_field(True, "согласие"), 1)
         self.assertTrue(customer["id"])
+
+    def test_numeric_fields_reject_sqlite_overflow_and_financial_overflow(self):
+        with self.assertRaisesRegex(ValueError, "целое"):
+            sto_crm.parse_int_field(str(2**63), "идентификатор")
+        with self.assertRaisesRegex(ValueError, "число"):
+            sto_crm.parse_float_field("1e309", "сумма")
+        with self.assertRaisesRegex(ValueError, "число"):
+            sto_crm.parse_float_field("1e13", "сумма")
+
+        customer = self.create_customer("Huge Numbers")
+        vehicle = self.create_vehicle(customer["id"], "H999UG")
+        with self.assertRaisesRegex(ValueError, "финансовое"):
+            sto_crm.create_order(
+                {
+                    "customer_id": customer["id"],
+                    "vehicle_id": vehicle["id"],
+                    "status": "new",
+                    "priority": "normal",
+                    "items": [
+                        {
+                            "kind": "service",
+                            "title": "Huge",
+                            "quantity": 1_000_000_000_000,
+                            "unit_price": 10,
+                        }
+                    ],
+                }
+            )
+
+        totals = sto_crm.calculate_totals(
+            {},
+            [
+                {
+                    "kind": "service",
+                    "title": "Legacy huge",
+                    "quantity": math.inf,
+                    "unit_price": 1,
+                }
+            ],
+        )
+        self.assertEqual(totals["total"], 0)
 
     def test_number_parsers_reject_non_finite_values(self):
         self.assertEqual(sto_crm.parse_float("nan", 7.5), 7.5)
@@ -1188,7 +1604,12 @@ class StoCrmTests(unittest.TestCase):
         )
 
         self.assertEqual(sto_crm.delete_vehicle(vehicle["id"]), {"deleted": True})
-        self.assertFalse(any(item["status"] == "done" for item in sto_crm.list_appointments("", "all", None)))
+        self.assertFalse(
+            any(
+                item["status"] == "done"
+                for item in sto_crm.list_appointments("", "all", None)
+            )
+        )
 
         second_vehicle = self.create_vehicle(customer["id"], "N405NO")
         sto_crm.create_appointment(
@@ -1201,7 +1622,12 @@ class StoCrmTests(unittest.TestCase):
         )
 
         self.assertEqual(sto_crm.delete_customer(customer["id"]), {"deleted": True})
-        self.assertFalse(any(item["status"] == "cancelled" for item in sto_crm.list_appointments("", "all", None)))
+        self.assertFalse(
+            any(
+                item["status"] == "cancelled"
+                for item in sto_crm.list_appointments("", "all", None)
+            )
+        )
 
     def test_active_appointment_blocks_customer_and_vehicle_deletion(self):
         customer = self.create_customer("Active Appointment Customer")
@@ -1220,38 +1646,88 @@ class StoCrmTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "активные записи"):
             sto_crm.delete_customer(customer["id"])
 
-
-
     def test_invalid_enums_are_rejected_instead_of_silently_defaulted(self):
         customer = self.create_customer("Strict Enum Customer")
         vehicle = self.create_vehicle(customer["id"], "E001NU")
 
         with self.assertRaisesRegex(ValueError, "канал"):
-            sto_crm.create_customer({"name": "Bad Channel", "preferred_channel": "pager"})
+            sto_crm.create_customer(
+                {"name": "Bad Channel", "preferred_channel": "pager"}
+            )
         for consent in (-1, 2, "2", "maybe"):
             with self.subTest(consent=consent):
                 with self.assertRaisesRegex(ValueError, "согласие"):
-                    sto_crm.create_customer({"name": "Bad Consent", "reminder_consent": consent})
+                    sto_crm.create_customer(
+                        {"name": "Bad Consent", "reminder_consent": consent}
+                    )
         with self.assertRaisesRegex(ValueError, "приоритет"):
-            sto_crm.create_order({"customer_id": customer["id"], "vehicle_id": vehicle["id"], "status": "new", "priority": "panic", "items": [service_item(10)]})
+            sto_crm.create_order(
+                {
+                    "customer_id": customer["id"],
+                    "vehicle_id": vehicle["id"],
+                    "status": "new",
+                    "priority": "panic",
+                    "items": [service_item(10)],
+                }
+            )
         with self.assertRaisesRegex(ValueError, "статус записи"):
-            sto_crm.create_appointment({"customer_id": customer["id"], "vehicle_id": vehicle["id"], "scheduled_at": "2099-03-01T10:00", "status": "maybe"})
+            sto_crm.create_appointment(
+                {
+                    "customer_id": customer["id"],
+                    "vehicle_id": vehicle["id"],
+                    "scheduled_at": "2099-03-01T10:00",
+                    "status": "maybe",
+                }
+            )
         with self.assertRaisesRegex(ValueError, "тип позиции"):
-            sto_crm.create_order({"customer_id": customer["id"], "vehicle_id": vehicle["id"], "status": "new", "priority": "normal", "items": [{"kind": "fee", "title": "Bad", "quantity": 1}]})
+            sto_crm.create_order(
+                {
+                    "customer_id": customer["id"],
+                    "vehicle_id": vehicle["id"],
+                    "status": "new",
+                    "priority": "normal",
+                    "items": [{"kind": "fee", "title": "Bad", "quantity": 1}],
+                }
+            )
 
     def test_malformed_items_are_rejected_as_validation_errors(self):
         customer = self.create_customer("Malformed Items")
         vehicle = self.create_vehicle(customer["id"], "M001AL")
         with self.assertRaisesRegex(ValueError, "Позиция заказ-наряда"):
-            sto_crm.create_order({"customer_id": customer["id"], "vehicle_id": vehicle["id"], "status": "new", "priority": "normal", "items": [123]})
+            sto_crm.create_order(
+                {
+                    "customer_id": customer["id"],
+                    "vehicle_id": vehicle["id"],
+                    "status": "new",
+                    "priority": "normal",
+                    "items": [123],
+                }
+            )
 
     def test_user_numeric_fields_reject_garbage_instead_of_defaulting(self):
         customer = self.create_customer("Strict Numbers")
         vehicle = self.create_vehicle(customer["id"], "N001UM")
         with self.assertRaisesRegex(ValueError, "скидка"):
-            sto_crm.create_order({"customer_id": customer["id"], "vehicle_id": vehicle["id"], "status": "new", "priority": "normal", "discount": "abc", "items": [service_item(10)]})
+            sto_crm.create_order(
+                {
+                    "customer_id": customer["id"],
+                    "vehicle_id": vehicle["id"],
+                    "status": "new",
+                    "priority": "normal",
+                    "discount": "abc",
+                    "items": [service_item(10)],
+                }
+            )
         with self.assertRaisesRegex(ValueError, "длительность"):
-            sto_crm.create_appointment({"customer_id": customer["id"], "vehicle_id": vehicle["id"], "scheduled_at": "2099-03-01T10:00", "duration_minutes": "abc", "status": "scheduled"})
+            sto_crm.create_appointment(
+                {
+                    "customer_id": customer["id"],
+                    "vehicle_id": vehicle["id"],
+                    "scheduled_at": "2099-03-01T10:00",
+                    "duration_minutes": "abc",
+                    "status": "scheduled",
+                }
+            )
         with self.assertRaisesRegex(ValueError, "остаток"):
             sto_crm.create_inventory({"name": "Bad number", "quantity": "not-a-number"})
 
@@ -1296,28 +1772,80 @@ class StoCrmTests(unittest.TestCase):
         second = self.create_customer("Closed Second")
         vehicle = self.create_vehicle(first["id"], "C101LO")
         other_vehicle = self.create_vehicle(second["id"], "C102LO")
-        part = sto_crm.create_inventory({"sku": "LOCK", "name": "Locked part", "quantity": 5, "price": 10, "cost": 5})
+        part = sto_crm.create_inventory(
+            {
+                "sku": "LOCK",
+                "name": "Locked part",
+                "quantity": 5,
+                "price": 10,
+                "cost": 5,
+            }
+        )
         payload = {
             "customer_id": first["id"],
             "vehicle_id": vehicle["id"],
             "status": "closed",
             "priority": "normal",
-            "items": [service_item(10), {"kind": "part", "inventory_id": part["id"], "title": part["name"], "quantity": 1, "unit_price": 10, "unit_cost": 5}],
+            "items": [
+                service_item(10),
+                {
+                    "kind": "part",
+                    "inventory_id": part["id"],
+                    "title": part["name"],
+                    "quantity": 1,
+                    "unit_price": 10,
+                    "unit_cost": 5,
+                },
+            ],
         }
         order = sto_crm.create_order(payload)
 
-        changed_owner = {**payload, "customer_id": second["id"], "vehicle_id": other_vehicle["id"]}
+        changed_owner = {
+            **payload,
+            "customer_id": second["id"],
+            "vehicle_id": other_vehicle["id"],
+        }
         with self.assertRaisesRegex(ValueError, "перепривязать"):
             sto_crm.update_order(order["id"], changed_owner)
 
-        changed_qty = {**payload, "items": [service_item(10), {"kind": "part", "inventory_id": part["id"], "title": part["name"], "quantity": 2, "unit_price": 10, "unit_cost": 5}]}
+        changed_qty = {
+            **payload,
+            "items": [
+                service_item(10),
+                {
+                    "kind": "part",
+                    "inventory_id": part["id"],
+                    "title": part["name"],
+                    "quantity": 2,
+                    "unit_price": 10,
+                    "unit_cost": 5,
+                },
+            ],
+        }
         with self.assertRaisesRegex(ValueError, "Финансовые данные"):
             sto_crm.update_order(order["id"], changed_qty)
 
-        changed_price = {**payload, "items": [service_item(999), {"kind": "part", "inventory_id": part["id"], "title": part["name"], "quantity": 1, "unit_price": 99, "unit_cost": 5}]}
+        changed_price = {
+            **payload,
+            "items": [
+                service_item(999),
+                {
+                    "kind": "part",
+                    "inventory_id": part["id"],
+                    "title": part["name"],
+                    "quantity": 1,
+                    "unit_price": 99,
+                    "unit_cost": 5,
+                },
+            ],
+        }
         with self.assertRaisesRegex(ValueError, "Финансовые данные"):
             sto_crm.update_order(order["id"], changed_price)
-        reopened_payload = {**payload, "status": "in_progress", "items": payload["items"]}
+        reopened_payload = {
+            **payload,
+            "status": "in_progress",
+            "items": payload["items"],
+        }
         with self.assertRaisesRegex(ValueError, "оставить закрытым или отменить"):
             sto_crm.update_order(order["id"], reopened_payload)
 
@@ -1328,15 +1856,46 @@ class StoCrmTests(unittest.TestCase):
         self.assertEqual(unchanged["total"], order["total"])
 
         with self.assertRaisesRegex(ValueError, "закрытых заказах"):
-            sto_crm.update_inventory(part["id"], {"sku": "LOCK", "name": "Locked part", "quantity": 20, "price": 10, "cost": 5})
+            sto_crm.update_inventory(
+                part["id"],
+                {
+                    "sku": "LOCK",
+                    "name": "Locked part",
+                    "quantity": 20,
+                    "price": 10,
+                    "cost": 5,
+                },
+            )
 
-        allowed = sto_crm.update_inventory(part["id"], {"sku": "LOCK-NEW", "name": "Locked part renamed", "quantity": 4, "price": 12, "cost": 6})
+        allowed = sto_crm.update_inventory(
+            part["id"],
+            {
+                "sku": "LOCK-NEW",
+                "name": "Locked part renamed",
+                "quantity": 4,
+                "price": 12,
+                "cost": 6,
+            },
+        )
         self.assertEqual(allowed["sku"], "LOCK-NEW")
         self.assertEqual(allowed["quantity"], 4)
 
-        cancelled_payload = {**payload, "status": "cancelled", "items": payload["items"]}
+        cancelled_payload = {
+            **payload,
+            "status": "cancelled",
+            "items": payload["items"],
+        }
         sto_crm.update_order(order["id"], cancelled_payload)
-        adjusted = sto_crm.update_inventory(part["id"], {"sku": "LOCK-NEW", "name": "Locked part renamed", "quantity": 20, "price": 12, "cost": 6})
+        adjusted = sto_crm.update_inventory(
+            part["id"],
+            {
+                "sku": "LOCK-NEW",
+                "name": "Locked part renamed",
+                "quantity": 20,
+                "price": 12,
+                "cost": 6,
+            },
+        )
         self.assertEqual(adjusted["quantity"], 20)
 
     def test_http_csrf_token_is_required_and_bootstrap_exposes_token(self):
@@ -1358,8 +1917,13 @@ class StoCrmTests(unittest.TestCase):
                 payload = json.loads(response.read().decode("utf-8"))
             self.assertEqual(payload["app"]["csrf_token"], sto_crm.RUNTIME.csrf_token)
             self.assertEqual(payload["app"]["db_path"], sto_crm.RUNTIME.db_path.name)
-            self.assertEqual(payload["app"]["db_directory"], sto_crm.display_path(sto_crm.RUNTIME.db_path.parent))
-            self.assertNotIn(str(sto_crm.RUNTIME.db_path.parent), payload["app"]["db_directory"])
+            self.assertEqual(
+                payload["app"]["db_directory"],
+                sto_crm.display_path(sto_crm.RUNTIME.db_path.parent),
+            )
+            self.assertNotIn(
+                str(sto_crm.RUNTIME.db_path.parent), payload["app"]["db_directory"]
+            )
 
             request = urllib.request.Request(
                 f"{base}/api/backup",
@@ -1373,10 +1937,29 @@ class StoCrmTests(unittest.TestCase):
             error.exception.close()
 
             request = urllib.request.Request(
+                f"{base}/api/backup",
+                data=json.dumps({}).encode("utf-8"),
+                method="POST",
+                headers={
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": sto_crm.RUNTIME.csrf_token,
+                },
+            )
+            with urllib.request.urlopen(request, timeout=5) as response:
+                backup_payload = json.loads(response.read().decode("utf-8"))
+            self.assertEqual(response.status, 200)
+            self.assertNotIn("path", backup_payload)
+            self.assertIn("display_path", backup_payload)
+            self.assertIn("filename", backup_payload)
+
+            request = urllib.request.Request(
                 f"{base}/api/customers",
                 data=json.dumps({"name": "HTTP Customer"}).encode("utf-8"),
                 method="POST",
-                headers={"Content-Type": "application/json", "X-CSRF-Token": sto_crm.RUNTIME.csrf_token},
+                headers={
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": sto_crm.RUNTIME.csrf_token,
+                },
             )
             with urllib.request.urlopen(request, timeout=5) as response:
                 created = json.loads(response.read().decode("utf-8"))
@@ -1386,9 +1969,8 @@ class StoCrmTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
-
     def test_sensitive_query_tokens_are_redacted_from_logs(self):
-        message = 'GET /print/order/1?token=super-secret&csrf_token=other HTTP/1.1'
+        message = "GET /print/order/1?token=super-secret&csrf_token=other HTTP/1.1"
         redacted = sto_crm.redact_sensitive_query(message)
         self.assertNotIn("super-secret", redacted)
         self.assertNotIn("other", redacted)
@@ -1404,9 +1986,23 @@ class StoCrmTests(unittest.TestCase):
             server.server_close()
 
     def test_host_cli_argument_accepts_only_loopback_addresses(self):
-        args = sto_crm.parse_args(["--host", "127.0.0.1", "--port", "0", "--no-browser"])
+        args = sto_crm.parse_args(
+            ["--host", "127.0.0.1", "--port", "0", "--no-browser"]
+        )
         self.assertEqual(args.host, "127.0.0.1")
         self.assertEqual(args.port, 0)
+        old_parse_args = sto_crm.parse_args
+        try:
+            captured = []
+            sto_crm.parse_args = lambda argv: (
+                captured.append(list(argv))
+                or (_ for _ in ()).throw(RuntimeError("stop"))
+            )
+            with self.assertRaisesRegex(RuntimeError, "stop"):
+                sto_crm.main([])
+            self.assertEqual(captured, [[]])
+        finally:
+            sto_crm.parse_args = old_parse_args
         self.assertEqual(sto_crm.parse_args(["--host", "localhost"]).host, "127.0.0.1")
         self.assertEqual(sto_crm.parse_args(["--host", "::1"]).host, "::1")
         self.assertIs(sto_crm.server_class_for_host("127.0.0.1"), sto_crm.CRMServer)
@@ -1432,13 +2028,31 @@ class StoCrmTests(unittest.TestCase):
             }
         )
         with self.assertRaisesRegex(ValueError, "VIN"):
-            sto_crm.create_vehicle({"customer_id": customer["id"], "make": "Lexus", "plate": "U002NI", "vin": vehicle["vin"]})
+            sto_crm.create_vehicle(
+                {
+                    "customer_id": customer["id"],
+                    "make": "Lexus",
+                    "plate": "U002NI",
+                    "vin": vehicle["vin"],
+                }
+            )
         with self.assertRaisesRegex(ValueError, "госномером"):
-            sto_crm.create_vehicle({"customer_id": customer["id"], "make": "Lexus", "plate": vehicle["plate"], "vin": "JTDKN3DU0A0000002"})
-        first_part = sto_crm.create_inventory({"sku": "UNIQ", "name": "First unique", "quantity": 1})
+            sto_crm.create_vehicle(
+                {
+                    "customer_id": customer["id"],
+                    "make": "Lexus",
+                    "plate": vehicle["plate"],
+                    "vin": "JTDKN3DU0A0000002",
+                }
+            )
+        first_part = sto_crm.create_inventory(
+            {"sku": "UNIQ", "name": "First unique", "quantity": 1}
+        )
         self.assertEqual(first_part["sku"], "UNIQ")
         with self.assertRaisesRegex(ValueError, "артикулом"):
-            sto_crm.create_inventory({"sku": "uniq", "name": "Second unique", "quantity": 1})
+            sto_crm.create_inventory(
+                {"sku": "uniq", "name": "Second unique", "quantity": 1}
+            )
 
     def test_legacy_duplicate_values_are_migrated_before_unique_indexes(self):
         current_runtime = sto_crm.RUNTIME
@@ -1469,10 +2083,22 @@ class StoCrmTests(unittest.TestCase):
         try:
             sto_crm.init_db()
             migrated = sqlite3.connect(legacy_db)
-            migrated.create_function("CASEFOLD", 1, lambda value: str(value or "").casefold(), deterministic=True)
+            migrated.create_function(
+                "CASEFOLD",
+                1,
+                lambda value: str(value or "").casefold(),
+                deterministic=True,
+            )
             try:
-                rows = migrated.execute("SELECT sku, notes FROM inventory ORDER BY id").fetchall()
-                indexes = {row[1] for row in migrated.execute("PRAGMA index_list(inventory)").fetchall()}
+                rows = migrated.execute(
+                    "SELECT sku, notes FROM inventory ORDER BY id"
+                ).fetchall()
+                indexes = {
+                    row[1]
+                    for row in migrated.execute(
+                        "PRAGMA index_list(inventory)"
+                    ).fetchall()
+                }
                 duplicates = migrated.execute(
                     """
                     SELECT COUNT(*)
@@ -1501,26 +2127,68 @@ class StoCrmTests(unittest.TestCase):
         self.assertEqual(backup_path.parent.name, "backups")
         conn = sqlite3.connect(backup_path)
         try:
-            row = conn.execute("SELECT name FROM customers WHERE id=?", (customer["id"],)).fetchone()
+            row = conn.execute(
+                "SELECT name FROM customers WHERE id=?", (customer["id"],)
+            ).fetchone()
         finally:
             conn.close()
         self.assertEqual(row[0], "Backup Customer")
 
     def test_order_search_includes_customer_phone_email_and_vehicle_vin(self):
-        customer = sto_crm.create_customer({"name": "Search Customer", "phone": "123-45-67", "email": "phone-search@example.ru"})
-        vehicle = sto_crm.create_vehicle({"customer_id": customer["id"], "make": "Toyota", "model": "Camry", "vin": "JTDKN3DU0A0000999"})
-        order = sto_crm.create_order({"customer_id": customer["id"], "vehicle_id": vehicle["id"], "status": "new", "priority": "normal", "items": [service_item(10)]})
-        self.assertTrue(any(item["id"] == order["id"] for item in sto_crm.list_orders("123-45-67", "all")))
-        self.assertTrue(any(item["id"] == order["id"] for item in sto_crm.list_orders("phone-search@example", "all")))
-        self.assertTrue(any(item["id"] == order["id"] for item in sto_crm.list_orders("0000999", "all")))
+        customer = sto_crm.create_customer(
+            {
+                "name": "Search Customer",
+                "phone": "123-45-67",
+                "email": "phone-search@example.ru",
+            }
+        )
+        vehicle = sto_crm.create_vehicle(
+            {
+                "customer_id": customer["id"],
+                "make": "Toyota",
+                "model": "Camry",
+                "vin": "JTDKN3DU0A0000999",
+            }
+        )
+        order = sto_crm.create_order(
+            {
+                "customer_id": customer["id"],
+                "vehicle_id": vehicle["id"],
+                "status": "new",
+                "priority": "normal",
+                "items": [service_item(10)],
+            }
+        )
+        self.assertTrue(
+            any(
+                item["id"] == order["id"]
+                for item in sto_crm.list_orders("123-45-67", "all")
+            )
+        )
+        self.assertTrue(
+            any(
+                item["id"] == order["id"]
+                for item in sto_crm.list_orders("phone-search@example", "all")
+            )
+        )
+        self.assertTrue(
+            any(
+                item["id"] == order["id"]
+                for item in sto_crm.list_orders("0000999", "all")
+            )
+        )
 
     def test_search_treats_like_wildcards_as_literal_text(self):
         percent_customer = sto_crm.create_customer({"name": "Literal 100% Customer"})
-        underscore_customer = sto_crm.create_customer({"name": "Literal ABC_DEF Customer"})
+        underscore_customer = sto_crm.create_customer(
+            {"name": "Literal ABC_DEF Customer"}
+        )
         plain_customer = sto_crm.create_customer({"name": "Literal Plain Customer"})
 
         percent_ids = {customer["id"] for customer in sto_crm.list_customers("100%")}
-        underscore_ids = {customer["id"] for customer in sto_crm.list_customers("ABC_DEF")}
+        underscore_ids = {
+            customer["id"] for customer in sto_crm.list_customers("ABC_DEF")
+        }
 
         self.assertIn(percent_customer["id"], percent_ids)
         self.assertNotIn(plain_customer["id"], percent_ids)
@@ -1541,12 +2209,24 @@ class StoCrmTests(unittest.TestCase):
                     "vehicle_id": vehicle["id"],
                     "status": "new",
                     "priority": "normal",
-                    "items": [{"kind": "service", "title": "Pipeline check", "quantity": 1, "unit_price": 100000}],
+                    "items": [
+                        {
+                            "kind": "service",
+                            "title": "Pipeline check",
+                            "quantity": 1,
+                            "unit_price": 100000,
+                        }
+                    ],
                 }
             )
 
         reports = sto_crm.bootstrap_payload()["reports"]
-        self.assertFalse(any(item["customer_id"] == customer["id"] for item in reports["vip_customers"]))
+        self.assertFalse(
+            any(
+                item["customer_id"] == customer["id"]
+                for item in reports["vip_customers"]
+            )
+        )
 
         for _ in range(2):
             sto_crm.create_order(
@@ -1555,11 +2235,23 @@ class StoCrmTests(unittest.TestCase):
                     "vehicle_id": vehicle["id"],
                     "status": "closed",
                     "priority": "normal",
-                    "items": [{"kind": "service", "title": "Paid service", "quantity": 1, "unit_price": 100}],
+                    "items": [
+                        {
+                            "kind": "service",
+                            "title": "Paid service",
+                            "quantity": 1,
+                            "unit_price": 100,
+                        }
+                    ],
                 }
             )
         reports = sto_crm.bootstrap_payload()["reports"]
-        self.assertTrue(any(item["customer_id"] == customer["id"] for item in reports["vip_customers"]))
+        self.assertTrue(
+            any(
+                item["customer_id"] == customer["id"]
+                for item in reports["vip_customers"]
+            )
+        )
 
     def test_reports_count_all_customers_and_top_services_use_closed_sales(self):
         customer_with_open_order = self.create_customer("Open report customer")
@@ -1571,7 +2263,14 @@ class StoCrmTests(unittest.TestCase):
                 "vehicle_id": vehicle["id"],
                 "status": "new",
                 "priority": "normal",
-                "items": [{"kind": "service", "title": "Draft-only service", "quantity": 1, "unit_price": 999}],
+                "items": [
+                    {
+                        "kind": "service",
+                        "title": "Draft-only service",
+                        "quantity": 1,
+                        "unit_price": 999,
+                    }
+                ],
             }
         )
         sto_crm.create_order(
@@ -1580,7 +2279,14 @@ class StoCrmTests(unittest.TestCase):
                 "vehicle_id": vehicle["id"],
                 "status": "closed",
                 "priority": "normal",
-                "items": [{"kind": "service", "title": "Closed service", "quantity": 1, "unit_price": 100}],
+                "items": [
+                    {
+                        "kind": "service",
+                        "title": "Closed service",
+                        "quantity": 1,
+                        "unit_price": 100,
+                    }
+                ],
             }
         )
 
@@ -1595,26 +2301,60 @@ class StoCrmTests(unittest.TestCase):
         self.assertNotIn("Draft-only service", top_service_titles)
 
     def test_crud_writes_persist_after_reopening_connection(self):
-        customer = sto_crm.create_customer({"name": "Persistent Customer", "phone": "+7000"})
-        vehicle = sto_crm.create_vehicle({"customer_id": customer["id"], "make": "Toyota", "model": "Camry"})
-        part = sto_crm.create_inventory({"name": "Persistent Part", "quantity": 2, "price": 10})
+        customer = sto_crm.create_customer(
+            {"name": "Persistent Customer", "phone": "+7000"}
+        )
+        vehicle = sto_crm.create_vehicle(
+            {"customer_id": customer["id"], "make": "Toyota", "model": "Camry"}
+        )
+        part = sto_crm.create_inventory(
+            {"name": "Persistent Part", "quantity": 2, "price": 10}
+        )
         order = sto_crm.create_order(
             {
                 "customer_id": customer["id"],
                 "vehicle_id": vehicle["id"],
                 "status": "new",
                 "priority": "normal",
-                "items": [service_item(10), {"kind": "part", "inventory_id": part["id"], "quantity": 1}],
+                "items": [
+                    service_item(10),
+                    {"kind": "part", "inventory_id": part["id"], "quantity": 1},
+                ],
             }
         )
 
         conn = sto_crm.connect()
         try:
-            self.assertEqual(conn.execute("SELECT name FROM customers WHERE id=?", (customer["id"],)).fetchone()["name"], "Persistent Customer")
-            self.assertEqual(conn.execute("SELECT make FROM vehicles WHERE id=?", (vehicle["id"],)).fetchone()["make"], "Toyota")
-            self.assertEqual(conn.execute("SELECT name FROM inventory WHERE id=?", (part["id"],)).fetchone()["name"], "Persistent Part")
-            self.assertEqual(conn.execute("SELECT number FROM orders WHERE id=?", (order["id"],)).fetchone()["number"], order["number"])
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM order_items WHERE order_id=?", (order["id"],)).fetchone()[0], 2)
+            self.assertEqual(
+                conn.execute(
+                    "SELECT name FROM customers WHERE id=?", (customer["id"],)
+                ).fetchone()["name"],
+                "Persistent Customer",
+            )
+            self.assertEqual(
+                conn.execute(
+                    "SELECT make FROM vehicles WHERE id=?", (vehicle["id"],)
+                ).fetchone()["make"],
+                "Toyota",
+            )
+            self.assertEqual(
+                conn.execute(
+                    "SELECT name FROM inventory WHERE id=?", (part["id"],)
+                ).fetchone()["name"],
+                "Persistent Part",
+            )
+            self.assertEqual(
+                conn.execute(
+                    "SELECT number FROM orders WHERE id=?", (order["id"],)
+                ).fetchone()["number"],
+                order["number"],
+            )
+            self.assertEqual(
+                conn.execute(
+                    "SELECT COUNT(*) FROM order_items WHERE order_id=?", (order["id"],)
+                ).fetchone()[0],
+                2,
+            )
         finally:
             conn.close()
 
@@ -1622,7 +2362,14 @@ class StoCrmTests(unittest.TestCase):
         customer = self.create_customer("Executive Customer")
         vehicle = self.create_vehicle(customer["id"], "E111EE")
         part = sto_crm.create_inventory(
-            {"sku": "LOW-EXEC", "name": "Low executive part", "quantity": 0, "min_quantity": 2, "price": 100, "cost": 60}
+            {
+                "sku": "LOW-EXEC",
+                "name": "Low executive part",
+                "quantity": 0,
+                "min_quantity": 2,
+                "price": 100,
+                "cost": 60,
+            }
         )
         order = sto_crm.create_order(
             {
@@ -1639,31 +2386,86 @@ class StoCrmTests(unittest.TestCase):
             {
                 "customer_id": customer["id"],
                 "vehicle_id": vehicle["id"],
-                "scheduled_at": (sto_crm.datetime.now() + sto_crm.timedelta(days=2)).replace(hour=9, minute=0, second=0, microsecond=0).isoformat(timespec="minutes"),
+                "scheduled_at": (sto_crm.datetime.now() + sto_crm.timedelta(days=2))
+                .replace(hour=9, minute=0, second=0, microsecond=0)
+                .isoformat(timespec="minutes"),
                 "status": "confirmed",
             }
         )
 
         ignored_part = sto_crm.create_inventory(
-            {"sku": "ZERO-MIN", "name": "Zero minimum part", "quantity": 0, "min_quantity": 0, "price": 50, "cost": 25}
+            {
+                "sku": "ZERO-MIN",
+                "name": "Zero minimum part",
+                "quantity": 0,
+                "min_quantity": 0,
+                "price": 50,
+                "cost": 25,
+            }
         )
 
         reports = sto_crm.bootstrap_payload()["reports"]
-        listed_inventory = {item["id"]: item for item in sto_crm.list_inventory("", None)}
+        listed_inventory = {
+            item["id"]: item for item in sto_crm.list_inventory("", None)
+        }
         self.assertEqual(listed_inventory[ignored_part["id"]]["is_low"], 0)
-        self.assertFalse(any(item["id"] == ignored_part["id"] for item in reports["procurement_plan"]))
+        self.assertFalse(
+            any(
+                item["id"] == ignored_part["id"] for item in reports["procurement_plan"]
+            )
+        )
         self.assertGreaterEqual(reports["business_health_score"], 0)
-        self.assertIn(reports["business_health_label"], {"Отлично", "Контроль", "Риски"})
+        self.assertIn(
+            reports["business_health_label"], {"Отлично", "Контроль", "Риски"}
+        )
         self.assertGreaterEqual(reports["pipeline_value"], order["total"])
-        self.assertTrue(any(item["id"] == order["id"] for item in reports["overdue_orders"]))
-        self.assertTrue(any(column["status"] == "in_progress" and column["count"] >= 1 for column in reports["pipeline_by_status"]))
-        self.assertTrue(any(item["name"] == "Мастер А" and item["overdue_count"] >= 1 for item in reports["workload_by_responsible"]))
-        self.assertTrue(any(item["id"] == part["id"] and item["reorder_quantity"] >= 2 for item in reports["procurement_plan"]))
-        self.assertTrue(any(day["appointments"] and day["appointments"][0]["id"] == appointment["id"] for day in reports["appointment_load_7_days"]))
+        self.assertTrue(
+            any(item["id"] == order["id"] for item in reports["overdue_orders"])
+        )
+        self.assertTrue(
+            any(
+                column["status"] == "in_progress" and column["count"] >= 1
+                for column in reports["pipeline_by_status"]
+            )
+        )
+        self.assertTrue(
+            any(
+                item["name"] == "Мастер А" and item["overdue_count"] >= 1
+                for item in reports["workload_by_responsible"]
+            )
+        )
+        self.assertTrue(
+            any(
+                item["id"] == part["id"] and item["reorder_quantity"] >= 2
+                for item in reports["procurement_plan"]
+            )
+        )
+        self.assertTrue(
+            any(
+                day["appointments"]
+                and day["appointments"][0]["id"] == appointment["id"]
+                for day in reports["appointment_load_7_days"]
+            )
+        )
         self.assertGreaterEqual(reports["action_plan_total"], 2)
-        self.assertTrue(any(item["type"] == "overdue_order" and item["record_id"] == order["id"] for item in reports["action_plan"]))
-        self.assertTrue(any(item["type"] == "procurement" and item["record_id"] == part["id"] for item in reports["action_plan"]))
-        self.assertTrue(all("priority_label" in item and "route" in item and "cta" in item for item in reports["action_plan"]))
+        self.assertTrue(
+            any(
+                item["type"] == "overdue_order" and item["record_id"] == order["id"]
+                for item in reports["action_plan"]
+            )
+        )
+        self.assertTrue(
+            any(
+                item["type"] == "procurement" and item["record_id"] == part["id"]
+                for item in reports["action_plan"]
+            )
+        )
+        self.assertTrue(
+            all(
+                "priority_label" in item and "route" in item and "cta" in item
+                for item in reports["action_plan"]
+            )
+        )
 
     def test_reports_include_orders_beyond_lookup_limit(self):
         old_lookup_limit = sto_crm.LOOKUP_LIMIT
@@ -1678,7 +2480,9 @@ class StoCrmTests(unittest.TestCase):
                     """,
                     (stamp, stamp),
                 )
-                customer_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+                customer_id = int(
+                    conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                )
                 rows = [
                     (
                         f"BULK-{index:05d}",
@@ -1710,7 +2514,9 @@ class StoCrmTests(unittest.TestCase):
 
             reports = sto_crm.bootstrap_payload()["reports"]
             self.assertEqual(reports["revenue_month"], (sto_crm.LOOKUP_LIMIT + 2) * 100)
-            self.assertEqual(reports["status_counts"]["closed"], sto_crm.LOOKUP_LIMIT + 2)
+            self.assertEqual(
+                reports["status_counts"]["closed"], sto_crm.LOOKUP_LIMIT + 2
+            )
         finally:
             sto_crm.LOOKUP_LIMIT = old_lookup_limit
 
@@ -1782,7 +2588,10 @@ class StoCrmTests(unittest.TestCase):
         thread.start()
         request = urllib.request.Request(
             f"http://127.0.0.1:{server.server_port}/print/order/{order['id']}",
-            headers={"Origin": "http://example.com", "X-CSRF-Token": sto_crm.RUNTIME.csrf_token},
+            headers={
+                "Origin": "http://example.com",
+                "X-CSRF-Token": sto_crm.RUNTIME.csrf_token,
+            },
         )
         try:
             with self.assertRaises(urllib.error.HTTPError) as error:
@@ -1801,7 +2610,10 @@ class StoCrmTests(unittest.TestCase):
             f"http://127.0.0.1:{server.server_port}/api/customers",
             data=b"",
             method="POST",
-            headers={"Content-Type": "application/json", "X-CSRF-Token": sto_crm.RUNTIME.csrf_token},
+            headers={
+                "Content-Type": "application/json",
+                "X-CSRF-Token": sto_crm.RUNTIME.csrf_token,
+            },
         )
         try:
             with self.assertRaises(urllib.error.HTTPError) as error:
@@ -1883,7 +2695,15 @@ class StoCrmTests(unittest.TestCase):
     def test_inventory_quantity_can_change_when_closed_history_is_not_billable(self):
         customer = self.create_customer("Non Billable Inventory")
         vehicle = self.create_vehicle(customer["id"], "B001NB")
-        part = sto_crm.create_inventory({"sku": "NOBILL", "name": "Not billable", "quantity": 5, "price": 20, "cost": 10})
+        part = sto_crm.create_inventory(
+            {
+                "sku": "NOBILL",
+                "name": "Not billable",
+                "quantity": 5,
+                "price": 20,
+                "cost": 10,
+            }
+        )
         order = sto_crm.create_order(
             {
                 "customer_id": customer["id"],
@@ -1892,12 +2712,29 @@ class StoCrmTests(unittest.TestCase):
                 "priority": "normal",
                 "items": [
                     service_item(10),
-                    {"kind": "part", "inventory_id": part["id"], "title": part["name"], "approval_status": "deferred", "quantity": 1, "unit_price": 20, "unit_cost": 10},
+                    {
+                        "kind": "part",
+                        "inventory_id": part["id"],
+                        "title": part["name"],
+                        "approval_status": "deferred",
+                        "quantity": 1,
+                        "unit_price": 20,
+                        "unit_cost": 10,
+                    },
                 ],
             }
         )
         self.assertEqual(order["parts_total"], 0)
-        updated = sto_crm.update_inventory(part["id"], {"sku": "NOBILL", "name": "Not billable", "quantity": 7, "price": 20, "cost": 10})
+        updated = sto_crm.update_inventory(
+            part["id"],
+            {
+                "sku": "NOBILL",
+                "name": "Not billable",
+                "quantity": 7,
+                "price": 20,
+                "cost": 10,
+            },
+        )
         self.assertEqual(updated["quantity"], 7)
         with self.assertRaisesRegex(ValueError, "активных"):
             sto_crm.delete_inventory(part["id"])
@@ -1910,7 +2747,15 @@ class StoCrmTests(unittest.TestCase):
                 "priority": "normal",
                 "items": [
                     service_item(10),
-                    {"kind": "part", "inventory_id": part["id"], "title": part["name"], "approval_status": "deferred", "quantity": 1, "unit_price": 20, "unit_cost": 10},
+                    {
+                        "kind": "part",
+                        "inventory_id": part["id"],
+                        "title": part["name"],
+                        "approval_status": "deferred",
+                        "quantity": 1,
+                        "unit_price": 20,
+                        "unit_cost": 10,
+                    },
                 ],
             },
         )
@@ -1919,7 +2764,15 @@ class StoCrmTests(unittest.TestCase):
     def test_explicit_zero_price_for_inventory_part_is_preserved(self):
         customer = self.create_customer("Warranty Customer")
         vehicle = self.create_vehicle(customer["id"], "W001AR")
-        part = sto_crm.create_inventory({"sku": "WARRANTY", "name": "Warranty part", "quantity": 2, "price": 100, "cost": 40})
+        part = sto_crm.create_inventory(
+            {
+                "sku": "WARRANTY",
+                "name": "Warranty part",
+                "quantity": 2,
+                "price": 100,
+                "cost": 40,
+            }
+        )
         order = sto_crm.create_order(
             {
                 "customer_id": customer["id"],
@@ -1928,7 +2781,14 @@ class StoCrmTests(unittest.TestCase):
                 "priority": "normal",
                 "items": [
                     service_item(10),
-                    {"kind": "part", "inventory_id": part["id"], "title": part["name"], "quantity": 1, "unit_price": 0, "unit_cost": 0},
+                    {
+                        "kind": "part",
+                        "inventory_id": part["id"],
+                        "title": part["name"],
+                        "quantity": 1,
+                        "unit_price": 0,
+                        "unit_cost": 0,
+                    },
                 ],
             }
         )
@@ -1945,149 +2805,207 @@ class StoCrmTests(unittest.TestCase):
 
     def test_home_page_has_professional_accessibility_and_dirty_state_hooks(self):
         html = sto_crm.INDEX_HTML
-        self.assertIn('function labeledField(', html)
-        self.assertIn('function tableHead(', html)
-        self.assertIn('function inputField(', html)
-        self.assertIn('function selectField(', html)
-        self.assertIn('function textareaField(', html)
+        self.assertIn("function labeledField(", html)
+        self.assertIn("function tableHead(", html)
+        self.assertIn("function inputField(", html)
+        self.assertIn("function selectField(", html)
+        self.assertIn("function textareaField(", html)
         self.assertIn('scope="col"', html)
         self.assertIn('aria-label="Таблица заказ-нарядов"', html)
         self.assertNotIn('<div class="field"><label>', html)
         self.assertIn('inputField("customer", "name"', html)
         self.assertIn('selectField("order", "customer_id"', html)
-        self.assertIn('modalDirty', html)
-        self.assertIn('pipelineBoard(r.pipeline_by_status || [])', html)
-        self.assertIn('appointmentTimeline(r.appointment_load_7_days || [])', html)
-        self.assertIn('procurementList(r.procurement_plan || [])', html)
-        self.assertIn('workloadList(r.workload_by_responsible || [])', html)
-        self.assertIn('actionPlanList(r.action_plan || [])', html)
-        self.assertIn('action-center', html)
-        self.assertIn('data-route-target=', html)
-        self.assertIn('findAppointmentById(id)', html)
-        self.assertIn('findCustomerById(id)', html)
-        self.assertIn('findVehicleById(id)', html)
-        self.assertIn('findInventoryById(id)', html)
+        self.assertIn("modalDirty", html)
+        self.assertIn("pipelineBoard(r.pipeline_by_status || [])", html)
+        self.assertIn("appointmentTimeline(r.appointment_load_7_days || [])", html)
+        self.assertIn("procurementList(r.procurement_plan || [])", html)
+        self.assertIn("workloadList(r.workload_by_responsible || [])", html)
+        self.assertIn("actionPlanList(r.action_plan || [])", html)
+        self.assertIn("action-center", html)
+        self.assertIn("data-route-target=", html)
+        self.assertIn("findAppointmentById(id)", html)
+        self.assertIn("findCustomerById(id)", html)
+        self.assertIn("findVehicleById(id)", html)
+        self.assertIn("findInventoryById(id)", html)
         self.assertIn('function requireRecord(record, label = "Запись")', html)
-        self.assertIn('if (requireRecord(customer, "Клиент")) openCustomerModal(customer);', html)
-        self.assertIn('if (requireRecord(part, "Складская позиция")) openInventoryModal(part);', html)
-        self.assertIn('if (!vehicle?.id) return vehicleOptions(selectedCustomer, order.vehicle_id);', html)
-        self.assertIn('if (vehicle.deleted_at || vehicle.deleted_at === 1 || vehicle.vehicle_deleted) {', html)
-        self.assertIn('healthMetric(r)', html)
+        self.assertIn(
+            'if (requireRecord(customer, "Клиент")) openCustomerModal(customer);', html
+        )
+        self.assertIn(
+            'if (requireRecord(part, "Складская позиция")) openInventoryModal(part);',
+            html,
+        )
+        self.assertIn(
+            "if (!vehicle?.id) return vehicleOptions(selectedCustomer, order.vehicle_id);",
+            html,
+        )
+        self.assertIn(
+            "if (vehicle.deleted_at || vehicle.deleted_at === 1 || vehicle.vehicle_deleted) {",
+            html,
+        )
+        self.assertIn("healthMetric(r)", html)
         self.assertIn('confirm("Закрыть окно без сохранения изменений?")', html)
-        self.assertIn('shouldKeepModalForEscape', html)
-        self.assertIn('function handleCommandPaletteTab(event)', html)
-        self.assertIn('lastFocusedElement.focus({ preventScroll: true });', html)
+        self.assertIn("shouldKeepModalForEscape", html)
+        self.assertIn("function handleCommandPaletteTab(event)", html)
+        self.assertIn("lastFocusedElement.focus({ preventScroll: true });", html)
         self.assertIn('modalSize = allowedSizes.has(size) ? size : ""', html)
-        self.assertIn('setSaveButtonsBusy', html)
-        self.assertIn('Вне склада / заказная', html)
-        self.assertIn('Источник запчасти', html)
-        self.assertIn('discountPreview', html)
+        self.assertIn("setSaveButtonsBusy", html)
+        self.assertIn("Вне склада / заказная", html)
+        self.assertIn("Источник запчасти", html)
+        self.assertIn("discountPreview", html)
         self.assertIn('aria-label="Удалить позицию заказ-наряда"', html)
         self.assertIn('id="appStatus"', html)
-        self.assertIn('<a class="skip-link" href="#content">К основному содержанию</a>', html)
-        self.assertIn('function contextStripHtml()', html)
+        self.assertIn(
+            '<a class="skip-link" href="#content">К основному содержанию</a>', html
+        )
+        self.assertIn("function contextStripHtml()", html)
         self.assertIn('class="context-strip"', html)
-        self.assertIn('function updateNavigationBadges()', html)
+        self.assertIn("function updateNavigationBadges()", html)
         self.assertIn('data-nav-badge="dashboard"', html)
         self.assertIn('data-nav-badge="updates"', html)
         self.assertNotIn('data-route="inspections"', html)
-        self.assertNotIn('new-inspection', html)
-        self.assertNotIn('openInspectionModal', html)
-        self.assertIn('lastLoadedAt', html)
-        self.assertIn('try {', html)
-        self.assertIn('viewHtml = renderers[state.route]();', html)
-        self.assertIn('content.innerHTML = `${offlineBannerHtml()}${errorBannerHtml()}${contextStripHtml()}${viewHtml}`;', html)
+        self.assertNotIn("new-inspection", html)
+        self.assertNotIn("openInspectionModal", html)
+        self.assertIn("lastLoadedAt", html)
+        self.assertIn("try {", html)
+        self.assertIn("viewHtml = renderers[state.route]();", html)
+        self.assertIn(
+            "content.innerHTML = `${offlineBannerHtml()}${errorBannerHtml()}${contextStripHtml()}${viewHtml}`;",
+            html,
+        )
         self.assertIn('if (!force && !state.offlineMode) return "";', html)
-        self.assertIn('offlineBannerHtml(true)', html)
-        self.assertIn('Не удалось отрисовать раздел.', html)
-        self.assertIn('function announce(message', html)
-        self.assertIn('function errorBannerHtml()', html)
+        self.assertIn("offlineBannerHtml(true)", html)
+        self.assertIn("Не удалось отрисовать раздел.", html)
+        self.assertIn("function announce(message", html)
+        self.assertIn("function errorBannerHtml()", html)
         self.assertIn('data-action="dismiss-error"', html)
-        self.assertIn('scroll-hint-sr', html)
-        self.assertIn('aria-describedby', html)
+        self.assertIn("scroll-hint-sr", html)
+        self.assertIn("aria-describedby", html)
         self.assertIn('aria-label="Запись"', html)
         self.assertIn('aria-label="Открыть клиента ${esc(c.name || c.id)}"', html)
-        self.assertIn('function classToken(', html)
+        self.assertIn("function classToken(", html)
         self.assertIn('aria-label="Тип позиции"', html)
         self.assertIn('aria-label="Фильтр по марке или модели"', html)
         self.assertIn('role="group" aria-label="Фильтр заказов по статусу"', html)
         self.assertIn('role="option" data-command-index', html)
         self.assertIn('role="menuitem"', html)
         self.assertIn('aria-haspopup="menu"', html)
-        self.assertIn('aria-pressed="${state.status === status ? "true" : "false"}"', html)
-        self.assertIn('const nextStatus = source.dataset.status;', html)
-        self.assertIn('state.data.app.csrf_token', html)
+        self.assertIn(
+            'aria-pressed="${state.status === status ? "true" : "false"}"', html
+        )
+        self.assertIn("const nextStatus = source.dataset.status;", html)
+        self.assertIn("state.data.app.csrf_token", html)
         self.assertIn('function requiresFreshCsrf(actionName = "это действие")', html)
-        self.assertIn('Сессия безопасности устарела. Обновите данные CRM и повторите действие.', html)
+        self.assertIn(
+            "Сессия безопасности устарела. Обновите данные CRM и повторите действие.",
+            html,
+        )
         self.assertIn('if (state.route === "orders" && state.status !== "all")', html)
-        self.assertIn('const needsRouteFilterReload = hasOrderFilter && (', html)
+        self.assertIn("const needsRouteFilterReload = hasOrderFilter && (", html)
         self.assertIn('data-reload-before-action="1"', html)
-        self.assertIn('function exportUrl(entity)', html)
-        self.assertIn('async function downloadCsv(entity)', html)
+        self.assertIn("function exportUrl(entity)", html)
+        self.assertIn("async function downloadCsv(entity)", html)
         self.assertIn('data-action="export-csv"', html)
-        self.assertIn('<button class="btn ghost" type="button" data-action="export-csv"', html)
+        self.assertIn(
+            '<button class="btn ghost" type="button" data-action="export-csv"', html
+        )
         self.assertNotIn('<a class="btn ghost" href="#" data-action="export-csv"', html)
-        self.assertNotIn('?token=${token}', html)
-        self.assertIn('openPrintOrder(id)', html)
+        self.assertNotIn("?token=${token}", html)
+        self.assertIn("openPrintOrder(id)", html)
         self.assertIn('window.open("about:blank", "_blank")', html)
-        self.assertIn('printWindow.opener = null;', html)
+        self.assertIn("printWindow.opener = null;", html)
         self.assertNotIn('window.open("about:blank", "_blank", "noreferrer")', html)
         self.assertIn('data-action="duplicate-order"', html)
         self.assertIn('aria-label="Печать заказ-наряда', html)
-        self.assertIn('Прокрутите вправо', html)
-        self.assertNotIn('overflow-x: hidden;', html)
+        self.assertIn("Прокрутите вправо", html)
+        self.assertNotIn("overflow-x: hidden;", html)
         self.assertNotIn('id="content" aria-live="polite"', html)
 
     def test_home_page_wires_inline_form_errors_to_save_failures(self):
         html = sto_crm.INDEX_HTML
-        self.assertIn('function applyFormError(error)', html)
-        self.assertIn('function clearFormError(target)', html)
-        self.assertIn('applyFormError(error);', html)
+        self.assertIn("function applyFormError(error)", html)
+        self.assertIn("function clearFormError(target)", html)
+        self.assertIn("applyFormError(error);", html)
         self.assertIn('target.setAttribute("aria-invalid", "true")', html)
-        self.assertIn('field-error', html)
-        self.assertIn('clearAllFormErrors(form)', html)
+        self.assertIn("field-error", html)
+        self.assertIn("clearAllFormErrors(form)", html)
         self.assertIn('min="0.01" required value="${esc(item.quantity || 1)}"', html)
-        self.assertIn('const invalidItems = state.orderDraftItems.filter(item => !String(item.title || "").trim() || num(item.quantity, 0) <= 0);', html)
-        self.assertEqual(html.count('applyFormError('), 3)
+        self.assertIn(
+            'const invalidItems = state.orderDraftItems.filter(item => !String(item.title || "").trim() || num(item.quantity, 0) <= 0);',
+            html,
+        )
+        self.assertEqual(html.count("applyFormError("), 3)
 
     def test_frontend_shortcuts_customer_selection_and_layout_contracts(self):
         html = sto_crm.INDEX_HTML
         self.assertIn('const routeKeys = { d: "dashboard", p: "dashboard"', html)
         self.assertIn('k: "catalog"', html)
-        self.assertNotIn('openInspectionModal', html)
+        self.assertNotIn("openInspectionModal", html)
         self.assertIn('keys: "G D", run: () => setRoute("dashboard")', html)
         self.assertIn('keys: "G K", run: () => setRoute("catalog")', html)
         self.assertIn('data-tooltip="Каталог марок и моделей · G K"', html)
-        self.assertIn('const placeholderText = customers.length ? "Выберите клиента" : "Нет клиентов";', html)
+        self.assertIn(
+            'const placeholderText = customers.length ? "Выберите клиента" : "Нет клиентов";',
+            html,
+        )
         self.assertIn('data-tooltip="Создать заказ-наряд · N O"', html)
-        self.assertIn('Новый заказ <kbd>N O</kbd>', html)
-        self.assertIn('const placeholder = normalizedCustomerId || normalizedSelected ? "Не выбран" : "Сначала выберите клиента";', html)
-        self.assertIn('} else if (vehicleId !== normalizedSelected) {', html)
+        self.assertIn("Новый заказ <kbd>N O</kbd>", html)
+        self.assertIn(
+            'const placeholder = normalizedCustomerId || normalizedSelected ? "Не выбран" : "Сначала выберите клиента";',
+            html,
+        )
+        self.assertIn("} else if (vehicleId !== normalizedSelected) {", html)
         self.assertIn('const selectedCustomer = appointment.customer_id || "";', html)
         self.assertIn('const selectedCustomer = vehicle.customer_id || "";', html)
         self.assertIn('const selectedCustomer = order.customer_id || "";', html)
-        self.assertNotIn('lookupCustomers[0]?.id', html)
-        self.assertIn('html { min-height: 100%; background: var(--bg); overflow-x: clip; }', html)
-        self.assertIn('.sr-only.scroll-hint-sr { width: 1px !important;', html)
-        self.assertIn('@media (max-width: 860px) { [data-tooltip]::after { display: none; } }', html)
+        self.assertNotIn("lookupCustomers[0]?.id", html)
+        self.assertIn(
+            "html { min-height: 100%; background: var(--bg); overflow-x: clip; }", html
+        )
+        self.assertIn(".sr-only.scroll-hint-sr { width: 1px !important;", html)
+        self.assertIn(
+            "@media (max-width: 860px) { [data-tooltip]::after { display: none; } }",
+            html,
+        )
         self.assertIn('return normalize(value) || normalize(fallback) || "#";', html)
 
     def test_github_update_helpers_select_and_compare_release_assets(self):
         release = {
             "assets": [
-                {"name": "checksums.sha256", "browser_download_url": "https://github.com/owner/repo/releases/download/v1.20.0/checksums.sha256", "size": 100},
-                {"name": "latest.json", "browser_download_url": "https://github.com/owner/repo/releases/download/v1.20.0/latest.json", "size": 321},
-                {"name": "STO_CRM.exe", "browser_download_url": "https://github.com/owner/repo/releases/download/v1.20.0/STO_CRM.exe", "size": 123},
+                {
+                    "name": "checksums.sha256",
+                    "browser_download_url": "https://github.com/owner/repo/releases/download/v1.20.0/checksums.sha256",
+                    "size": 100,
+                },
+                {
+                    "name": "latest.json",
+                    "browser_download_url": "https://github.com/owner/repo/releases/download/v1.20.0/latest.json",
+                    "size": 321,
+                },
+                {
+                    "name": "STO_CRM.exe",
+                    "browser_download_url": "https://github.com/owner/repo/releases/download/v1.20.0/STO_CRM.exe",
+                    "size": 123,
+                },
             ]
         }
         self.assertTrue(sto_crm.is_newer_version("v1.18.0", "1.17.0"))
         self.assertFalse(sto_crm.is_newer_version("1.17.0", "1.17.0"))
         self.assertEqual(sto_crm.select_release_asset(release)["name"], "STO_CRM.exe")
-        self.assertEqual(sto_crm.select_release_asset(release, kind="manifest")["name"], "latest.json")
-        self.assertEqual(sto_crm.normalize_github_repository("https://github.com/owner/repo.git"), "owner/repo")
+        self.assertEqual(
+            sto_crm.select_release_asset(release, kind="manifest")["name"],
+            "latest.json",
+        )
+        self.assertEqual(
+            sto_crm.normalize_github_repository("https://github.com/owner/repo.git"),
+            "owner/repo",
+        )
 
     def test_release_manifest_drives_update_asset_metadata(self):
-        release = {"tag_name": "v1.20.0", "html_url": "https://github.com/markbakaa88/sto-crm/releases/tag/v1.20.0"}
+        release = {
+            "tag_name": "v1.20.0",
+            "html_url": "https://github.com/markbakaa88/sto-crm/releases/tag/v1.20.0",
+        }
         manifest = {
             "version": "1.20.0",
             "asset": {
@@ -2097,15 +3015,24 @@ class StoCrmTests(unittest.TestCase):
                 "download_url": "https://github.com/markbakaa88/sto-crm/releases/download/v1.20.0/STO_CRM.exe",
             },
         }
-        info = sto_crm.release_info_from_manifest(release, manifest, {"name": "latest.json", "size": 100})
+        info = sto_crm.release_info_from_manifest(
+            release, manifest, {"name": "latest.json", "size": 100}
+        )
         self.assertEqual(info["version"], "1.20.0")
         self.assertEqual(info["asset"]["sha256"], "a" * 64)
         self.assertEqual(info["manifest"]["name"], "latest.json")
         with self.assertRaisesRegex(RuntimeError, "тегу"):
-            sto_crm.release_info_from_manifest(release, {**manifest, "tag": "v1.19.0"}, {"name": "latest.json", "size": 100})
+            sto_crm.release_info_from_manifest(
+                release,
+                {**manifest, "tag": "v1.19.0"},
+                {"name": "latest.json", "size": 100},
+            )
 
     def test_update_manifest_rejects_missing_hash_and_untrusted_download_url(self):
-        release = {"tag_name": "v1.20.0", "html_url": "https://github.com/markbakaa88/sto-crm/releases/tag/v1.20.0"}
+        release = {
+            "tag_name": "v1.20.0",
+            "html_url": "https://github.com/markbakaa88/sto-crm/releases/tag/v1.20.0",
+        }
         trusted_asset = {
             "name": "STO_CRM.exe",
             "size": 123,
@@ -2113,7 +3040,11 @@ class StoCrmTests(unittest.TestCase):
             "download_url": "https://github.com/markbakaa88/sto-crm/releases/download/v1.20.0/STO_CRM.exe",
         }
         with self.assertRaisesRegex(RuntimeError, "SHA-256"):
-            sto_crm.release_info_from_manifest(release, {"asset": {**trusted_asset, "sha256": ""}}, {"name": "latest.json"})
+            sto_crm.release_info_from_manifest(
+                release,
+                {"asset": {**trusted_asset, "sha256": ""}},
+                {"name": "latest.json"},
+            )
         untrusted_urls = [
             "https://example.test/STO_CRM.exe",
             "http://github.com/markbakaa88/sto-crm/releases/download/v1.20.0/STO_CRM.exe",
@@ -2125,7 +3056,11 @@ class StoCrmTests(unittest.TestCase):
         for url in untrusted_urls:
             with self.subTest(url=url):
                 with self.assertRaisesRegex(RuntimeError, "недоверенную"):
-                    sto_crm.release_info_from_manifest(release, {"asset": {**trusted_asset, "download_url": url}}, {"name": "latest.json"})
+                    sto_crm.release_info_from_manifest(
+                        release,
+                        {"asset": {**trusted_asset, "download_url": url}},
+                        {"name": "latest.json"},
+                    )
         manifest_only_urls = [
             "https://github.com/markbakaa88/sto-crm/releases/download/v1.19.0/STO_CRM.exe",
             "https://github.com/other/repo/releases/download/v1.20.0/STO_CRM.exe",
@@ -2134,15 +3069,26 @@ class StoCrmTests(unittest.TestCase):
         for url in manifest_only_urls:
             with self.subTest(url=url):
                 with self.assertRaisesRegex(RuntimeError, "ожидаемого GitHub Release"):
-                    sto_crm.release_info_from_manifest(release, {"asset": {**trusted_asset, "download_url": url}}, {"name": "latest.json"})
+                    sto_crm.release_info_from_manifest(
+                        release,
+                        {"asset": {**trusted_asset, "download_url": url}},
+                        {"name": "latest.json"},
+                    )
         with self.assertRaisesRegex(RuntimeError, "некорректную"):
             sto_crm.release_info_from_manifest(
                 release,
-                {"asset": {**trusted_asset, "download_url": "https://github.com:bad/markbakaa88/sto-crm/releases/download/v1.20.0/STO_CRM.exe"}},
+                {
+                    "asset": {
+                        **trusted_asset,
+                        "download_url": "https://github.com:bad/markbakaa88/sto-crm/releases/download/v1.20.0/STO_CRM.exe",
+                    }
+                },
                 {"name": "latest.json"},
             )
 
-    def test_download_release_asset_requires_verified_hash_and_keeps_existing_target_on_failure(self):
+    def test_download_release_asset_requires_verified_hash_and_keeps_existing_target_on_failure(
+        self,
+    ):
         old_urlopen = urllib.request.urlopen
         try:
             target = Path(self.tempdir.name) / "STO_CRM.exe"
@@ -2207,12 +3153,18 @@ class StoCrmTests(unittest.TestCase):
     def test_update_json_and_redirects_are_bounded_and_validated(self):
         old_urlopen = urllib.request.urlopen
         try:
+
             class FakeHeaders(Message):
                 def get_content_charset(self):
                     return "utf-8"
 
             class FakeResponse:
-                def __init__(self, body: bytes, final_url: str = "https://github.com/owner/repo/releases/download/v1.20.0/latest.json", content_length: int | None = None):
+                def __init__(
+                    self,
+                    body: bytes,
+                    final_url: str = "https://github.com/owner/repo/releases/download/v1.20.0/latest.json",
+                    content_length: int | None = None,
+                ):
                     self._stream = io.BytesIO(body)
                     self._final_url = final_url
                     self.headers = FakeHeaders()
@@ -2231,19 +3183,41 @@ class StoCrmTests(unittest.TestCase):
                 def read(self, size: int = -1) -> bytes:
                     return self._stream.read(size)
 
-            urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse(b'{"ok": true}')
-            self.assertEqual(sto_crm.fetch_json("https://api.github.com/repos/owner/repo/releases/latest"), {"ok": True})
+            urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse(
+                b'{"ok": true}'
+            )
+            self.assertEqual(
+                sto_crm.fetch_json(
+                    "https://api.github.com/repos/owner/repo/releases/latest"
+                ),
+                {"ok": True},
+            )
 
-            urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse(codecs.BOM_UTF8 + b'{"ok": true}')
-            self.assertEqual(sto_crm.fetch_json("https://api.github.com/repos/owner/repo/releases/latest"), {"ok": True})
+            urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse(
+                codecs.BOM_UTF8 + b'{"ok": true}'
+            )
+            self.assertEqual(
+                sto_crm.fetch_json(
+                    "https://api.github.com/repos/owner/repo/releases/latest"
+                ),
+                {"ok": True},
+            )
 
-            urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse(b"{}", "https://example.test/latest.json")
+            urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse(
+                b"{}", "https://example.test/latest.json"
+            )
             with self.assertRaisesRegex(RuntimeError, "недоверенную"):
-                sto_crm.fetch_json("https://github.com/owner/repo/releases/download/v1.20.0/latest.json")
+                sto_crm.fetch_json(
+                    "https://github.com/owner/repo/releases/download/v1.20.0/latest.json"
+                )
 
-            urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse(b"{}", content_length=sto_crm.GITHUB_UPDATE_MAX_JSON_BYTES + 1)
+            urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse(
+                b"{}", content_length=sto_crm.GITHUB_UPDATE_MAX_JSON_BYTES + 1
+            )
             with self.assertRaisesRegex(RuntimeError, "слишком большой"):
-                sto_crm.fetch_json("https://github.com/owner/repo/releases/download/v1.20.0/latest.json")
+                sto_crm.fetch_json(
+                    "https://github.com/owner/repo/releases/download/v1.20.0/latest.json"
+                )
 
             target = Path(self.tempdir.name) / "redirect.exe"
             asset = {
@@ -2252,7 +3226,9 @@ class StoCrmTests(unittest.TestCase):
                 "sha256": hashlib.sha256(b"MZ").hexdigest(),
                 "download_url": "https://github.com/owner/repo/releases/download/v1.20.0/STO_CRM.exe",
             }
-            urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse(b"MZ", "https://example.test/STO_CRM.exe")
+            urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse(
+                b"MZ", "https://example.test/STO_CRM.exe"
+            )
             with self.assertRaisesRegex(RuntimeError, "недоверенную"):
                 sto_crm.download_release_asset(asset, target)
             self.assertFalse(target.exists())
@@ -2262,7 +3238,9 @@ class StoCrmTests(unittest.TestCase):
     def test_update_status_reports_release_lookup_failures_without_crashing(self):
         old_fetch_json = sto_crm.fetch_json
         try:
-            sto_crm.fetch_json = lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("offline"))
+            sto_crm.fetch_json = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                RuntimeError("offline")
+            )
             status = sto_crm.update_status()
         finally:
             sto_crm.fetch_json = old_fetch_json
@@ -2298,27 +3276,36 @@ class StoCrmTests(unittest.TestCase):
     def test_home_page_exposes_github_updates_ui_and_api_hooks(self):
         html = sto_crm.INDEX_HTML
         self.assertIn('data-route="updates"', html)
-        self.assertIn('function renderUpdates()', html)
-        self.assertIn('/api/update/status', html)
-        self.assertIn('/api/update/install', html)
+        self.assertIn("function renderUpdates()", html)
+        self.assertIn("/api/update/status", html)
+        self.assertIn("/api/update/install", html)
         self.assertIn('data-action="check-update"', html)
         self.assertIn('data-action="install-update"', html)
-        self.assertIn('STO_CRM.exe', html)
-        self.assertIn('latest.json', html)
-        self.assertIn('GitHub Releases', html)
+        self.assertIn("STO_CRM.exe", html)
+        self.assertIn("latest.json", html)
+        self.assertIn("GitHub Releases", html)
 
-    def test_update_install_route_reaches_update_service_without_parsing_install_as_id(self):
+    def test_update_install_route_reaches_update_service_without_parsing_install_as_id(
+        self,
+    ):
         server = sto_crm.CRMServer(("127.0.0.1", 0), sto_crm.CRMHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         original_install = sto_crm.install_update_from_github
         try:
-            sto_crm.install_update_from_github = lambda: {"ok": True, "updated": False, "message": "stub"}
+            sto_crm.install_update_from_github = lambda: {
+                "ok": True,
+                "updated": False,
+                "message": "stub",
+            }
             request = urllib.request.Request(
                 f"http://127.0.0.1:{server.server_port}/api/update/install",
                 data=json.dumps({}).encode("utf-8"),
                 method="POST",
-                headers={"Content-Type": "application/json", "X-CSRF-Token": sto_crm.RUNTIME.csrf_token},
+                headers={
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": sto_crm.RUNTIME.csrf_token,
+                },
             )
             with urllib.request.urlopen(request, timeout=5) as response:
                 payload = json.loads(response.read().decode("utf-8"))
@@ -2334,26 +3321,26 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('id="themeToggle"', html)
         self.assertIn('themeToggle.addEventListener("click"', html)
         self.assertIn('id="densityToggle"', html)
-        self.assertIn('function applyDensity(', html)
-        self.assertIn('if (!node) {', html)
-        self.assertIn('function toggleDensity()', html)
-        self.assertIn('sto-crm-density', html)
-        self.assertIn('body.compact .metric', html)
+        self.assertIn("function applyDensity(", html)
+        self.assertIn("if (!node) {", html)
+        self.assertIn("function toggleDensity()", html)
+        self.assertIn("sto-crm-density", html)
+        self.assertIn("body.compact .metric", html)
         self.assertIn('id="commandPalette"', html)
-        self.assertIn('function commandItems()', html)
-        self.assertIn('function openCommandPalette()', html)
-        self.assertIn('data-command-index', html)
-        self.assertIn('Ctrl+K', html)
-        self.assertIn('aria-pressed', html)
-        self.assertIn('history.pushState', html)
+        self.assertIn("function commandItems()", html)
+        self.assertIn("function openCommandPalette()", html)
+        self.assertIn("data-command-index", html)
+        self.assertIn("Ctrl+K", html)
+        self.assertIn("aria-pressed", html)
+        self.assertIn("history.pushState", html)
         self.assertIn('window.addEventListener("popstate"', html)
-        self.assertIn('lastFocusedElement', html)
-        self.assertIn('appTabbableSnapshot', html)
-        self.assertIn('bindModalSubmitHandlers', html)
-        self.assertIn('safeStorageGet', html)
-        self.assertIn('nextThemePreference', html)
-        self.assertIn('localStorage.removeItem(key)', html)
-        self.assertIn('handleModalKeydown', html)
+        self.assertIn("lastFocusedElement", html)
+        self.assertIn("appTabbableSnapshot", html)
+        self.assertIn("bindModalSubmitHandlers", html)
+        self.assertIn("safeStorageGet", html)
+        self.assertIn("nextThemePreference", html)
+        self.assertIn("localStorage.removeItem(key)", html)
+        self.assertIn("handleModalKeydown", html)
         self.assertIn('aria-label="Печать заказ-наряда', html)
         self.assertIn('id="clearSearch"', html)
         self.assertIn('type="email"', html)
@@ -2361,45 +3348,63 @@ class StoCrmTests(unittest.TestCase):
 
     def test_home_page_has_premium_dashboard_and_view_headings(self):
         html = sto_crm.INDEX_HTML
-        self.assertIn('function sectionIntro(title, text, options = {})', html)
+        self.assertIn("function sectionIntro(title, text, options = {})", html)
         self.assertIn('"section-card hero-card"', html)
-        self.assertIn('hero-stat-stack', html)
-        self.assertIn('metric-icon', html)
-        self.assertIn('insight-icon', html)
-        self.assertIn('--content-max: 1680px;', html)
-        self.assertIn('Premium workspace', html)
-        self.assertIn('Смена под контролем', html)
-        self.assertIn('primary-kpi-grid', html)
-        self.assertIn('function pluralRu(', html)
-        self.assertIn('function moneyCompact(', html)
-        self.assertIn('function viewHeading(', html)
-        self.assertIn('view-heading-actions', html)
-        self.assertIn('Календарь приемки', html)
-        self.assertNotIn('Digital Vehicle Inspection', html)
-        self.assertIn('Заказ-наряды', html)
-        self.assertIn('Каталог автомобилей', html)
-        self.assertIn('Отчеты и аналитика', html)
+        self.assertIn("hero-stat-stack", html)
+        self.assertIn("metric-icon", html)
+        self.assertIn("insight-icon", html)
+        self.assertIn("--content-max: 1680px;", html)
+        self.assertIn("Premium workspace", html)
+        self.assertIn("Смена под контролем", html)
+        self.assertIn("primary-kpi-grid", html)
+        self.assertIn("function pluralRu(", html)
+        self.assertIn("function moneyCompact(", html)
+        self.assertIn("function viewHeading(", html)
+        self.assertIn("view-heading-actions", html)
+        self.assertIn("Календарь приемки", html)
+        self.assertNotIn("Digital Vehicle Inspection", html)
+        self.assertIn("Заказ-наряды", html)
+        self.assertIn("Каталог автомобилей", html)
+        self.assertIn("Отчеты и аналитика", html)
         self.assertIn('data-action="open-action-plan"', html)
-        self.assertIn('linear-gradient(160deg, var(--brand-start), var(--brand-mid) 54%, var(--brand-end))', html)
-        self.assertIn('grid-template-columns: 260px minmax(0, 1fr)', html)
-        self.assertIn('workspace-grid', html)
-        self.assertIn('function riskRadar(report)', html)
-        self.assertIn('function quickActions()', html)
-        self.assertIn('function miniLedger(report)', html)
+        self.assertIn(
+            "linear-gradient(160deg, var(--brand-start), var(--brand-mid) 54%, var(--brand-end))",
+            html,
+        )
+        self.assertIn("grid-template-columns: 260px minmax(0, 1fr)", html)
+        self.assertIn("workspace-grid", html)
+        self.assertIn("function riskRadar(report)", html)
+        self.assertIn("function quickActions()", html)
+        self.assertIn("function miniLedger(report)", html)
+        dashboard = html[
+            html.index("function renderDashboard()") : html.index("function metric(")
+        ]
+        self.assertIn('sectionIntro("Смена под контролем"', dashboard)
+        self.assertIn('class="primary-kpi-grid"', dashboard)
+        self.assertIn("pipelineBoard(r.pipeline_by_status || [])", dashboard)
+        self.assertIn("appointmentTimeline(r.appointment_load_7_days || [])", dashboard)
+        self.assertIn("procurementList(r.procurement_plan || [])", dashboard)
+        self.assertIn("workloadList(r.workload_by_responsible || [])", dashboard)
+        self.assertIn('action: "open-action-plan"', dashboard)
 
     def test_frontend_css_matches_runtime_shell_states_and_dense_components(self):
         html = sto_crm.INDEX_HTML
-        self.assertIn('.modal-backdrop.open, .command-palette-backdrop.open { display: grid; }', html)
+        self.assertIn(
+            ".modal-backdrop.open, .command-palette-backdrop.open { display: grid; }",
+            html,
+        )
         self.assertIn('$("#modalBackdrop").classList.add("open");', html)
         self.assertIn('$("#commandPalette")?.classList.add("open");', html)
-        self.assertIn('.quick-grid { display: grid;', html)
-        self.assertIn('.action-card { grid-template-columns: minmax(0, 1fr) auto;', html)
-        self.assertIn('.items-table { overflow-x: auto;', html)
-        self.assertIn('.totals { display: grid;', html)
-        self.assertIn('.catalog-summary { display: grid;', html)
-        self.assertIn('.scroll-hint { display: none;', html)
-        self.assertIn('.has-horizontal-overflow .scroll-hint { display: block; }', html)
-        self.assertIn('.span-3 { grid-column: 1 / -1; }', html)
+        self.assertIn(".quick-grid { display: grid;", html)
+        self.assertIn(
+            ".action-card { grid-template-columns: minmax(0, 1fr) auto;", html
+        )
+        self.assertIn(".items-table { overflow-x: auto;", html)
+        self.assertIn(".totals { display: grid;", html)
+        self.assertIn(".catalog-summary { display: grid;", html)
+        self.assertIn(".scroll-hint { display: none;", html)
+        self.assertIn(".has-horizontal-overflow .scroll-hint { display: block; }", html)
+        self.assertIn(".span-3 { grid-column: 1 / -1; }", html)
 
     def test_print_order_html_uses_professional_document_design(self):
         order = {
@@ -2414,8 +3419,20 @@ class StoCrmTests(unittest.TestCase):
             "mechanic": "Master",
             "authorized_by": "Client",
             "items": [
-                {"kind": "service", "title": "Premium labor", "approval_status": "approved", "quantity": 1, "unit_price": 1000},
-                {"kind": "part", "title": "Deferred part", "approval_status": "deferred", "quantity": 1, "unit_price": 500},
+                {
+                    "kind": "service",
+                    "title": "Premium labor",
+                    "approval_status": "approved",
+                    "quantity": 1,
+                    "unit_price": 1000,
+                },
+                {
+                    "kind": "part",
+                    "title": "Deferred part",
+                    "approval_status": "deferred",
+                    "quantity": 1,
+                    "unit_price": 500,
+                },
             ],
             "service_total": 1000,
             "parts_total": 0,
@@ -2432,24 +3449,32 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('class="status-chip"', html)
         self.assertIn('class="line-badge approved"', html)
         self.assertIn('class="line-badge deferred"', html)
-        self.assertIn('print-color-adjust: exact', html)
-        self.assertIn('@media print', html)
-        self.assertIn('СТО CRM · заказ-наряд', html)
+        self.assertIn("print-color-adjust: exact", html)
+        self.assertIn("@media print", html)
+        self.assertIn("СТО CRM · заказ-наряд", html)
 
     def test_frontend_error_retry_and_network_helpers_are_robust(self):
         html = sto_crm.INDEX_HTML
-        self.assertIn('bindViewActions(content);', html)
-        self.assertIn('error.retryable = response.status >= 500 || [408, 425, 429].includes(response.status);', html)
-        self.assertIn('const retryable = error?.retryable === true || !Number(error?.status || 0);', html)
-        self.assertIn('if (attempt === maxRetries || !retryable) throw error;', html)
+        self.assertIn("bindViewActions(content);", html)
+        self.assertIn(
+            "error.retryable = response.status >= 500 || [408, 425, 429].includes(response.status);",
+            html,
+        )
+        self.assertIn(
+            "const retryable = error?.retryable === true || !Number(error?.status || 0);",
+            html,
+        )
+        self.assertIn("if (attempt === maxRetries || !retryable) throw error;", html)
         self.assertIn('if (method !== "GET" && !state.data?.app?.csrf_token)', html)
-        self.assertIn('function readCachedBootstrap() {', html)
-        self.assertIn('sessionStorage can be unavailable or contain stale data', html)
-        self.assertIn('if (state.updateLoading) return;', html)
-        self.assertIn('state.updateCheckScheduled = true;', html)
+        self.assertIn("function readCachedBootstrap() {", html)
+        self.assertIn("sessionStorage can be unavailable or contain stale data", html)
+        self.assertIn("if (state.updateLoading) return;", html)
+        self.assertIn("state.updateCheckScheduled = true;", html)
         self.assertIn('const content = $("#content");\n    if (!content) return;', html)
-        self.assertIn('window.setTimeout(() => URL.revokeObjectURL(url), 1000);', html)
-        self.assertNotIn('URL.revokeObjectURL(url);\n    toast("CSV экспортирован")', html)
+        self.assertIn("window.setTimeout(() => URL.revokeObjectURL(url), 1000);", html)
+        self.assertNotIn(
+            'URL.revokeObjectURL(url);\n    toast("CSV экспортирован")', html
+        )
 
     def test_ensure_downloaded_executable_validates_full_pe_header(self):
         good = Path(self.tempdir.name) / "good.exe"
@@ -2483,7 +3508,12 @@ class StoCrmTests(unittest.TestCase):
             sto_crm.ensure_downloaded_executable(wrong_extension)
 
     def test_install_update_rejects_prerelease_and_draft_builds(self):
-        saved_release = {"version": "99.0.0", "tag": "v99.0.0", "prerelease": True, "asset": {}}
+        saved_release = {
+            "version": "99.0.0",
+            "tag": "v99.0.0",
+            "prerelease": True,
+            "asset": {},
+        }
 
         old_latest = sto_crm.latest_release_info
         old_is_frozen = sto_crm.is_frozen
@@ -2495,7 +3525,12 @@ class StoCrmTests(unittest.TestCase):
             self.assertFalse(result["updated"])
             self.assertIn("Стабильных обновлений", result["message"])
 
-            saved_release = {"version": "99.0.0", "tag": "v99.0.0", "draft": True, "asset": {}}
+            saved_release = {
+                "version": "99.0.0",
+                "tag": "v99.0.0",
+                "draft": True,
+                "asset": {},
+            }
             result = sto_crm.install_update_from_github()
             self.assertFalse(result["updated"])
         finally:

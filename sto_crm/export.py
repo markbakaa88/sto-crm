@@ -18,7 +18,13 @@ from .config import (
     ORDER_STATUSES,
     PREFERRED_CHANNELS,
 )
-from .queries import list_appointments, list_customers, list_inventory, list_orders, list_vehicles
+from .queries import (
+    list_appointments,
+    list_customers,
+    list_inventory,
+    list_orders,
+    list_vehicles,
+)
 from .reports import build_reports
 from .runtime import (
     clean_text,
@@ -29,6 +35,7 @@ from .runtime import (
     is_frozen,
     normalize_github_repository,
 )
+
 
 def bootstrap_payload(q: str = "", status: str = "all") -> dict[str, Any]:
     status = clean_text(status, 40, "all") or "all"
@@ -49,7 +56,9 @@ def bootstrap_payload(q: str = "", status: str = "all") -> dict[str, Any]:
     all_appointments = list_appointments("", "all", None)
     all_customers = list_customers("", None)
     lookup_appointments = all_appointments[:LOOKUP_LIMIT]
-    reports = build_reports(all_orders, all_inventory, all_vehicles, all_appointments, all_customers)
+    reports = build_reports(
+        all_orders, all_inventory, all_vehicles, all_appointments, all_customers
+    )
     return {
         "app": {
             "name": APP_NAME,
@@ -89,24 +98,82 @@ def csv_export(entity: str) -> tuple[str, str]:
     writer = csv.writer(output, delimiter=";")
     if entity == "customers":
         rows = list_customers("", None)
-        headers = ["id", "name", "phone", "email", "source", "preferred_channel", "reminder_consent", "vehicles_count", "orders_count", "notes"]
+        headers = [
+            "id",
+            "name",
+            "phone",
+            "email",
+            "source",
+            "preferred_channel",
+            "reminder_consent",
+            "vehicles_count",
+            "orders_count",
+            "notes",
+        ]
     elif entity == "vehicles":
         rows = list_vehicles("", None)
-        headers = ["id", "customer_name", "make", "model", "year", "plate", "vin", "mileage", "next_service_at", "next_service_mileage", "notes"]
+        headers = [
+            "id",
+            "customer_name",
+            "make",
+            "model",
+            "year",
+            "plate",
+            "vin",
+            "mileage",
+            "next_service_at",
+            "next_service_mileage",
+            "notes",
+        ]
     elif entity == "inventory":
         rows = list_inventory("", None)
-        headers = ["id", "sku", "name", "brand", "unit", "quantity", "min_quantity", "price", "cost", "supplier", "notes"]
+        headers = [
+            "id",
+            "sku",
+            "name",
+            "brand",
+            "unit",
+            "quantity",
+            "min_quantity",
+            "price",
+            "cost",
+            "supplier",
+            "notes",
+        ]
     elif entity == "appointments":
         rows = list_appointments("", "all", None)
         headers = [
-            "id", "scheduled_at", "duration_minutes", "status", "customer_name", "customer_phone",
-            "vehicle_plate", "vehicle_make", "vehicle_model", "advisor", "reason", "notes",
+            "id",
+            "scheduled_at",
+            "duration_minutes",
+            "status",
+            "customer_name",
+            "customer_phone",
+            "vehicle_plate",
+            "vehicle_make",
+            "vehicle_model",
+            "advisor",
+            "reason",
+            "notes",
         ]
     elif entity == "orders":
         rows = list_orders("", "all", None)
         headers = [
-            "id", "number", "status", "customer_name", "vehicle_plate", "vehicle_make", "vehicle_model",
-            "authorized_by", "authorized_at", "follow_up_at", "total", "paid", "due", "created_at", "updated_at",
+            "id",
+            "number",
+            "status",
+            "customer_name",
+            "vehicle_plate",
+            "vehicle_make",
+            "vehicle_model",
+            "authorized_by",
+            "authorized_at",
+            "follow_up_at",
+            "total",
+            "paid",
+            "due",
+            "created_at",
+            "updated_at",
         ]
     elif entity in {"catalog", "car_catalog"}:
         catalog = car_catalog_payload()

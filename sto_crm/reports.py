@@ -15,6 +15,7 @@ from .config import (
 from .runtime import clean_text, money, parse_float, parse_int
 from .validation import item_is_billable
 
+
 def order_vehicle_text(order: dict[str, Any]) -> str:
     return " ".join(
         str(part)
@@ -27,6 +28,7 @@ def order_vehicle_text(order: dict[str, Any]) -> str:
         if part
     )
 
+
 def build_reports(
     orders: list[dict[str, Any]],
     inventory: list[dict[str, Any]],
@@ -37,7 +39,14 @@ def build_reports(
     now = datetime.now()
     today = now.date()
     month_prefix = now.strftime("%Y-%m")
-    active_statuses = {"new", "diagnostics", "estimate", "approved", "in_progress", "done"}
+    active_statuses = {
+        "new",
+        "diagnostics",
+        "estimate",
+        "approved",
+        "in_progress",
+        "done",
+    }
     active_orders = [o for o in orders if o.get("status") in active_statuses]
 
     def parse_local_datetime(value: Any) -> datetime | None:
@@ -67,17 +76,40 @@ def build_reports(
             "margin": round(parse_float(order.get("margin")), 2),
             "updated_at": order.get("updated_at"),
         }
-    month_closed = [o for o in orders if str(o.get("closed_at", "")).startswith(month_prefix) and o.get("status") == "closed"]
+
+    month_closed = [
+        o
+        for o in orders
+        if str(o.get("closed_at", "")).startswith(month_prefix)
+        and o.get("status") == "closed"
+    ]
     closed_orders = [o for o in orders if o.get("status") == "closed"]
     revenue_month = sum(parse_float(o.get("total")) for o in month_closed)
-    taxable_month = sum(parse_float(o.get("subtotal")) - parse_float(o.get("discount")) for o in month_closed)
+    taxable_month = sum(
+        parse_float(o.get("subtotal")) - parse_float(o.get("discount"))
+        for o in month_closed
+    )
     gross_margin_month = sum(parse_float(o.get("margin")) for o in month_closed)
-    margin_percent_month = (gross_margin_month / taxable_month * 100) if taxable_month else 0
-    due_total = sum(parse_float(o.get("due")) for o in orders if o.get("status") != "cancelled")
+    margin_percent_month = (
+        (gross_margin_month / taxable_month * 100) if taxable_month else 0
+    )
+    due_total = sum(
+        parse_float(o.get("due")) for o in orders if o.get("status") != "cancelled"
+    )
     avg_check = revenue_month / len(month_closed) if month_closed else 0
-    conversion_base = [o for o in orders if o.get("status") in {"estimate", "approved", "in_progress", "done", "closed"}]
-    conversion_won = [o for o in conversion_base if o.get("status") in {"approved", "in_progress", "done", "closed"}]
-    conversion_rate = (len(conversion_won) / len(conversion_base) * 100) if conversion_base else 0
+    conversion_base = [
+        o
+        for o in orders
+        if o.get("status") in {"estimate", "approved", "in_progress", "done", "closed"}
+    ]
+    conversion_won = [
+        o
+        for o in conversion_base
+        if o.get("status") in {"approved", "in_progress", "done", "closed"}
+    ]
+    conversion_rate = (
+        (len(conversion_won) / len(conversion_base) * 100) if conversion_base else 0
+    )
     pipeline_value = sum(parse_float(o.get("total")) for o in active_orders)
     pipeline_due = sum(parse_float(o.get("due")) for o in active_orders)
     status_counts = dict.fromkeys(ORDER_STATUSES, 0)
@@ -91,7 +123,9 @@ def build_reports(
         if parse_float(p.get("min_quantity")) > 0
         and parse_float(p.get("quantity")) <= parse_float(p.get("min_quantity"))
     ]
-    inventory_value = sum(parse_float(p.get("quantity")) * parse_float(p.get("cost")) for p in inventory)
+    inventory_value = sum(
+        parse_float(p.get("quantity")) * parse_float(p.get("cost")) for p in inventory
+    )
     promised_today = []
     overdue_orders = []
     for order in active_orders:
@@ -114,12 +148,23 @@ def build_reports(
         due_by_date = False
         if next_service_at:
             try:
-                due_by_date = datetime.fromisoformat(next_service_at[:10]).date() <= reminder_horizon
+                due_by_date = (
+                    datetime.fromisoformat(next_service_at[:10]).date()
+                    <= reminder_horizon
+                )
             except ValueError:
                 due_by_date = False
-        due_by_mileage = bool(next_service_mileage and mileage and next_service_mileage <= mileage + 500)
+        due_by_mileage = bool(
+            next_service_mileage and mileage and next_service_mileage <= mileage + 500
+        )
         if due_by_date or due_by_mileage:
-            service_reminders.append({**vehicle, "due_by_date": due_by_date, "due_by_mileage": due_by_mileage})
+            service_reminders.append(
+                {
+                    **vehicle,
+                    "due_by_date": due_by_date,
+                    "due_by_mileage": due_by_mileage,
+                }
+            )
     followups_due = []
     for order in orders:
         follow_up_at = str(order.get("follow_up_at") or "")
@@ -130,7 +175,11 @@ def build_reports(
                 followups_due.append(order)
         except ValueError:
             continue
-    authorizations_pending = [order for order in orders if order.get("status") == "estimate" and not order.get("authorized_at")]
+    authorizations_pending = [
+        order
+        for order in orders
+        if order.get("status") == "estimate" and not order.get("authorized_at")
+    ]
     deferred_work = []
     for order in orders:
         if order.get("status") == "cancelled":
@@ -147,7 +196,11 @@ def build_reports(
                         "vehicle": order_vehicle_text(order),
                         "title": item.get("title"),
                         "approval_status": approval_status,
-                        "amount": round(parse_float(item.get("quantity")) * parse_float(item.get("unit_price")), 2),
+                        "amount": round(
+                            parse_float(item.get("quantity"))
+                            * parse_float(item.get("unit_price")),
+                            2,
+                        ),
                     }
                 )
     appointment_active_statuses = {"scheduled", "confirmed", "arrived"}
@@ -202,20 +255,31 @@ def build_reports(
                 "urgency": "critical" if quantity <= 0 else "low",
             }
         )
-    procurement_plan.sort(key=lambda item: (0 if item["urgency"] == "critical" else 1, -parse_float(item.get("budget"))))
+    procurement_plan.sort(
+        key=lambda item: (
+            0 if item["urgency"] == "critical" else 1,
+            -parse_float(item.get("budget")),
+        )
+    )
 
     overdue_ids = {int(order["id"]) for order in overdue_orders if order.get("id")}
     pipeline_by_status = []
     for status, label in ORDER_STATUSES.items():
         status_orders = [order for order in orders if order.get("status") == status]
-        status_overdue = [order for order in status_orders if int(order.get("id") or 0) in overdue_ids]
+        status_overdue = [
+            order for order in status_orders if int(order.get("id") or 0) in overdue_ids
+        ]
         pipeline_by_status.append(
             {
                 "status": status,
                 "label": label,
                 "count": len(status_orders),
-                "total": round(sum(parse_float(order.get("total")) for order in status_orders), 2),
-                "due": round(sum(parse_float(order.get("due")) for order in status_orders), 2),
+                "total": round(
+                    sum(parse_float(order.get("total")) for order in status_orders), 2
+                ),
+                "due": round(
+                    sum(parse_float(order.get("due")) for order in status_orders), 2
+                ),
                 "overdue_count": len(status_overdue),
                 "orders": [summarize_order(order) for order in status_orders[:6]],
             }
@@ -223,7 +287,12 @@ def build_reports(
 
     workload: dict[str, dict[str, Any]] = {}
     for order in active_orders:
-        responsible = clean_text(order.get("mechanic") or order.get("advisor"), 120, "Не назначен") or "Не назначен"
+        responsible = (
+            clean_text(
+                order.get("mechanic") or order.get("advisor"), 120, "Не назначен"
+            )
+            or "Не назначен"
+        )
         bucket = workload.setdefault(
             responsible,
             {
@@ -248,7 +317,11 @@ def build_reports(
             }
             for bucket in workload.values()
         ],
-        key=lambda item: (parse_int(item.get("overdue_count")), parse_int(item.get("orders_count")), parse_float(item.get("total"))),
+        key=lambda item: (
+            parse_int(item.get("overdue_count")),
+            parse_int(item.get("orders_count")),
+            parse_float(item.get("total")),
+        ),
         reverse=True,
     )[:8]
 
@@ -256,9 +329,14 @@ def build_reports(
     for order in closed_orders:
         for item in order.get("items", []):
             if item.get("kind") == "service" and item_is_billable(item):
-                service_sales[str(item.get("title"))] += parse_float(item.get("quantity")) * parse_float(item.get("unit_price"))
+                service_sales[str(item.get("title"))] += parse_float(
+                    item.get("quantity")
+                ) * parse_float(item.get("unit_price"))
     top_services = sorted(
-        [{"title": title, "total": round(total, 2)} for title, total in service_sales.items()],
+        [
+            {"title": title, "total": round(total, 2)}
+            for title, total in service_sales.items()
+        ],
         key=lambda x: x["total"],
         reverse=True,
     )[:5]
@@ -286,7 +364,9 @@ def build_reports(
         candidate_dt = parse_local_datetime(candidate_text)
         # Сравниваем по datetime, чтобы смешанные форматы (YYYY-MM-DD vs
         # YYYY-MM-DDTHH:MM) не ломали определение последней даты.
-        if candidate_dt and (bucket["_last_order_dt"] is None or candidate_dt > bucket["_last_order_dt"]):
+        if candidate_dt and (
+            bucket["_last_order_dt"] is None or candidate_dt > bucket["_last_order_dt"]
+        ):
             bucket["_last_order_dt"] = candidate_dt
             bucket["last_order_at"] = candidate_text
         elif not bucket["last_order_at"]:
@@ -302,15 +382,37 @@ def build_reports(
                 "last_order_at": bucket.get("last_order_at") or "",
             }
             for bucket in retention_by_customer.values()
-            if parse_float(bucket.get("revenue")) > 0 and (bucket["orders_count"] >= 2 or parse_float(bucket.get("revenue")) >= 50_000)
+            if parse_float(bucket.get("revenue")) > 0
+            and (
+                bucket["orders_count"] >= 2
+                or parse_float(bucket.get("revenue")) >= 50_000
+            )
         ],
-        key=lambda item: (parse_float(item.get("revenue")), parse_int(item.get("orders_count"))),
+        key=lambda item: (
+            parse_float(item.get("revenue")),
+            parse_int(item.get("orders_count")),
+        ),
         reverse=True,
     )[:8]
 
-    crm_tasks_count = len(service_reminders) + len(followups_due) + len(authorizations_pending) + len(deferred_work)
-    risk_total = len(overdue_orders) + len(low_stock) + len(authorizations_pending) + len(deferred_work)
-    risk_points = len(overdue_orders) * 9 + len(low_stock) * 4 + len(authorizations_pending) * 5 + len(deferred_work) * 3
+    crm_tasks_count = (
+        len(service_reminders)
+        + len(followups_due)
+        + len(authorizations_pending)
+        + len(deferred_work)
+    )
+    risk_total = (
+        len(overdue_orders)
+        + len(low_stock)
+        + len(authorizations_pending)
+        + len(deferred_work)
+    )
+    risk_points = (
+        len(overdue_orders) * 9
+        + len(low_stock) * 4
+        + len(authorizations_pending) * 5
+        + len(deferred_work) * 3
+    )
     business_health_score = max(0, min(100, 100 - risk_points))
     if business_health_score >= 85:
         business_health_label = "Отлично"
@@ -369,8 +471,14 @@ def build_reports(
 
     for order in overdue_orders[:10]:
         promised_dt = parse_local_datetime(order.get("promised_at"))
-        overdue_hours = int(max((now - promised_dt).total_seconds() // 3600, 0)) if promised_dt else 0
-        base_priority = {"urgent": 100, "high": 94, "normal": 88, "low": 82}.get(str(order.get("priority") or "normal"), 86)
+        overdue_hours = (
+            int(max((now - promised_dt).total_seconds() // 3600, 0))
+            if promised_dt
+            else 0
+        )
+        base_priority = {"urgent": 100, "high": 94, "normal": 88, "low": 82}.get(
+            str(order.get("priority") or "normal"), 86
+        )
         add_action(
             "overdue_order",
             f"Просрочен заказ-наряд {order.get('number') or 'без номера'}",
@@ -427,7 +535,12 @@ def build_reports(
     for vehicle in service_reminders[:8]:
         vehicle_text = " ".join(
             str(part)
-            for part in [vehicle.get("make"), vehicle.get("model"), vehicle.get("year"), vehicle.get("plate")]
+            for part in [
+                vehicle.get("make"),
+                vehicle.get("model"),
+                vehicle.get("year"),
+                vehicle.get("plate"),
+            ]
             if part
         )
         reminder_reasons = []
@@ -491,7 +604,12 @@ def build_reports(
         status = str(appointment.get("status") or "scheduled")
         appointment_vehicle = " ".join(
             str(part)
-            for part in [appointment.get("vehicle_make"), appointment.get("vehicle_model"), appointment.get("vehicle_year"), appointment.get("vehicle_plate")]
+            for part in [
+                appointment.get("vehicle_make"),
+                appointment.get("vehicle_model"),
+                appointment.get("vehicle_year"),
+                appointment.get("vehicle_plate"),
+            ]
             if part
         )
         add_action(
@@ -528,7 +646,11 @@ def build_reports(
         "orders_total": len(orders),
         "active_orders": len(active_orders),
         "closed_orders_count": len(closed_orders),
-        "customers_total": len(customers) if customers is not None else len({int(o.get("customer_id") or 0) for o in orders if o.get("customer_id")}),
+        "customers_total": len(customers)
+        if customers is not None
+        else len(
+            {int(o.get("customer_id") or 0) for o in orders if o.get("customer_id")}
+        ),
         "vehicles_total": len(vehicles),
         "revenue_month": round(revenue_month, 2),
         "gross_margin_month": round(gross_margin_month, 2),

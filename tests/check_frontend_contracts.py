@@ -5,6 +5,7 @@
 и app.js), и сверяет списки обязательных/запрещённых подстрок из
 tests/_frontend_contracts.js.
 """
+
 from __future__ import annotations
 
 import re
@@ -93,7 +94,9 @@ def main() -> int:
     template = (ASSETS / "index.html").read_text(encoding="utf-8")
     css = (ASSETS / "app.css").read_text(encoding="utf-8")
     js = (ASSETS / "app.js").read_text(encoding="utf-8")
-    page = template.replace("__STO_CRM_APP_CSS__", css, 1).replace("__STO_CRM_APP_JS__", js, 1)
+    page = template.replace("__STO_CRM_APP_CSS__", css, 1).replace(
+        "__STO_CRM_APP_JS__", js, 1
+    )
 
     missing = [s for s in required if s not in page]
     leaked = [s for s in forbidden if s in page]
@@ -107,7 +110,9 @@ def main() -> int:
         for s in leaked:
             print("  !", repr(s))
     if not missing and not leaked:
-        print(f"OK: {len(required)} обязательных подстрок, {len(forbidden)} запрещённых отсутствуют.")
+        print(
+            f"OK: {len(required)} обязательных подстрок, {len(forbidden)} запрещённых отсутствуют."
+        )
         return 0
     return 1
 

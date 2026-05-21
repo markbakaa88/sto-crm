@@ -100,6 +100,17 @@ function assertSafeModalMarkup(markup) {
     }
 }
 
+function clampPercent(value) {
+    const number = Number(value || 0);
+    if (!Number.isFinite(number)) return 0;
+    return Math.max(0, Math.min(100, Math.round(number)));
+}
+
+function widthClassFromPercent(value) {
+    const percent = clampPercent(value);
+    return `w-${String(Math.round(percent / 5) * 5).padStart(3, "0")}`;
+}
+
 const RUB_FORMAT_FULL = new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const RUB_FORMAT_COMPACT = new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
@@ -832,7 +843,7 @@ function collectBellItems() {
     (r.action_plan || []).slice(0, 6).forEach(action => {
         if (!action) return;
         items.push({
-            tone: action.tone === "danger" ? "bad" : action.tone === "warning" ? "warn" : "info",
+            tone: action.tone === "danger" ? "danger" : action.tone === "warning" ? "warning" : "info",
             icon: action.tone === "danger" ? "!" : action.tone === "warning" ? "◐" : "◎",
             title: action.title || "Задача смены",
             hint: action.subtitle || action.description || action.detail || "",
@@ -955,11 +966,17 @@ function initShell() {
             bellBtn.setAttribute("aria-expanded", "false");
         });
         bellPanel.addEventListener("click", event => {
-            const item = event.target.closest("[data-bell-route]");
+            const item = event.target.closest("[data-bell-route], [data-bell-action]");
             if (!item) return;
             const route = item.dataset.bellRoute;
+            const action = item.dataset.bellAction;
+            const id = item.dataset.bellId || "";
             bellPanel.hidden = true;
             bellBtn.setAttribute("aria-expanded", "false");
+            if (action && ["edit-order", "edit-appointment", "edit-vehicle", "edit-inventory"].includes(action)) {
+                openBellTarget(action, id, route).catch(showError);
+                return;
+            }
             if (route && routes[route]) setRoute(route);
         });
     }
@@ -1256,6 +1273,30 @@ function renderDashboard() {
             { label: "Новый заказ", action: "new-order", className: "primary" },
             { label: "Запись", action: "new-appointment", className: "ghost" }
         ])}
+        ${sectionIntro("Смена под контролем", "Premium workspace для мастера-приёмщика: индекс смены, деньги, риски, воронка и календарь на одном экране.", {
+            hero: true,
+            eyebrow: "Premium workspace",
+            summary: [
+                { label: "План", value: `${r.action_plan_total || 0} задач`, tone: r.action_plan_total ? "warn" : "ok" },
+                { label: "Выручка", value: moneyCompact(r.revenue_month || 0), tone: "ok" },
+                { label: "Риски", value: r.risk_total || 0, tone: r.risk_total ? "danger" : "ok" }
+            ],
+            actions: [
+                { label: "Открыть план", action: "open-action-plan", className: "primary" },
+                { label: "Отчёты", action: "open-reports", className: "ghost" }
+            ],
+            stats: [
+                { label: "Активных заказов", value: r.active_orders || 0 },
+                { label: "Записей сегодня", value: r.appointments_today_count || 0 },
+                { label: "Закупка", value: procurement.length }
+            ]
+        })}
+        <section class="primary-kpi-grid" aria-label="Ключевые показатели смены">
+            ${healthMetric(r)}
+            ${metric("Активная воронка", money(r.pipeline_value || 0), `${money(r.pipeline_due || 0)} ожидает оплаты`)}
+            ${metric("К оплате", money(r.due_total || 0), "Долг по открытым заказам")}
+            ${metric("Низкий склад", r.low_stock_count || 0, "Позиции ниже минимума", { tone: (r.low_stock_count || 0) ? "warning" : "" })}
+        </section>
         ${safeStorageGet("sto-crm-dashboard-hints-dismissed") === "1" ? "" : `<section class="business-hints" aria-label="Визуальные подсказки панели">
             <strong>Подсказки</strong>
             <span class="hint-chip" data-tone="ok"><span class="hint-dot ok" aria-hidden="true"></span>Индекс 0–100 показывает здоровье смены</span>
@@ -1272,6 +1313,20 @@ function renderDashboard() {
                     </div>
                     <div class="panel-body">${actionPlanList(r.action_plan || [])}</div>
                 </div>
+                <section class="grid-2" aria-label="Воронка и календарь смены">
+                    <div class="panel">
+                        <div class="panel-head"><h3>Воронка заказов</h3><button class="btn" type="button" data-action="open-orders">Заказы</button></div>
+                        <div class="panel-body">${pipelineBoard(r.pipeline_by_status || [])}</div>
+                    </div>
+                    <div class="panel">
+                        <div class="panel-head"><h3>Загрузка календаря</h3><button class="btn" type="button" data-action="open-appointments">Запись</button></div>
+                        <div class="panel-body">${appointmentTimeline(r.appointment_load_7_days || [])}</div>
+                    </div>
+                </section>
+                <details class="panel dashboard-details" open>
+                    <summary><span>Последние заказы</span><span class="count-pill">${recent.length}</span></summary>
+                    ${ordersTable(recent, false)}
+                </details>
             </div>
             <aside class="dashboard-rail dashboard-support" aria-label="Краткий контроль смены">
                 <div class="panel">
@@ -1279,18 +1334,26 @@ function renderDashboard() {
                     <div class="panel-body">${quickActions()}</div>
                 </div>
                 <div class="panel">
+                    <div class="panel-head"><h3>Радар риска</h3></div>
+                    <div class="panel-body">${riskRadar(r)}</div>
+                </div>
+                <div class="panel">
+                    <div class="panel-head"><h3>Сводка базы</h3></div>
+                    <div class="panel-body">${miniLedger(r)}</div>
+                </div>
+                <div class="panel">
                     <div class="panel-head"><h3>Закупка и CRM</h3><button class="btn" type="button" data-action="open-inventory">Склад</button></div>
                     <div class="panel-body split-stack">
-                        <div><h4 class="mini-title">Закупка</h4>${procurement.length ? procurementList(procurement.slice(0, 4)) : `<div class="muted">Склад в нормативе.</div>`}</div>
+                        <div><h4 class="mini-title">Закупка</h4>${procurementList(r.procurement_plan || [])}</div>
                         <div><h4 class="mini-title">Задачи</h4>${crmTaskList(r)}</div>
                     </div>
                 </div>
+                <div class="panel">
+                    <div class="panel-head"><h3>Ответственные</h3></div>
+                    <div class="panel-body">${workloadList(r.workload_by_responsible || [])}</div>
+                </div>
             </aside>
         </section>
-        <details class="panel dashboard-details" open>
-            <summary><span>Последние заказы</span><span class="count-pill">${recent.length}</span></summary>
-            ${ordersTable(recent, false)}
-        </details>
     `;
 }
 
@@ -1318,8 +1381,8 @@ function riskRadar(report) {
         { label: "Сметы", value: (report.authorizations_pending || []).length, max: 8, tone: "warning" }
     ];
     return `<div class="signal-grid">${rows.map(row => {
-        const width = Math.min(100, Math.round(Number(row.value || 0) / Math.max(1, row.max) * 100));
-        return `<div class="signal-row"><div class="signal-row-head"><strong>${esc(row.label)}</strong><span>${esc(row.value)}</span></div><div class="signal-track" role="img" aria-label="${esc(row.label)}: ${esc(row.value)}"><div class="signal-fill ${esc(row.tone)}" style="--value:${width}%"></div></div></div>`;
+        const width = Number(row.value || 0) / Math.max(1, row.max) * 100;
+        return `<div class="signal-row"><div class="signal-row-head"><strong>${esc(row.label)}</strong><span>${esc(row.value)}</span></div><div class="signal-track" role="img" aria-label="${esc(row.label)}: ${esc(row.value)}"><div class="signal-fill ${esc(row.tone)} ${widthClassFromPercent(width)}"></div></div></div>`;
     }).join("")}</div>`;
 }
 
@@ -1369,7 +1432,7 @@ function appointmentTimeline(days = []) {
         return `
         <article class="timeline-day ${day.date === todayKey ? "today" : ""}">
             <strong><span>${esc(day.label)}</span><span class="count-pill">${esc(day.count)}</span></strong>
-            <div class="bar-track" aria-label="Загрузка ${esc(day.label)}: ${esc(day.count)}"><div class="bar-fill" style="width:${width}%"></div></div>
+            <div class="bar-track" aria-label="Загрузка ${esc(day.label)}: ${esc(day.count)}"><div class="bar-fill ${widthClassFromPercent(width)}"></div></div>
             <div class="timeline-list">${(day.appointments || []).slice(0, 2).map(item => `<span>${esc(dateShort(item.scheduled_at))} · ${esc(item.customer_name || "")}</span>`).join("") || `<span class="muted">Свободно</span>`}</div>
         </article>`;
     }).join("")}</div>`;
@@ -1417,7 +1480,7 @@ function actionPlanList(items = []) {
             item.due_at ? dateShort(item.due_at) : "",
             Number(item.amount || 0) ? moneyCompact(item.amount) : ""
         ].filter(Boolean);
-        return `<article class="action-card ${esc(classToken(item.tone || "info"))}">
+        return `<article class="action-card" data-tone="${esc(classToken(item.tone || "info"))}">
             <div>
                 <strong>${esc(item.title)}</strong>
                 <p>${esc(item.detail || "")}</p>
@@ -1864,7 +1927,7 @@ function renderReports() {
                     ${Object.entries(state.data.statuses).map(([key, label]) => `
                         <div class="bar">
                             <span>${esc(label)}</span>
-                            <div class="bar-track" role="img" aria-label="${esc(label)}: ${statusCounts[key] || 0}"><div class="bar-fill" style="width:${Math.round((statusCounts[key] || 0) / maxStatus * 100)}%"></div></div>
+                            <div class="bar-track" role="img" aria-label="${esc(label)}: ${statusCounts[key] || 0}"><div class="bar-fill ${widthClassFromPercent((statusCounts[key] || 0) / maxStatus * 100)}"></div></div>
                             <strong>${statusCounts[key] || 0}</strong>
                         </div>`).join("")}
                 </div>
@@ -1875,7 +1938,7 @@ function renderReports() {
                     ${topServices.map(item => `
                         <div class="bar">
                             <span>${esc(item.title)}</span>
-                            <div class="bar-track" role="img" aria-label="${esc(item.title)}: ${money(item.total)}"><div class="bar-fill" style="width:${Math.round(item.total / maxService * 100)}%"></div></div>
+                            <div class="bar-track" role="img" aria-label="${esc(item.title)}: ${money(item.total)}"><div class="bar-fill ${widthClassFromPercent(item.total / maxService * 100)}"></div></div>
                             <strong>${money(item.total)}</strong>
                         </div>`).join("") || `<div class="muted">Нет данных по работам.</div>`}
                 </div>
@@ -2021,103 +2084,115 @@ async function installUpdate() {
     }
 }
 
+function dispatchViewAction(source, event = null) {
+    if (!source) return;
+    const action = source.dataset.action;
+    const id = Number(source.dataset.id || 0);
+    const routeTarget = source.dataset.routeTarget;
+    const runAction = () => {
+        if (routeTarget && routes[routeTarget] && routeTarget !== state.route) {
+            setRoute(routeTarget);
+        }
+        if (action === "retry-load") loadData().catch(showError);
+        else if (action === "dismiss-error") {
+            state.lastError = "";
+            render();
+        }
+        else if (action === "dismiss-dashboard-hints") {
+            safeStorageSet("sto-crm-dashboard-hints-dismissed", "1");
+            render();
+        }
+        else if (action === "backup-now") {
+            createBackupFromUi();
+        }
+        else if (action === "export-csv") {
+            event?.preventDefault();
+            downloadCsv(source.dataset.export).catch(showError);
+        }
+        else if (action === "filter-status") {
+            const nextStatus = source.dataset.status;
+            if (!state.data?.statuses?.[nextStatus] && nextStatus !== "all") return;
+            state.status = nextStatus;
+            loadData().catch(showError);
+        } else if (action === "page-customers") {
+            const total = state.data?.customers?.length || 0;
+            const pageSize = state.customerPageSize || 50;
+            const maxPage = Math.max(1, Math.ceil(total / pageSize));
+            state.customerPage = Math.min(Math.max(1, Number(source.dataset.page || 1)), maxPage);
+            render();
+            document.querySelector(".view-heading")?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+        } else if (action === "catalog-more") {
+            state.catalogLimit = Math.min((state.catalogLimit || 60) + 60, filteredCatalogEntries().length);
+            render();
+        } else if (action === "new-appointment") openAppointmentModal();
+        else if (action === "edit-appointment") {
+            const appointment = findAppointmentById(id);
+            if (requireRecord(appointment, "Запись")) openAppointmentModal(appointment);
+        }
+        else if (action === "new-customer") openCustomerModal();
+        else if (action === "edit-customer") {
+            const customer = findCustomerById(id);
+            if (requireRecord(customer, "Клиент")) openCustomerModal(customer);
+        }
+        else if (action === "new-vehicle") openVehicleModal();
+        else if (action === "edit-vehicle") {
+            const vehicle = findVehicleById(id);
+            if (requireRecord(vehicle, "Автомобиль")) openVehicleModal(vehicle);
+        }
+        else if (action === "open-catalog") setRoute("catalog");
+        else if (action === "open-orders") setRoute("orders");
+        else if (action === "open-appointments") setRoute("appointments");
+        else if (action === "open-inventory") setRoute("inventory");
+        else if (action === "open-reports") setRoute("reports");
+        else if (action === "open-action-plan") {
+            const scrollActionCenter = () => document.querySelector(".action-center")?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+            if (state.route !== "dashboard") {
+                setRoute("dashboard");
+                requestAnimationFrame(scrollActionCenter);
+            } else {
+                scrollActionCenter();
+            }
+        }
+        else if (action === "new-inventory") openInventoryModal();
+        else if (action === "edit-inventory") {
+            const part = findInventoryById(id);
+            if (requireRecord(part, "Складская позиция")) openInventoryModal(part);
+        }
+        else if (action === "new-order") openOrderModal();
+        else if (action === "edit-order") openOrderModal(findOrderById(id));
+        else if (action === "duplicate-order") {
+            const order = findOrderById(id);
+            if (requireRecord(order, "Заказ")) openOrderModal(orderDuplicateDraft(order));
+        }
+        else if (action === "print-order") openPrintOrder(id).catch(showError);
+        else if (action === "check-update") checkForUpdates(true).catch(showError);
+        else if (action === "install-update") installUpdate().catch(showError);
+    };
+    if (source.dataset.reloadBeforeAction === "1" && !state.offlineMode) {
+        state.q = "";
+        state.status = "all";
+        const searchInput = $("#globalSearch");
+        if (searchInput) searchInput.value = "";
+        updateSearchClear();
+        loadData().then(runAction).catch(showError);
+    } else {
+        runAction();
+    }
+}
+
+async function openBellTarget(action, id, route = "") {
+    const target = document.createElement("button");
+    target.type = "button";
+    target.dataset.action = action;
+    target.dataset.id = id;
+    target.dataset.routeTarget = route || "";
+    target.dataset.reloadBeforeAction = "1";
+    dispatchViewAction(target);
+}
+
 function bindViewActions(root) {
     root.querySelectorAll("[data-action]").forEach(button => {
-        button.addEventListener("click", event => {
-            const source = event.currentTarget;
-            const action = source.dataset.action;
-            const id = Number(source.dataset.id || 0);
-            const routeTarget = source.dataset.routeTarget;
-            const runAction = () => {
-                if (routeTarget && routes[routeTarget] && routeTarget !== state.route) {
-                    setRoute(routeTarget);
-                }
-                if (action === "retry-load") loadData().catch(showError);
-                else if (action === "dismiss-error") {
-                    state.lastError = "";
-                    render();
-                }
-                else if (action === "dismiss-dashboard-hints") {
-                    safeStorageSet("sto-crm-dashboard-hints-dismissed", "1");
-                    render();
-                }
-                else if (action === "backup-now") {
-                    createBackupFromUi();
-                }
-                else if (action === "export-csv") {
-                    event.preventDefault();
-                    downloadCsv(source.dataset.export).catch(showError);
-                }
-                else if (action === "filter-status") {
-                    const nextStatus = source.dataset.status;
-                    if (!state.data?.statuses?.[nextStatus] && nextStatus !== "all") return;
-                    state.status = nextStatus;
-                    loadData().catch(showError);
-                } else if (action === "page-customers") {
-                    const total = state.data?.customers?.length || 0;
-                    const pageSize = state.customerPageSize || 50;
-                    const maxPage = Math.max(1, Math.ceil(total / pageSize));
-                    state.customerPage = Math.min(Math.max(1, Number(source.dataset.page || 1)), maxPage);
-                    render();
-                    document.querySelector(".view-heading")?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
-                } else if (action === "catalog-more") {
-                    state.catalogLimit = Math.min((state.catalogLimit || 60) + 60, filteredCatalogEntries().length);
-                    render();
-                } else if (action === "new-appointment") openAppointmentModal();
-                else if (action === "edit-appointment") {
-                    const appointment = findAppointmentById(id);
-                    if (requireRecord(appointment, "Запись")) openAppointmentModal(appointment);
-                }
-                else if (action === "new-customer") openCustomerModal();
-                else if (action === "edit-customer") {
-                    const customer = findCustomerById(id);
-                    if (requireRecord(customer, "Клиент")) openCustomerModal(customer);
-                }
-                else if (action === "new-vehicle") openVehicleModal();
-                else if (action === "edit-vehicle") {
-                    const vehicle = findVehicleById(id);
-                    if (requireRecord(vehicle, "Автомобиль")) openVehicleModal(vehicle);
-                }
-                else if (action === "open-catalog") setRoute("catalog");
-                else if (action === "open-orders") setRoute("orders");
-                else if (action === "open-appointments") setRoute("appointments");
-                else if (action === "open-inventory") setRoute("inventory");
-                else if (action === "open-reports") setRoute("reports");
-                else if (action === "open-action-plan") {
-                    const scrollActionCenter = () => document.querySelector(".action-center")?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
-                    if (state.route !== "dashboard") {
-                        setRoute("dashboard");
-                        requestAnimationFrame(scrollActionCenter);
-                    } else {
-                        scrollActionCenter();
-                    }
-                }
-                else if (action === "new-inventory") openInventoryModal();
-                else if (action === "edit-inventory") {
-                    const part = findInventoryById(id);
-                    if (requireRecord(part, "Складская позиция")) openInventoryModal(part);
-                }
-                else if (action === "new-order") openOrderModal();
-                else if (action === "edit-order") openOrderModal(findOrderById(id));
-                else if (action === "duplicate-order") {
-                    const order = findOrderById(id);
-                    if (requireRecord(order, "Заказ")) openOrderModal(orderDuplicateDraft(order));
-                }
-                else if (action === "print-order") openPrintOrder(id).catch(showError);
-                else if (action === "check-update") checkForUpdates(true).catch(showError);
-                else if (action === "install-update") installUpdate().catch(showError);
-            };
-            if (source.dataset.reloadBeforeAction === "1" && !state.offlineMode) {
-                state.q = "";
-                state.status = "all";
-                const searchInput = $("#globalSearch");
-                if (searchInput) searchInput.value = "";
-                updateSearchClear();
-                loadData().then(runAction).catch(showError);
-            } else {
-                runAction();
-            }
-        });
+        button.addEventListener("click", event => dispatchViewAction(event.currentTarget, event));
     });
 }
 

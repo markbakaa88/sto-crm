@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import sqlite3
 from datetime import datetime, timedelta
@@ -12,6 +13,7 @@ from .config import (
     BILLABLE_ITEM_STATUSES,
     EMAIL_RE,
     ITEM_APPROVAL_STATUSES,
+    MAX_FINANCIAL_TOTAL,
     ORDER_PRIORITIES,
     ORDER_STATUSES,
     PREFERRED_CHANNELS,
@@ -30,7 +32,10 @@ from .runtime import (
     validate_vin,
 )
 
-def require_non_negative_float(value: Any, field_name: str, default: float = 0.0) -> float:
+
+def require_non_negative_float(
+    value: Any, field_name: str, default: float = 0.0
+) -> float:
     parsed = parse_float_field(value, field_name, default)
     if parsed < 0:
         raise ValueError(f"{field_name} не может быть отрицательным.")
@@ -44,8 +49,20 @@ def require_non_negative_int(value: Any, field_name: str, default: int = 0) -> i
     return parsed
 
 
-def optional_non_negative_float(value: Any, field_name: str, default: float = 0.0) -> float:
-    return default if is_blank(value) else require_non_negative_float(value, field_name, default)
+def ensure_finite_money(value: float, field_name: str) -> float:
+    if not math.isfinite(value) or abs(value) > MAX_FINANCIAL_TOTAL:
+        raise ValueError(f"Некорректное финансовое значение: {field_name}.")
+    return value
+
+
+def optional_non_negative_float(
+    value: Any, field_name: str, default: float = 0.0
+) -> float:
+    return (
+        default
+        if is_blank(value)
+        else require_non_negative_float(value, field_name, default)
+    )
 
 
 def generate_order_number(conn: sqlite3.Connection) -> str:
@@ -111,12 +128,16 @@ def validate_customer(payload: dict[str, Any]) -> dict[str, Any]:
         "email": email,
         "source": clean_text(payload.get("source"), 120),
         "preferred_channel": preferred_channel,
-        "reminder_consent": parse_bool_field(payload.get("reminder_consent"), "согласие на напоминания", True),
+        "reminder_consent": parse_bool_field(
+            payload.get("reminder_consent"), "согласие на напоминания", True
+        ),
         "notes": clean_multiline(payload.get("notes"), 2000),
     }
 
 
-def validate_vehicle(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
+def validate_vehicle(
+    conn: sqlite3.Connection, payload: dict[str, Any]
+) -> dict[str, Any]:
     customer_id = parse_int_field(payload.get("customer_id"), "клиент")
     if not customer_id or not active_exists(conn, "customers", customer_id):
         raise ValueError("Выберите действующего клиента.")
@@ -134,8 +155,12 @@ def validate_vehicle(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[
         "plate": plate,
         "vin": vin,
         "mileage": require_non_negative_int(payload.get("mileage"), "пробег"),
-        "next_service_at": parse_date_iso(payload.get("next_service_at"), "дата следующего сервиса"),
-        "next_service_mileage": require_non_negative_int(payload.get("next_service_mileage"), "сервисный пробег"),
+        "next_service_at": parse_date_iso(
+            payload.get("next_service_at"), "дата следующего сервиса"
+        ),
+        "next_service_mileage": require_non_negative_int(
+            payload.get("next_service_mileage"), "сервисный пробег"
+        ),
         "notes": clean_multiline(payload.get("notes"), 2000),
     }
 
@@ -150,7 +175,9 @@ def validate_inventory(payload: dict[str, Any]) -> dict[str, Any]:
         "brand": clean_text(payload.get("brand"), 140),
         "unit": clean_text(payload.get("unit"), 30, "шт") or "шт",
         "quantity": require_non_negative_float(payload.get("quantity"), "остаток"),
-        "min_quantity": require_non_negative_float(payload.get("min_quantity"), "минимальный остаток"),
+        "min_quantity": require_non_negative_float(
+            payload.get("min_quantity"), "минимальный остаток"
+        ),
         "price": require_non_negative_float(payload.get("price"), "цена"),
         "cost": require_non_negative_float(payload.get("cost"), "себестоимость"),
         "supplier": clean_text(payload.get("supplier"), 180),
@@ -163,13 +190,19 @@ def validate_order(
     payload: dict[str, Any],
     *,
     allow_deleted_inventory_ids: set[int] | None = None,
+    allow_deleted_vehicle_id: int | None = None,
 ) -> dict[str, Any]:
     customer_id = parse_int_field(payload.get("customer_id"), "клиент")
     if not customer_id or not active_exists(conn, "customers", customer_id):
         raise ValueError("Выберите действующего клиента.")
 
     vehicle_id_raw = parse_int_field(payload.get("vehicle_id"), "автомобиль") or None
-    vehicle_id = ensure_vehicle_belongs_to_customer(conn, vehicle_id_raw, customer_id)
+    vehicle_id = ensure_vehicle_belongs_to_customer(
+        conn,
+        vehicle_id_raw,
+        customer_id,
+        allow_deleted_vehicle_id=allow_deleted_vehicle_id,
+    )
 
     status = clean_text(payload.get("status"), 40, "new")
     if status not in ORDER_STATUSES:
@@ -182,7 +215,12 @@ def validate_order(
     raw_items = payload.get("items") or []
     if not isinstance(raw_items, list):
         raise ValueError("Позиции заказ-наряда должны быть списком.")
-    items = [validate_order_item(conn, item, allow_deleted_inventory_ids=allow_deleted_inventory_ids) for item in raw_items]
+    items = [
+        validate_order_item(
+            conn, item, allow_deleted_inventory_ids=allow_deleted_inventory_ids
+        )
+        for item in raw_items
+    ]
     items = [item for item in items if item["title"]]
     if not items:
         raise ValueError("Добавьте хотя бы одну работу или запчасть.")
@@ -195,16 +233,22 @@ def validate_order(
         "advisor": clean_text(payload.get("advisor"), 120),
         "mechanic": clean_text(payload.get("mechanic"), 120),
         "promised_at": parse_datetime_local(payload.get("promised_at"), "срок заказа"),
-        "odometer": require_non_negative_int(payload.get("odometer"), "пробег в заказе"),
+        "odometer": require_non_negative_int(
+            payload.get("odometer"), "пробег в заказе"
+        ),
         "complaint": clean_multiline(payload.get("complaint"), 3000),
         "diagnosis": clean_multiline(payload.get("diagnosis"), 3000),
         "recommendations": clean_multiline(payload.get("recommendations"), 3000),
         "discount": require_non_negative_float(payload.get("discount"), "скидка"),
-        "tax_rate": min(require_non_negative_float(payload.get("tax_rate"), "налог"), 100),
+        "tax_rate": min(
+            require_non_negative_float(payload.get("tax_rate"), "налог"), 100
+        ),
         "paid": require_non_negative_float(payload.get("paid"), "оплачено"),
         "payment_method": clean_text(payload.get("payment_method"), 80),
         "authorized_by": clean_text(payload.get("authorized_by"), 120),
-        "authorized_at": parse_datetime_local(payload.get("authorized_at"), "дата согласования"),
+        "authorized_at": parse_datetime_local(
+            payload.get("authorized_at"), "дата согласования"
+        ),
         "follow_up_at": parse_datetime_local(payload.get("follow_up_at"), "follow-up"),
         "items": items,
     }
@@ -212,7 +256,9 @@ def validate_order(
     return data
 
 
-def validate_appointment(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
+def validate_appointment(
+    conn: sqlite3.Connection, payload: dict[str, Any]
+) -> dict[str, Any]:
     customer_id = parse_int_field(payload.get("customer_id"), "клиент")
     if not customer_id or not active_exists(conn, "customers", customer_id):
         raise ValueError("Выберите действующего клиента.")
@@ -220,9 +266,13 @@ def validate_appointment(conn: sqlite3.Connection, payload: dict[str, Any]) -> d
     vehicle_id_raw = parse_int_field(payload.get("vehicle_id"), "автомобиль") or None
     vehicle_id = ensure_vehicle_belongs_to_customer(conn, vehicle_id_raw, customer_id)
 
-    scheduled_at = parse_datetime_local(payload.get("scheduled_at"), "дата и время записи", required=True)
+    scheduled_at = parse_datetime_local(
+        payload.get("scheduled_at"), "дата и время записи", required=True
+    )
 
-    duration_minutes = parse_int_field(payload.get("duration_minutes"), "длительность записи", 60)
+    duration_minutes = parse_int_field(
+        payload.get("duration_minutes"), "длительность записи", 60
+    )
     if duration_minutes < 15 or duration_minutes > 480:
         raise ValueError("Длительность записи должна быть от 15 до 480 минут.")
     status = clean_text(payload.get("status"), 30, "scheduled")
@@ -243,15 +293,24 @@ def validate_appointment(conn: sqlite3.Connection, payload: dict[str, Any]) -> d
 
 def normalize_order_money(order_data: dict[str, Any]) -> None:
     items = order_data.get("items", [])
-    subtotal = sum(
-        parse_float(item.get("quantity")) * parse_float(item.get("unit_price"))
-        for item in items
-        if item_is_billable(item)
+    subtotal = ensure_finite_money(
+        sum(
+            ensure_finite_money(
+                parse_float(item.get("quantity")) * parse_float(item.get("unit_price")),
+                "сумма позиции",
+            )
+            for item in items
+            if item_is_billable(item)
+        ),
+        "сумма заказ-наряда",
     )
     order_data["discount"] = min(parse_float(order_data.get("discount")), subtotal)
     tax_rate = min(parse_float(order_data.get("tax_rate")), 100)
     order_data["tax_rate"] = tax_rate
-    total = max(subtotal - order_data["discount"], 0) * (1 + tax_rate / 100)
+    total = ensure_finite_money(
+        max(subtotal - order_data["discount"], 0) * (1 + tax_rate / 100),
+        "итог заказ-наряда",
+    )
     order_data["paid"] = min(parse_float(order_data.get("paid")), total)
 
 
@@ -266,14 +325,26 @@ def validate_order_item(
     kind = clean_text(payload.get("kind"), 20, "service")
     if kind not in {"service", "part"}:
         raise ValueError("Некорректный тип позиции заказ-наряда.")
-    inventory_id = parse_int_field(payload.get("inventory_id"), "складская позиция") if kind == "part" else None
+    inventory_id = (
+        parse_int_field(payload.get("inventory_id"), "складская позиция")
+        if kind == "part"
+        else None
+    )
     if inventory_id is not None and inventory_id <= 0:
         inventory_id = None
     title = clean_text(payload.get("title"), 220)
     has_unit_price = "unit_price" in payload and not is_blank(payload.get("unit_price"))
     has_unit_cost = "unit_cost" in payload and not is_blank(payload.get("unit_cost"))
-    unit_price = optional_non_negative_float(payload.get("unit_price"), "цена позиции") if has_unit_price else 0
-    unit_cost = optional_non_negative_float(payload.get("unit_cost"), "себестоимость позиции") if has_unit_cost else 0
+    unit_price = (
+        optional_non_negative_float(payload.get("unit_price"), "цена позиции")
+        if has_unit_price
+        else 0
+    )
+    unit_cost = (
+        optional_non_negative_float(payload.get("unit_cost"), "себестоимость позиции")
+        if has_unit_cost
+        else 0
+    )
     approval_status = clean_text(payload.get("approval_status"), 30, "approved")
     if approval_status not in ITEM_APPROVAL_STATUSES:
         raise ValueError("Некорректный статус согласования позиции заказ-наряда.")
@@ -298,7 +369,9 @@ def validate_order_item(
     if not title:
         raise ValueError("Укажите наименование запчасти или работы.")
 
-    quantity = require_non_negative_float(payload.get("quantity"), "количество позиции", 1)
+    quantity = require_non_negative_float(
+        payload.get("quantity"), "количество позиции", 1
+    )
     if quantity <= 0:
         raise ValueError("Количество в позиции должно быть больше нуля.")
 
@@ -320,7 +393,9 @@ def item_is_billable(item: dict[str, Any]) -> bool:
 def active_exists(conn: sqlite3.Connection, table: str, record_id: int) -> bool:
     if table not in {"customers", "vehicles", "inventory", "orders", "appointments"}:
         return False
-    row = conn.execute(f"SELECT 1 FROM {table} WHERE id = ? AND deleted_at IS NULL", (record_id,)).fetchone()
+    row = conn.execute(
+        f"SELECT 1 FROM {table} WHERE id = ? AND deleted_at IS NULL", (record_id,)
+    ).fetchone()
     return row is not None
 
 
@@ -356,15 +431,22 @@ def ensure_vehicle_belongs_to_customer(
     customer_id: int,
     *,
     required: bool = False,
+    allow_deleted_vehicle_id: int | None = None,
 ) -> int | None:
     if not vehicle_id:
         if required:
             raise ValueError("Выберите действующий автомобиль.")
         return None
-    vehicle_owner = conn.execute(
-        "SELECT customer_id FROM vehicles WHERE id = ? AND deleted_at IS NULL",
-        (vehicle_id,),
-    ).fetchone()
+    if allow_deleted_vehicle_id and int(vehicle_id) == int(allow_deleted_vehicle_id):
+        vehicle_owner = conn.execute(
+            "SELECT customer_id FROM vehicles WHERE id = ?",
+            (vehicle_id,),
+        ).fetchone()
+    else:
+        vehicle_owner = conn.execute(
+            "SELECT customer_id FROM vehicles WHERE id = ? AND deleted_at IS NULL",
+            (vehicle_id,),
+        ).fetchone()
     if not vehicle_owner:
         raise ValueError("Выберите действующий автомобиль.")
     if int(vehicle_owner["customer_id"]) != customer_id:
@@ -406,13 +488,19 @@ def ensure_no_appointment_conflict(
             existing_start = datetime.fromisoformat(str(row["scheduled_at"]))
         except ValueError:
             continue
-        existing_end = existing_start + timedelta(minutes=max(parse_int(row["duration_minutes"], 60), 15))
+        existing_end = existing_start + timedelta(
+            minutes=max(parse_int(row["duration_minutes"], 60), 15)
+        )
         if start < existing_end and end > existing_start:
             when = existing_start.strftime("%d.%m.%Y %H:%M")
-            raise ValueError(f"На это время уже есть запись: {row['customer_name']} в {when}.")
+            raise ValueError(
+                f"На это время уже есть запись: {row['customer_name']} в {when}."
+            )
 
 
-def active_appointment_count_for_customer(conn: sqlite3.Connection, customer_id: int) -> int:
+def active_appointment_count_for_customer(
+    conn: sqlite3.Connection, customer_id: int
+) -> int:
     return int(
         conn.execute(
             """
@@ -427,7 +515,9 @@ def active_appointment_count_for_customer(conn: sqlite3.Connection, customer_id:
     )
 
 
-def active_appointment_count_for_vehicle(conn: sqlite3.Connection, vehicle_id: int) -> int:
+def active_appointment_count_for_vehicle(
+    conn: sqlite3.Connection, vehicle_id: int
+) -> int:
     return int(
         conn.execute(
             """

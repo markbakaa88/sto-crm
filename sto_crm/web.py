@@ -26,7 +26,9 @@ def _read_asset(name: str) -> str:
 
 def load_index_html() -> str:
     template = _read_asset("index.html")
-    return template.replace(_CSS_MARKER, _read_asset("app.css"), 1).replace(_JS_MARKER, _read_asset("app.js"), 1)
+    return template.replace(_CSS_MARKER, _read_asset("app.css"), 1).replace(
+        _JS_MARKER, _read_asset("app.js"), 1
+    )
 
 
 INDEX_HTML = load_index_html()

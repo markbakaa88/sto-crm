@@ -17,10 +17,14 @@ from typing import Any
 from .config import (
     GITHUB_REPOSITORY,
     GITHUB_UPDATES_CONFIG_ENV,
+    MAX_NUMERIC_ABS,
     MIN_VEHICLE_YEAR,
     SENSITIVE_QUERY_RE,
+    SQLITE_INTEGER_MAX,
+    SQLITE_INTEGER_MIN,
     VIN_RE,
 )
+
 
 def is_frozen() -> bool:
     return bool(getattr(sys, "frozen", False))
@@ -53,7 +57,9 @@ def directory_writable(directory: Path) -> bool:
 
 
 def default_db_path() -> Path:
-    candidates = [user_data_dir(), app_dir()] if is_frozen() else [app_dir(), user_data_dir()]
+    candidates = (
+        [user_data_dir(), app_dir()] if is_frozen() else [app_dir(), user_data_dir()]
+    )
     for directory in candidates:
         if directory_writable(directory):
             directory.mkdir(parents=True, exist_ok=True)
@@ -86,7 +92,9 @@ def updater_log_path() -> Path:
 
 def normalize_github_repository(value: str | None = None) -> str:
     """Нормализует owner/repo из переменной окружения или URL GitHub."""
-    raw = clean_text(value or os.environ.get(GITHUB_UPDATES_CONFIG_ENV) or GITHUB_REPOSITORY, 220)
+    raw = clean_text(
+        value or os.environ.get(GITHUB_UPDATES_CONFIG_ENV) or GITHUB_REPOSITORY, 220
+    )
     if not raw:
         return GITHUB_REPOSITORY
     if raw.startswith(("http://", "https://")):
@@ -120,7 +128,13 @@ def parse_float(value: Any, default: float = 0.0) -> float:
     if value is None or value == "":
         return default
     try:
-        normalized = str(value).replace("\u00a0", "").replace("\u202f", "").replace(" ", "").replace(",", ".")
+        normalized = (
+            str(value)
+            .replace("\u00a0", "")
+            .replace("\u202f", "")
+            .replace(" ", "")
+            .replace(",", ".")
+        )
         parsed = float(normalized)
         return parsed if math.isfinite(parsed) else default
     except (TypeError, ValueError):
@@ -137,7 +151,13 @@ def parse_int(value: Any, default: int = 0) -> int:
             return value
         if isinstance(value, float):
             return int(value) if math.isfinite(value) else default
-        normalized = str(value).replace("\u00a0", "").replace("\u202f", "").replace(" ", "").strip()
+        normalized = (
+            str(value)
+            .replace("\u00a0", "")
+            .replace("\u202f", "")
+            .replace(" ", "")
+            .strip()
+        )
         if re.fullmatch(r"[+-]?\d+", normalized):
             return int(normalized)
         if re.fullmatch(r"[+-]?\d+[\.,]\d+", normalized):
@@ -149,7 +169,9 @@ def parse_int(value: Any, default: int = 0) -> int:
 
 
 def is_blank(value: Any) -> bool:
-    return value is None or (isinstance(value, str) and not value.strip()) or value == ""
+    return (
+        value is None or (isinstance(value, str) and not value.strip()) or value == ""
+    )
 
 
 def parse_float_field(value: Any, field_name: str, default: float = 0.0) -> float:
@@ -157,11 +179,18 @@ def parse_float_field(value: Any, field_name: str, default: float = 0.0) -> floa
     if is_blank(value):
         return default
     try:
-        normalized = str(value).replace("\u00a0", "").replace("\u202f", "").replace(" ", "").replace(",", ".").strip()
+        normalized = (
+            str(value)
+            .replace("\u00a0", "")
+            .replace("\u202f", "")
+            .replace(" ", "")
+            .replace(",", ".")
+            .strip()
+        )
         parsed = float(normalized)
     except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(f"Некорректное число: {field_name}.") from exc
-    if not math.isfinite(parsed):
+    if not math.isfinite(parsed) or abs(parsed) > MAX_NUMERIC_ABS:
         raise ValueError(f"Некорректное число: {field_name}.")
     return parsed
 
@@ -174,22 +203,33 @@ def parse_int_field(value: Any, field_name: str, default: int = 0) -> int:
         raise ValueError(f"Некорректное целое число: {field_name}.")
     try:
         if isinstance(value, int):
-            return value
-        if isinstance(value, float):
+            parsed = value
+        elif isinstance(value, float):
             if not math.isfinite(value) or not value.is_integer():
                 raise ValueError
-            return int(value)
-        normalized = str(value).replace("\u00a0", "").replace("\u202f", "").replace(" ", "").strip()
-        if re.fullmatch(r"[+-]?\d+", normalized):
-            return int(normalized)
-        if re.fullmatch(r"[+-]?\d+[\.,]\d+", normalized):
-            parsed = float(normalized.replace(",", "."))
-            if not math.isfinite(parsed) or not parsed.is_integer():
+            parsed = int(value)
+        else:
+            normalized = (
+                str(value)
+                .replace("\u00a0", "")
+                .replace("\u202f", "")
+                .replace(" ", "")
+                .strip()
+            )
+            if re.fullmatch(r"[+-]?\d+", normalized):
+                parsed = int(normalized)
+            elif re.fullmatch(r"[+-]?\d+[\.,]\d+", normalized):
+                numeric = float(normalized.replace(",", "."))
+                if not math.isfinite(numeric) or not numeric.is_integer():
+                    raise ValueError
+                parsed = int(numeric)
+            else:
                 raise ValueError
-            return int(parsed)
     except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(f"Некорректное целое число: {field_name}.") from exc
-    raise ValueError(f"Некорректное целое число: {field_name}.")
+    if parsed < SQLITE_INTEGER_MIN or parsed > SQLITE_INTEGER_MAX:
+        raise ValueError(f"Некорректное целое число: {field_name}.")
+    return parsed
 
 
 def clean_text(value: Any, max_len: int = 500, default: str = "") -> str:
@@ -239,15 +279,20 @@ def validate_vehicle_year(value: Any) -> int:
         return 0
     max_year = datetime.now().year + 1
     if year < MIN_VEHICLE_YEAR or year > max_year:
-        raise ValueError(f"Некорректный год автомобиля. Укажите год от {MIN_VEHICLE_YEAR} до {max_year}.")
+        raise ValueError(
+            f"Некорректный год автомобиля. Укажите год от {MIN_VEHICLE_YEAR} до {max_year}."
+        )
     return year
 
 
 def validate_vin(value: str) -> str:
     vin = clean_text(value, 40).upper()
     if vin and not VIN_RE.fullmatch(vin):
-        raise ValueError("Некорректный VIN. VIN должен содержать 17 символов без I, O и Q.")
+        raise ValueError(
+            "Некорректный VIN. VIN должен содержать 17 символов без I, O и Q."
+        )
     return vin
+
 
 def money(value: Any) -> str:
     amount = parse_float(value)
@@ -299,7 +344,11 @@ def safe_log(message: str) -> None:
     if not stream:
         return
     try:
-        text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "?", redact_sensitive_query(str(message)))
+        text = re.sub(
+            r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]",
+            "?",
+            redact_sensitive_query(str(message)),
+        )
         text = text.replace("\r", "\\r").replace("\n", "\\n")
         stream.write(text + "\n")
         stream.flush()
@@ -315,4 +364,8 @@ class Runtime:
     csrf_token: str = ""
 
 
-RUNTIME = Runtime(db_path=default_db_path(), start_time=time.time(), csrf_token=secrets.token_urlsafe(32))
+RUNTIME = Runtime(
+    db_path=default_db_path(),
+    start_time=time.time(),
+    csrf_token=secrets.token_urlsafe(32),
+)

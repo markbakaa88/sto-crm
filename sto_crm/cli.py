@@ -19,7 +19,15 @@ from . import runtime as _runtime
 from .config import APP_NAME, DEFAULT_PORT
 from .database import init_db
 from .http_server import CRMHandler, CRMServer, CRMServerV6
-from .runtime import Runtime, clean_text, default_db_path, parse_int, safe_log
+from .runtime import (
+    Runtime,
+    clean_text,
+    default_db_path,
+    display_path,
+    parse_int,
+    safe_log,
+)
+
 
 def candidate_ports(preferred: int, attempts: int = 50) -> Iterator[int]:
     """Генерирует предпочтительные порты и безопасный fallback на порт ОС."""
@@ -46,7 +54,9 @@ def normalize_bind_host(host: str | None) -> str:
     value = clean_text(host, 255, "127.0.0.1").lower()
     aliases = {"", "localhost", "127.0.0.1", "::1"}
     if value not in aliases:
-        raise ValueError("СТО CRM можно запускать только на локальном loopback-адресе: 127.0.0.1, localhost или ::1.")
+        raise ValueError(
+            "СТО CRM можно запускать только на локальном loopback-адресе: 127.0.0.1, localhost или ::1."
+        )
     return "::1" if value == "::1" else "127.0.0.1"
 
 
@@ -69,14 +79,28 @@ def create_server(preferred_port: int, host: str = "127.0.0.1") -> CRMServer:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Локальная CRM для автосервиса")
-    parser.add_argument("--host", default="127.0.0.1", help="локальный адрес сервера: 127.0.0.1, localhost или ::1")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="порт локального сервера")
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="локальный адрес сервера: 127.0.0.1, localhost или ::1",
+    )
+    parser.add_argument(
+        "--port", type=int, default=DEFAULT_PORT, help="порт локального сервера"
+    )
     parser.add_argument("--db", type=Path, default=None, help="путь к SQLite базе")
-    parser.add_argument("--no-browser", action="store_true", help="не открывать браузер автоматически")
-    parser.add_argument("--demo", action="store_true", help="заполнить новую базу демонстрационными данными")
+    parser.add_argument(
+        "--no-browser", action="store_true", help="не открывать браузер автоматически"
+    )
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="заполнить новую базу демонстрационными данными",
+    )
     args = parser.parse_args(argv)
     if args.port < 0 or args.port > 65_535:
-        parser.error("Порт должен быть в диапазоне 0..65535, где 0 означает автоматический выбор свободного порта.")
+        parser.error(
+            "Порт должен быть в диапазоне 0..65535, где 0 означает автоматический выбор свободного порта."
+        )
     try:
         args.host = normalize_bind_host(args.host)
     except ValueError as exc:
@@ -85,9 +109,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv or sys.argv[1:])
+    args = parse_args(sys.argv[1:] if argv is None else argv)
     db_path = args.db.resolve() if args.db else default_db_path()
-    _runtime.RUNTIME = Runtime(db_path=db_path, start_time=time.time(), csrf_token=secrets.token_urlsafe(32))
+    _runtime.RUNTIME = Runtime(
+        db_path=db_path, start_time=time.time(), csrf_token=secrets.token_urlsafe(32)
+    )
     init_db(seed_demo=args.demo)
     server = create_server(args.port, args.host)
     host = server.server_address[0]
@@ -104,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
             signal.signal(signal.SIGTERM, shutdown)
 
     safe_log(f"{APP_NAME} запущена: {url}")
-    safe_log(f"База данных: {_runtime.RUNTIME.db_path}")
+    safe_log(f"База данных: {display_path(_runtime.RUNTIME.db_path)}")
     if not args.no_browser:
         threading.Timer(0.7, lambda: webbrowser.open(url)).start()
 

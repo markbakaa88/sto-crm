@@ -160,6 +160,8 @@ const REQUIRED_SUBSTRINGS = [
   "function riskRadar(report)",
   "function quickActions()",
   "function miniLedger(report)",
+  'sectionIntro("Смена под контролем"',
+  'class="primary-kpi-grid"',
 
   // Retry / network
   "bindViewActions(content);",

@@ -17,7 +17,12 @@ from typing import Any
 
 from . import runtime as _runtime
 from .catalog import car_catalog_payload
-from .config import APP_VERSION, INTERNAL_ERROR_MESSAGE, MAX_BODY_BYTES
+from .config import (
+    APP_VERSION,
+    INTERNAL_ERROR_MESSAGE,
+    MAX_BODY_BYTES,
+    UPDATE_STATUS_CACHE_SECONDS,
+)
 from .database import db
 from .export import bootstrap_payload, csv_export
 from .printing import print_order_html
@@ -43,12 +48,18 @@ from .services import (
 from .updates import create_backup, install_update_from_github, update_status
 from .web import FAVICON_SVG, INDEX_HTML
 
+_UPDATE_STATUS_CACHE: dict[str, Any] = {"expires_at": 0.0, "payload": None}
+_UPDATE_STATUS_LOCK = threading.Lock()
+
+
 class CRMHandler(BaseHTTPRequestHandler):
     server_version = f"STO-CRM/{APP_VERSION}"
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        safe_log(f"{self.log_date_time_string()} - {redact_sensitive_query(fmt % args)}")
+        safe_log(
+            f"{self.log_date_time_string()} - {redact_sensitive_query(fmt % args)}"
+        )
 
     def do_GET(self) -> None:
         self.handle_request("GET")
@@ -68,7 +79,12 @@ class CRMHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self) -> None:
         try:
             self.validate_local_request_context()
-            self.send_bytes(b"", "text/plain; charset=utf-8", status=204, headers={"Allow": "GET, POST, PUT, DELETE, OPTIONS"})
+            self.send_bytes(
+                b"",
+                "text/plain; charset=utf-8",
+                status=204,
+                headers={"Allow": "GET, POST, PUT, DELETE, OPTIONS"},
+            )
         except PermissionError as exc:
             self.close_connection = True
             self.send_error_json(403, str(exc))
@@ -90,7 +106,11 @@ class CRMHandler(BaseHTTPRequestHandler):
             if method == "HEAD" and path == "/api/health":
                 self.validate_local_request_context()
                 self.send_json(
-                    {"ok": True, "version": APP_VERSION, "uptime": round(time.time() - _runtime.RUNTIME.start_time, 1)},
+                    {
+                        "ok": True,
+                        "version": APP_VERSION,
+                        "uptime": round(time.time() - _runtime.RUNTIME.start_time, 1),
+                    },
                     write_body=False,
                 )
                 return
@@ -107,16 +127,32 @@ class CRMHandler(BaseHTTPRequestHandler):
                 return
             if method == "GET" and path.startswith("/print/order/"):
                 self.validate_local_request_context()
-                token = self.headers.get("X-CSRF-Token") or self.headers.get("X-CRM-CSRF-Token") or ""
-                if not token or not secrets.compare_digest(token, _runtime.RUNTIME.csrf_token):
-                    raise PermissionError("Печатная форма доступна только из интерфейса CRM.")
-                order_id = parse_int_field(path.rsplit("/", 1)[-1], "номер заказ-наряда")
+                token = (
+                    self.headers.get("X-CSRF-Token")
+                    or self.headers.get("X-CRM-CSRF-Token")
+                    or ""
+                )
+                if not token or not secrets.compare_digest(
+                    token, _runtime.RUNTIME.csrf_token
+                ):
+                    raise PermissionError(
+                        "Печатная форма доступна только из интерфейса CRM."
+                    )
+                order_id = parse_int_field(
+                    path.rsplit("/", 1)[-1], "номер заказ-наряда"
+                )
                 with db() as conn:
                     self.send_html(print_order_html(get_order(conn, order_id)))
                 return
             if method == "GET" and path == "/api/health":
                 self.validate_local_request_context()
-                self.send_json({"ok": True, "version": APP_VERSION, "uptime": round(time.time() - _runtime.RUNTIME.start_time, 1)})
+                self.send_json(
+                    {
+                        "ok": True,
+                        "version": APP_VERSION,
+                        "uptime": round(time.time() - _runtime.RUNTIME.start_time, 1),
+                    }
+                )
                 return
             if method == "GET" and path == "/api/bootstrap":
                 self.validate_local_request_context()
@@ -130,11 +166,15 @@ class CRMHandler(BaseHTTPRequestHandler):
                 return
             if method == "GET" and path == "/api/update/status":
                 self.validate_local_request_context()
-                self.send_json(update_status())
+                self.send_json(self.cached_update_status())
                 return
             if method == "GET" and path.startswith("/api/export/"):
                 self.validate_local_request_context()
-                token = self.headers.get("X-CSRF-Token") or self.headers.get("X-CRM-CSRF-Token") or ""
+                token = (
+                    self.headers.get("X-CSRF-Token")
+                    or self.headers.get("X-CRM-CSRF-Token")
+                    or ""
+                )
                 if not secrets.compare_digest(token, _runtime.RUNTIME.csrf_token):
                     raise PermissionError("Экспорт доступен только из интерфейса CRM.")
                 entity = path.rsplit("/", 1)[-1].removesuffix(".csv")
@@ -142,7 +182,9 @@ class CRMHandler(BaseHTTPRequestHandler):
                 self.send_bytes(
                     content.encode("utf-8"),
                     "text/csv; charset=utf-8",
-                    headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+                    headers={
+                        "Content-Disposition": f'attachment; filename="{filename}"'
+                    },
                 )
                 return
 
@@ -154,10 +196,27 @@ class CRMHandler(BaseHTTPRequestHandler):
             entity = parts[1]
 
             if entity == "backup" and len(parts) == 2 and method == "POST":
-                self.send_json(create_backup())
+                backup = create_backup()
+                self.send_json(
+                    {key: value for key, value in backup.items() if key != "path"}
+                )
                 return
-            if entity == "update" and len(parts) == 3 and parts[2] == "install" and method == "POST":
+            if (
+                entity == "update"
+                and len(parts) == 3
+                and parts[2] == "install"
+                and method == "POST"
+            ):
                 result = install_update_from_github()
+                if isinstance(result.get("backup"), dict):
+                    result = {
+                        **result,
+                        "backup": {
+                            key: value
+                            for key, value in result["backup"].items()
+                            if key != "path"
+                        },
+                    }
                 self.send_json(result)
                 if result.get("updated"):
                     threading.Thread(target=self.server.shutdown, daemon=True).start()
@@ -171,7 +230,11 @@ class CRMHandler(BaseHTTPRequestHandler):
                 "customers": (create_customer, update_customer, delete_customer),
                 "vehicles": (create_vehicle, update_vehicle, delete_vehicle),
                 "inventory": (create_inventory, update_inventory, delete_inventory),
-                "appointments": (create_appointment, update_appointment, delete_appointment),
+                "appointments": (
+                    create_appointment,
+                    update_appointment,
+                    delete_appointment,
+                ),
                 "orders": (create_order, update_order, delete_order),
             }
             route = entity_routes.get(entity)
@@ -199,7 +262,10 @@ class CRMHandler(BaseHTTPRequestHandler):
         except KeyError as exc:
             self.send_error_json(404, str(exc).strip("'"))
         except sqlite3.IntegrityError:
-            self.send_error_json(409, "Запись конфликтует с существующими данными. Обновите страницу и повторите действие.")
+            self.send_error_json(
+                409,
+                "Запись конфликтует с существующими данными. Обновите страницу и повторите действие.",
+            )
         except RuntimeError as exc:
             self.send_error_json(500, str(exc) or INTERNAL_ERROR_MESSAGE)
         except BrokenPipeError:
@@ -211,6 +277,25 @@ class CRMHandler(BaseHTTPRequestHandler):
         finally:
             if not trusted_request:
                 self.discard_untrusted_request_body()
+
+    def cached_update_status(self) -> dict[str, Any]:
+        now = time.monotonic()
+        cached = _UPDATE_STATUS_CACHE.get("payload")
+        if cached is not None and now < float(
+            _UPDATE_STATUS_CACHE.get("expires_at") or 0.0
+        ):
+            return cached
+        with _UPDATE_STATUS_LOCK:
+            now = time.monotonic()
+            cached = _UPDATE_STATUS_CACHE.get("payload")
+            if cached is not None and now < float(
+                _UPDATE_STATUS_CACHE.get("expires_at") or 0.0
+            ):
+                return cached
+            payload = update_status()
+            _UPDATE_STATUS_CACHE["payload"] = payload
+            _UPDATE_STATUS_CACHE["expires_at"] = now + UPDATE_STATUS_CACHE_SECONDS
+            return payload
 
     def route_entity(
         self,
@@ -252,25 +337,37 @@ class CRMHandler(BaseHTTPRequestHandler):
 
     def validate_local_request_context(self) -> None:
         if not self.is_allowed_host_header(self.headers.get("Host")):
-            raise PermissionError("Запрос отклонен: внешний хост не имеет доступа к локальной CRM.")
+            raise PermissionError(
+                "Запрос отклонен: внешний хост не имеет доступа к локальной CRM."
+            )
         origin = self.headers.get("Origin")
         fetch_site = (self.headers.get("Sec-Fetch-Site") or "").lower()
         if origin:
             if not self.is_allowed_origin(origin):
-                raise PermissionError("Запрос отклонен: внешний источник не имеет доступа к локальной CRM.")
+                raise PermissionError(
+                    "Запрос отклонен: внешний источник не имеет доступа к локальной CRM."
+                )
         elif fetch_site and fetch_site not in {"same-origin", "none"}:
             # При отсутствии Origin требуем явный same-origin-сигнал браузера.
-            raise PermissionError("Запрос отклонен: внешний источник не имеет доступа к локальной CRM.")
+            raise PermissionError(
+                "Запрос отклонен: внешний источник не имеет доступа к локальной CRM."
+            )
         if fetch_site and fetch_site not in {"same-origin", "same-site", "none"}:
-            raise PermissionError("Запрос отклонен: внешний сайт не имеет доступа к локальной CRM.")
+            raise PermissionError(
+                "Запрос отклонен: внешний сайт не имеет доступа к локальной CRM."
+            )
 
     def require_csrf_token(self) -> None:
         token = self.headers.get("X-CSRF-Token") or self.headers.get("X-CRM-CSRF-Token")
         if not token or not secrets.compare_digest(token, _runtime.RUNTIME.csrf_token):
-            raise PermissionError("Запрос отклонен: обновите страницу CRM и повторите действие.")
+            raise PermissionError(
+                "Запрос отклонен: обновите страницу CRM и повторите действие."
+            )
 
     def require_json_content_type(self) -> None:
-        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        content_type = (
+            self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        )
         if content_type != "application/json":
             raise ValueError("Для изменений требуется Content-Type: application/json.")
 
@@ -339,11 +436,22 @@ class CRMHandler(BaseHTTPRequestHandler):
             raise ValueError("Ожидался JSON-объект.")
         return data
 
-    def send_json(self, payload: Any, status: int = 200, *, write_body: bool = True) -> None:
-        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        self.send_bytes(body, "application/json; charset=utf-8", status=status, write_body=write_body)
+    def send_json(
+        self, payload: Any, status: int = 200, *, write_body: bool = True
+    ) -> None:
+        body = json.dumps(
+            payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+        ).encode("utf-8")
+        self.send_bytes(
+            body,
+            "application/json; charset=utf-8",
+            status=status,
+            write_body=write_body,
+        )
 
-    def send_html(self, content: str, status: int = 200, *, write_body: bool = True) -> None:
+    def send_html(
+        self, content: str, status: int = 200, *, write_body: bool = True
+    ) -> None:
         nonce = secrets.token_urlsafe(16)
         html = content.replace("__STO_CRM_CSP_NONCE__", nonce)
         self.send_bytes(
@@ -355,7 +463,11 @@ class CRMHandler(BaseHTTPRequestHandler):
         )
 
     def send_error_json(self, status: int, message: str) -> None:
-        self.send_json({"ok": False, "error": message}, status=status, write_body=self.command.upper() != "HEAD")
+        self.send_json(
+            {"ok": False, "error": message},
+            status=status,
+            write_body=self.command.upper() != "HEAD",
+        )
 
     def send_bytes(
         self,
@@ -374,10 +486,16 @@ class CRMHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Permissions-Policy", "geolocation=(), camera=(), microphone=()")
+        self.send_header(
+            "Permissions-Policy", "geolocation=(), camera=(), microphone=()"
+        )
         self.send_header("Cross-Origin-Opener-Policy", "same-origin")
         self.send_header("Cross-Origin-Resource-Policy", "same-origin")
-        script_src = f"script-src 'self' 'nonce-{script_nonce}'" if script_nonce else "script-src 'self'"
+        script_src = (
+            f"script-src 'self' 'nonce-{script_nonce}'"
+            if script_nonce
+            else "script-src 'self'"
+        )
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; style-src 'self' 'unsafe-inline'; "

@@ -10,6 +10,7 @@ from .config import ITEM_APPROVAL_STATUSES, ORDER_STATUSES
 from .runtime import money, parse_float, parse_int
 from .validation import item_is_billable
 
+
 def _format_quantity(value: Any) -> str:
     """Форматирует количество без экспоненты и с русской десятичной запятой."""
     amount = parse_float(value)
@@ -23,33 +24,55 @@ def _format_quantity(value: Any) -> str:
 def print_order_html(order: dict[str, Any]) -> str:
     vehicle = " ".join(
         str(part)
-        for part in [order.get("vehicle_make"), order.get("vehicle_model"), order.get("vehicle_year"), order.get("vehicle_plate")]
+        for part in [
+            order.get("vehicle_make"),
+            order.get("vehicle_model"),
+            order.get("vehicle_year"),
+            order.get("vehicle_plate"),
+        ]
         if part
     )
-    status_label = ORDER_STATUSES.get(str(order.get("status") or ""), str(order.get("status") or ""))
+    status_label = ORDER_STATUSES.get(
+        str(order.get("status") or ""), str(order.get("status") or "")
+    )
     printed_at = datetime.now().strftime("%d.%m.%Y %H:%M")
     odometer = parse_int(order.get("odometer"))
     odometer_text = f"{odometer} км" if odometer > 0 else "—"
     rows = []
     for index, item in enumerate(order.get("items", []), start=1):
-        total = parse_float(item.get("quantity")) * parse_float(item.get("unit_price")) if item_is_billable(item) else 0
+        total = (
+            parse_float(item.get("quantity")) * parse_float(item.get("unit_price"))
+            if item_is_billable(item)
+            else 0
+        )
         approval_key = str(item.get("approval_status") or "approved")
         approval_label = ITEM_APPROVAL_STATUSES.get(approval_key, approval_key)
-        approval_class = "approved" if approval_key == "approved" else "deferred" if approval_key == "deferred" else "declined" if approval_key == "declined" else "neutral"
+        approval_class = (
+            "approved"
+            if approval_key == "approved"
+            else "deferred"
+            if approval_key == "deferred"
+            else "declined"
+            if approval_key == "declined"
+            else "neutral"
+        )
         rows.append(
             f"""
             <tr>
                 <td class="row-index">{index}</td>
-                <td><strong>{html.escape(str(item.get('title') or ''))}</strong></td>
-                <td>{'Работа' if item.get('kind') == 'service' else 'Запчасть'}</td>
+                <td><strong>{html.escape(str(item.get("title") or ""))}</strong></td>
+                <td>{"Работа" if item.get("kind") == "service" else "Запчасть"}</td>
                 <td><span class="line-badge {approval_class}">{html.escape(approval_label)}</span></td>
-                <td class="num">{_format_quantity(item.get('quantity'))}</td>
-                <td class="num">{money(item.get('unit_price'))}</td>
+                <td class="num">{_format_quantity(item.get("quantity"))}</td>
+                <td class="num">{money(item.get("unit_price"))}</td>
                 <td class="num total-cell">{money(total)}</td>
             </tr>
             """
         )
-    rows_html = "".join(rows) or '<tr><td colspan="7" class="empty-row">В заказ-наряде нет позиций.</td></tr>'
+    rows_html = (
+        "".join(rows)
+        or '<tr><td colspan="7" class="empty-row">В заказ-наряде нет позиций.</td></tr>'
+    )
     return f"""<!doctype html>
 <html lang="ru">
 <head>

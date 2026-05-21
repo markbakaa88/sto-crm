@@ -7,7 +7,11 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any
 
-from .config import APPOINTMENT_ACTIVE_STATUSES, CONSUMING_STATUSES
+from .config import (
+    APPOINTMENT_ACTIVE_STATUSES,
+    CONSUMING_STATUSES,
+    ORDER_STATUS_TRANSITIONS,
+)
 from .database import write_db
 from .runtime import now_iso, parse_float, parse_int
 from .validation import (
@@ -76,28 +80,46 @@ def delete_customer(record_id: int) -> dict[str, Any]:
             (record_id,),
         ).fetchone()[0]
         if orders_count:
-            raise ValueError("У клиента есть заказ-наряды. Сначала удалите или перенесите связанные заказы.")
+            raise ValueError(
+                "У клиента есть заказ-наряды. Сначала удалите или перенесите связанные заказы."
+            )
         appointments_count = active_appointment_count_for_customer(conn, record_id)
         if appointments_count:
-            raise ValueError("У клиента есть активные записи в календаре. Завершите или отмените их перед удалением клиента.")
+            raise ValueError(
+                "У клиента есть активные записи в календаре. Завершите или отмените их перед удалением клиента."
+            )
         stamp = now_iso()
         for vehicle in conn.execute(
-            "SELECT id FROM vehicles WHERE customer_id = ? AND deleted_at IS NULL", (record_id,)
+            "SELECT id FROM vehicles WHERE customer_id = ? AND deleted_at IS NULL",
+            (record_id,),
         ).fetchall():
             vid = vehicle["id"]
             if conn.execute(
-                "SELECT COUNT(*) FROM orders WHERE vehicle_id = ? AND deleted_at IS NULL", (vid,)
+                "SELECT COUNT(*) FROM orders WHERE vehicle_id = ? AND deleted_at IS NULL",
+                (vid,),
             ).fetchone()[0]:
-                raise ValueError("У клиента есть автомобили с заказ-нарядами. Сначала удалите или перенесите заказы.")
+                raise ValueError(
+                    "У клиента есть автомобили с заказ-нарядами. Сначала удалите или перенесите заказы."
+                )
             if active_appointment_count_for_vehicle(conn, vid):
-                raise ValueError("У клиента есть автомобили с активными записями в календаре. Завершите или отмените их перед удалением.")
-        conn.execute("UPDATE customers SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL", (stamp, stamp, record_id))
-        conn.execute("UPDATE vehicles SET deleted_at=?, updated_at=? WHERE customer_id=? AND deleted_at IS NULL", (stamp, stamp, record_id))
+                raise ValueError(
+                    "У клиента есть автомобили с активными записями в календаре. Завершите или отмените их перед удалением."
+                )
+        conn.execute(
+            "UPDATE customers SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL",
+            (stamp, stamp, record_id),
+        )
+        conn.execute(
+            "UPDATE vehicles SET deleted_at=?, updated_at=? WHERE customer_id=? AND deleted_at IS NULL",
+            (stamp, stamp, record_id),
+        )
         return {"deleted": True}
 
 
 def get_customer(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
-    row = conn.execute("SELECT * FROM customers WHERE id = ? AND deleted_at IS NULL", (record_id,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM customers WHERE id = ? AND deleted_at IS NULL", (record_id,)
+    ).fetchone()
     if not row:
         raise KeyError("Клиент не найден.")
     return dict(row)
@@ -106,8 +128,20 @@ def get_customer(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
 def create_vehicle(payload: dict[str, Any]) -> dict[str, Any]:
     with write_db() as conn:
         data = validate_vehicle(conn, payload)
-        ensure_unique_active_value(conn, "vehicles", "vin", data["vin"], "Автомобиль с таким VIN уже есть в базе.")
-        ensure_unique_active_value(conn, "vehicles", "plate", data["plate"], "Автомобиль с таким госномером уже есть в базе.")
+        ensure_unique_active_value(
+            conn,
+            "vehicles",
+            "vin",
+            data["vin"],
+            "Автомобиль с таким VIN уже есть в базе.",
+        )
+        ensure_unique_active_value(
+            conn,
+            "vehicles",
+            "plate",
+            data["plate"],
+            "Автомобиль с таким госномером уже есть в базе.",
+        )
         stamp = now_iso()
         cur = conn.execute(
             """
@@ -130,17 +164,35 @@ def update_vehicle(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         if not old:
             raise KeyError("Автомобиль не найден.")
         data = validate_vehicle(conn, payload)
-        ensure_unique_active_value(conn, "vehicles", "vin", data["vin"], "Автомобиль с таким VIN уже есть в базе.", record_id)
-        ensure_unique_active_value(conn, "vehicles", "plate", data["plate"], "Автомобиль с таким госномером уже есть в базе.", record_id)
+        ensure_unique_active_value(
+            conn,
+            "vehicles",
+            "vin",
+            data["vin"],
+            "Автомобиль с таким VIN уже есть в базе.",
+            record_id,
+        )
+        ensure_unique_active_value(
+            conn,
+            "vehicles",
+            "plate",
+            data["plate"],
+            "Автомобиль с таким госномером уже есть в базе.",
+            record_id,
+        )
         if int(old["customer_id"]) != int(data["customer_id"]):
             orders_count = conn.execute(
                 "SELECT COUNT(*) FROM orders WHERE vehicle_id = ? AND deleted_at IS NULL",
                 (record_id,),
             ).fetchone()[0]
             if orders_count:
-                raise ValueError("Нельзя сменить клиента у автомобиля с заказ-нарядами.")
+                raise ValueError(
+                    "Нельзя сменить клиента у автомобиля с заказ-нарядами."
+                )
             if active_appointment_count_for_vehicle(conn, record_id):
-                raise ValueError("Нельзя сменить клиента у автомобиля с активными записями в календаре.")
+                raise ValueError(
+                    "Нельзя сменить клиента у автомобиля с активными записями в календаре."
+                )
         # Любое сохранение карточки автомобиля считается явным ручным подтверждением
         # видимого пробега.  Это защищает baseline от отката к старому значению,
         # если текущий пробег пришёл из заказ-наряда и этот заказ позже удалят или
@@ -175,12 +227,19 @@ def delete_vehicle(record_id: int) -> dict[str, Any]:
             (record_id,),
         ).fetchone()[0]
         if orders_count:
-            raise ValueError("По автомобилю есть заказ-наряды. Сначала удалите или измените связанные заказы.")
+            raise ValueError(
+                "По автомобилю есть заказ-наряды. Сначала удалите или измените связанные заказы."
+            )
         appointments_count = active_appointment_count_for_vehicle(conn, record_id)
         if appointments_count:
-            raise ValueError("По автомобилю есть активные записи в календаре. Завершите или отмените их перед удалением автомобиля.")
+            raise ValueError(
+                "По автомобилю есть активные записи в календаре. Завершите или отмените их перед удалением автомобиля."
+            )
         stamp = now_iso()
-        conn.execute("UPDATE vehicles SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL", (stamp, stamp, record_id))
+        conn.execute(
+            "UPDATE vehicles SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL",
+            (stamp, stamp, record_id),
+        )
         return {"deleted": True}
 
 
@@ -203,7 +262,9 @@ def create_appointment(payload: dict[str, Any]) -> dict[str, Any]:
     with write_db() as conn:
         data = validate_appointment(conn, payload)
         if data["status"] in APPOINTMENT_ACTIVE_STATUSES:
-            ensure_no_appointment_conflict(conn, data["scheduled_at"], data["duration_minutes"])
+            ensure_no_appointment_conflict(
+                conn, data["scheduled_at"], data["duration_minutes"]
+            )
         stamp = now_iso()
         cur = conn.execute(
             """
@@ -223,7 +284,12 @@ def update_appointment(record_id: int, payload: dict[str, Any]) -> dict[str, Any
             raise KeyError("Запись не найдена.")
         data = validate_appointment(conn, payload)
         if data["status"] in APPOINTMENT_ACTIVE_STATUSES:
-            ensure_no_appointment_conflict(conn, data["scheduled_at"], data["duration_minutes"], record_id=record_id)
+            ensure_no_appointment_conflict(
+                conn,
+                data["scheduled_at"],
+                data["duration_minutes"],
+                record_id=record_id,
+            )
         conn.execute(
             """
             UPDATE appointments
@@ -242,7 +308,10 @@ def delete_appointment(record_id: int) -> dict[str, Any]:
         if not active_exists(conn, "appointments", record_id):
             raise KeyError("Запись не найдена.")
         stamp = now_iso()
-        conn.execute("UPDATE appointments SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL", (stamp, stamp, record_id))
+        conn.execute(
+            "UPDATE appointments SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL",
+            (stamp, stamp, record_id),
+        )
         return {"deleted": True}
 
 
@@ -271,7 +340,13 @@ def create_inventory(payload: dict[str, Any]) -> dict[str, Any]:
     data = validate_inventory(payload)
     stamp = now_iso()
     with write_db() as conn:
-        ensure_unique_active_value(conn, "inventory", "sku", data["sku"], "Складская позиция с таким артикулом уже есть в базе.")
+        ensure_unique_active_value(
+            conn,
+            "inventory",
+            "sku",
+            data["sku"],
+            "Складская позиция с таким артикулом уже есть в базе.",
+        )
         cur = conn.execute(
             """
             INSERT INTO inventory(sku, name, brand, unit, quantity, min_quantity, price, cost, supplier, notes, created_at, updated_at)
@@ -286,7 +361,14 @@ def update_inventory(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
     data = validate_inventory(payload)
     with write_db() as conn:
         current = get_inventory(conn, record_id)
-        ensure_unique_active_value(conn, "inventory", "sku", data["sku"], "Складская позиция с таким артикулом уже есть в базе.", record_id)
+        ensure_unique_active_value(
+            conn,
+            "inventory",
+            "sku",
+            data["sku"],
+            "Складская позиция с таким артикулом уже есть в базе.",
+            record_id,
+        )
         has_closed_history = conn.execute(
             """
             SELECT 1
@@ -300,7 +382,11 @@ def update_inventory(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
             """,
             (record_id,),
         ).fetchone()
-        if has_closed_history and abs(parse_float(data["quantity"]) - parse_float(current["quantity"])) > 0.000001:
+        if (
+            has_closed_history
+            and abs(parse_float(data["quantity"]) - parse_float(current["quantity"]))
+            > 0.000001
+        ):
             raise ValueError(
                 "Остаток позиции участвует в закрытых заказах. Создайте отдельную складскую корректировку или отмените связанный закрытый заказ без изменения его позиций."
             )
@@ -337,12 +423,17 @@ def delete_inventory(record_id: int) -> dict[str, Any]:
                 "Позиция используется в активных или закрытых заказ-нарядах. Сначала удалите или измените активные заказы либо явно отмените закрытые."
             )
         stamp = now_iso()
-        conn.execute("UPDATE inventory SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL", (stamp, stamp, record_id))
+        conn.execute(
+            "UPDATE inventory SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL",
+            (stamp, stamp, record_id),
+        )
         return {"deleted": True}
 
 
 def get_inventory(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
-    row = conn.execute("SELECT * FROM inventory WHERE id = ? AND deleted_at IS NULL", (record_id,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM inventory WHERE id = ? AND deleted_at IS NULL", (record_id,)
+    ).fetchone()
     if not row:
         raise KeyError("Складская позиция не найдена.")
     return dict(row)
@@ -354,7 +445,9 @@ def create_order(payload: dict[str, Any]) -> dict[str, Any]:
         return _query_get_order(conn, order_id)
 
 
-def sync_vehicle_mileage_from_order(conn: sqlite3.Connection, vehicle_id: int | None, order_id: int, odometer: int) -> None:
+def sync_vehicle_mileage_from_order(
+    conn: sqlite3.Connection, vehicle_id: int | None, order_id: int, odometer: int
+) -> None:
     """Raise the vehicle card mileage when an order contains a newer reading."""
     if not vehicle_id or not order_id or odometer <= 0:
         return
@@ -418,7 +511,11 @@ def reconcile_vehicle_mileage_after_order_change(
     target_odometer = max(manual_odometer, max_order_odometer)
     if target_odometer >= previous_odometer:
         return
-    max_order_id = int(max_order["id"]) if max_order and max_order_odometer >= manual_odometer else None
+    max_order_id = (
+        int(max_order["id"])
+        if max_order and max_order_odometer >= manual_odometer
+        else None
+    )
     stamp = now_iso()
     conn.execute(
         """
@@ -435,7 +532,11 @@ def create_order_tx(conn: sqlite3.Connection, payload: dict[str, Any]) -> int:
     stamp = now_iso()
     number = generate_order_number(conn)
     if data["status"] == "closed" and not data["follow_up_at"]:
-        data["follow_up_at"] = (datetime.now() + timedelta(days=1)).replace(microsecond=0).isoformat(timespec="minutes")
+        data["follow_up_at"] = (
+            (datetime.now() + timedelta(days=1))
+            .replace(microsecond=0)
+            .isoformat(timespec="minutes")
+        )
     apply_inventory_delta(conn, "", data["status"], [], data["items"])
     cur = conn.execute(
         """
@@ -457,13 +558,17 @@ def create_order_tx(conn: sqlite3.Connection, payload: dict[str, Any]) -> int:
     order_id = int(cur.lastrowid)
     insert_order_items(conn, order_id, data["items"])
     if data["status"] != "cancelled":
-        sync_vehicle_mileage_from_order(conn, data["vehicle_id"], order_id, data["odometer"])
+        sync_vehicle_mileage_from_order(
+            conn, data["vehicle_id"], order_id, data["odometer"]
+        )
     return order_id
 
 
 def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
     with write_db() as conn:
-        old = conn.execute("SELECT * FROM orders WHERE id=? AND deleted_at IS NULL", (record_id,)).fetchone()
+        old = conn.execute(
+            "SELECT * FROM orders WHERE id=? AND deleted_at IS NULL", (record_id,)
+        ).fetchone()
         if not old:
             raise KeyError("Заказ-наряд не найден.")
         old_items = list_order_items(conn, record_id)
@@ -475,27 +580,59 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
             and str(old["closed_at"] or "")
             and str(old["status"]) in {"closed", "cancelled"}
         }
-        data = validate_order(conn, payload, allow_deleted_inventory_ids=old_deleted_inventory_ids)
         old_status = str(old["status"])
+        old_deleted_vehicle_id = (
+            int(old["vehicle_id"] or 0) if old["vehicle_id"] else None
+        )
+        if old_deleted_vehicle_id:
+            old_vehicle = conn.execute(
+                "SELECT deleted_at FROM vehicles WHERE id = ?",
+                (old_deleted_vehicle_id,),
+            ).fetchone()
+            if (
+                not old_vehicle
+                or not old_vehicle["deleted_at"]
+                or not (old_status == "closed" or str(old["closed_at"] or ""))
+            ):
+                old_deleted_vehicle_id = None
+        data = validate_order(
+            conn,
+            payload,
+            allow_deleted_inventory_ids=old_deleted_inventory_ids,
+            allow_deleted_vehicle_id=old_deleted_vehicle_id,
+        )
         new_status = data["status"]
-        closed_at = compute_closed_at(old_status, str(old["closed_at"] or ""), new_status)
+        ensure_order_status_transition(old_status, new_status)
+        closed_at = compute_closed_at(
+            old_status, str(old["closed_at"] or ""), new_status
+        )
         if data["status"] == "closed" and not data["follow_up_at"]:
-            data["follow_up_at"] = str(old["follow_up_at"] or "") or (datetime.now() + timedelta(days=1)).replace(microsecond=0).isoformat(timespec="minutes")
+            data["follow_up_at"] = str(old["follow_up_at"] or "") or (
+                datetime.now() + timedelta(days=1)
+            ).replace(microsecond=0).isoformat(timespec="minutes")
         if old_status == "closed":
             ensure_closed_order_not_changed(old, old_items, data)
         elif str(old["closed_at"] or "") and old_status == "cancelled":
             # Отмененный после закрытия заказ-наряд: финансы заморожены,
             # разрешаем только noop-сохранение в статусе cancelled.
             if new_status != "cancelled":
-                raise ValueError("Отмененный после закрытия заказ-наряд нельзя повторно открыть или изменить. Создайте новый корректирующий заказ.")
+                raise ValueError(
+                    "Отмененный после закрытия заказ-наряд нельзя повторно открыть или изменить. Создайте новый корректирующий заказ."
+                )
             # Для проверки noop нормализуем обе стороны: статус уже 'cancelled' → 'cancelled',
             # а ensure_closed_order_not_changed ожидает старую запись в 'closed' и
             # маппит новую 'cancelled' в 'closed'. Нам нужно, чтобы обе стороны сравнивались
             # одинаково, поэтому сравниваем содержимое без поля status напрямую.
-            old_payload_signature = closed_order_signature(dict(old) | {"status": "cancelled"}, old_items)
-            new_payload_signature = closed_order_signature({**data, "status": "cancelled"}, data["items"])
+            old_payload_signature = closed_order_signature(
+                dict(old) | {"status": "cancelled"}, old_items
+            )
+            new_payload_signature = closed_order_signature(
+                {**data, "status": "cancelled"}, data["items"]
+            )
             if old_payload_signature != new_payload_signature:
-                raise ValueError("Отмененный после закрытия заказ-наряд нельзя повторно открыть или изменить. Создайте новый корректирующий заказ.")
+                raise ValueError(
+                    "Отмененный после закрытия заказ-наряд нельзя повторно открыть или изменить. Создайте новый корректирующий заказ."
+                )
         apply_inventory_delta(conn, old_status, new_status, old_items, data["items"])
         conn.execute(
             """
@@ -516,12 +653,20 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
             },
         )
         conn.execute("DELETE FROM order_items WHERE order_id=?", (record_id,))
-        preserved_item_stamps = {closed_item_signature(item): str(item.get("created_at") or "") for item in old_items if item.get("created_at")}
-        insert_order_items(conn, record_id, data["items"], preserved_timestamps=preserved_item_stamps)
+        preserved_item_stamps = {
+            closed_item_signature(item): str(item.get("created_at") or "")
+            for item in old_items
+            if item.get("created_at")
+        }
+        insert_order_items(
+            conn, record_id, data["items"], preserved_timestamps=preserved_item_stamps
+        )
         old_vehicle_id = int(old["vehicle_id"] or 0) or None
         old_odometer = parse_int(old["odometer"])
         if data["status"] != "cancelled":
-            sync_vehicle_mileage_from_order(conn, data["vehicle_id"], record_id, data["odometer"])
+            sync_vehicle_mileage_from_order(
+                conn, data["vehicle_id"], record_id, data["odometer"]
+            )
         reconcile_vehicle_mileage_after_order_change(
             conn,
             old_vehicle_id,
@@ -529,6 +674,22 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
             previous_odometer=old_odometer,
         )
         return _query_get_order(conn, record_id)
+
+
+def ensure_order_status_transition(old_status: str, new_status: str) -> None:
+    if old_status == new_status or old_status == "closed":
+        # Closed orders have stricter financial/stock checks in
+        # ensure_closed_order_not_changed(), including the user-facing message
+        # for forbidden reopen attempts.
+        return
+    allowed = ORDER_STATUS_TRANSITIONS.get(old_status, set())
+    if new_status in allowed:
+        return
+    if old_status == "cancelled":
+        raise ValueError(
+            "Отмененный заказ-наряд нельзя повторно открыть. Создайте новый заказ."
+        )
+    raise ValueError("Некорректный переход статуса заказ-наряда.")
 
 
 def compute_closed_at(old_status: str, old_closed_at: str, new_status: str) -> str:
@@ -543,7 +704,9 @@ def compute_closed_at(old_status: str, old_closed_at: str, new_status: str) -> s
 
 def delete_order(record_id: int) -> dict[str, Any]:
     with write_db() as conn:
-        old = conn.execute("SELECT * FROM orders WHERE id=? AND deleted_at IS NULL", (record_id,)).fetchone()
+        old = conn.execute(
+            "SELECT * FROM orders WHERE id=? AND deleted_at IS NULL", (record_id,)
+        ).fetchone()
         if not old:
             raise KeyError("Заказ-наряд не найден.")
         if str(old["status"]) in CONSUMING_STATUSES:
@@ -554,7 +717,10 @@ def delete_order(record_id: int) -> dict[str, Any]:
         old_items = list_order_items(conn, record_id)
         apply_inventory_delta(conn, str(old["status"]), "", old_items, [])
         stamp = now_iso()
-        conn.execute("UPDATE orders SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL", (stamp, stamp, record_id))
+        conn.execute(
+            "UPDATE orders SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL",
+            (stamp, stamp, record_id),
+        )
         reconcile_vehicle_mileage_after_order_change(
             conn,
             int(old["vehicle_id"] or 0) or None,
@@ -604,7 +770,11 @@ def list_order_items(conn: sqlite3.Connection, order_id: int) -> list[dict[str, 
 def part_quantities(items: list[dict[str, Any]]) -> dict[int, float]:
     result: dict[int, float] = defaultdict(float)
     for item in items:
-        if item.get("kind") == "part" and item.get("inventory_id") and item_is_billable(item):
+        if (
+            item.get("kind") == "part"
+            and item.get("inventory_id")
+            and item_is_billable(item)
+        ):
             result[int(item["inventory_id"])] += parse_float(item.get("quantity"))
     return dict(result)
 
@@ -622,7 +792,9 @@ def closed_item_signature(item: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
-def closed_order_signature(order: dict[str, Any] | sqlite3.Row, items: list[dict[str, Any]]) -> tuple[Any, ...]:
+def closed_order_signature(
+    order: dict[str, Any] | sqlite3.Row, items: list[dict[str, Any]]
+) -> tuple[Any, ...]:
     return (
         str(order["status"]),
         int(order["customer_id"]),
@@ -645,18 +817,33 @@ def closed_order_signature(order: dict[str, Any] | sqlite3.Row, items: list[dict
     )
 
 
-def ensure_closed_order_not_changed(old: sqlite3.Row, old_items: list[dict[str, Any]], data: dict[str, Any]) -> None:
-    if int(old["customer_id"]) != data["customer_id"] or (old["vehicle_id"] or None) != data["vehicle_id"]:
-        raise ValueError("Закрытый заказ нельзя перепривязать к другому клиенту или автомобилю.")
+def ensure_closed_order_not_changed(
+    old: sqlite3.Row, old_items: list[dict[str, Any]], data: dict[str, Any]
+) -> None:
+    if (
+        int(old["customer_id"]) != data["customer_id"]
+        or (old["vehicle_id"] or None) != data["vehicle_id"]
+    ):
+        raise ValueError(
+            "Закрытый заказ нельзя перепривязать к другому клиенту или автомобилю."
+        )
     if data["status"] not in {"closed", "cancelled"}:
-        raise ValueError("Закрытый заказ можно только оставить закрытым или отменить без изменения финансовых данных.")
+        raise ValueError(
+            "Закрытый заказ можно только оставить закрытым или отменить без изменения финансовых данных."
+        )
     comparable_data = {k: v for k, v in data.items() if k != "items"}
     if data["status"] == "cancelled":
         comparable_data["status"] = "closed"
-    if closed_order_signature(old, old_items) != closed_order_signature(comparable_data, data["items"]):
+    if closed_order_signature(old, old_items) != closed_order_signature(
+        comparable_data, data["items"]
+    ):
         if data["status"] == "cancelled":
-            raise ValueError("При отмене закрытого заказа нельзя менять финансовые данные и позиции.")
-        raise ValueError("Финансовые данные и позиции закрытого заказа нельзя изменить после закрытия. Создайте отдельный корректирующий заказ.")
+            raise ValueError(
+                "При отмене закрытого заказа нельзя менять финансовые данные и позиции."
+            )
+        raise ValueError(
+            "Финансовые данные и позиции закрытого заказа нельзя изменить после закрытия. Создайте отдельный корректирующий заказ."
+        )
 
 
 def apply_inventory_delta(
@@ -666,25 +853,36 @@ def apply_inventory_delta(
     old_items: list[dict[str, Any]],
     new_items: list[dict[str, Any]],
 ) -> None:
-    old_consumed = part_quantities(old_items) if old_status in CONSUMING_STATUSES else {}
-    new_consumed = part_quantities(new_items) if new_status in CONSUMING_STATUSES else {}
+    old_consumed = (
+        part_quantities(old_items) if old_status in CONSUMING_STATUSES else {}
+    )
+    new_consumed = (
+        part_quantities(new_items) if new_status in CONSUMING_STATUSES else {}
+    )
     all_part_ids = sorted(set(old_consumed) | set(new_consumed))
     for part_id in all_part_ids:
         delta = new_consumed.get(part_id, 0.0) - old_consumed.get(part_id, 0.0)
         if abs(delta) < 0.000001:
             continue
-        part = conn.execute("SELECT id, name, quantity, deleted_at FROM inventory WHERE id=?", (part_id,)).fetchone()
+        part = conn.execute(
+            "SELECT id, name, quantity, deleted_at FROM inventory WHERE id=?",
+            (part_id,),
+        ).fetchone()
         if not part:
             raise ValueError("Складская позиция для списания не найдена.")
         if part["deleted_at"]:
             if delta > 0:
-                raise ValueError(f"Складская позиция недоступна для списания: {part['name']}.")
+                raise ValueError(
+                    f"Складская позиция недоступна для списания: {part['name']}."
+                )
             raise ValueError(
                 f"Восстановите позицию склада «{part['name']}» перед возвратом остатков отмененного заказа."
             )
         current_qty = parse_float(part["quantity"])
         if delta > 0 and current_qty + 0.000001 < delta:
-            raise ValueError(f"Недостаточно на складе: {part['name']}. Доступно {current_qty:g}, требуется {delta:g}.")
+            raise ValueError(
+                f"Недостаточно на складе: {part['name']}. Доступно {current_qty:g}, требуется {delta:g}."
+            )
         conn.execute(
             "UPDATE inventory SET quantity = quantity - ?, updated_at = ? WHERE id = ?",
             (delta, now_iso(), part_id),
