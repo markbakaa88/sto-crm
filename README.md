@@ -42,7 +42,7 @@ setx STO_CRM_UPDATE_REPOSITORY "owner/repo"
 
 - клиенты, автомобили, склад и заказ-наряды;
 - календарь записи клиентов: дата/время, длительность, статус визита, мастер-приемщик, причина и CSV-экспорт;
-- встроенный автономный справочник на 265 производителей и 2588 моделей автомобилей в карточке авто;
+- встроенный автономный справочник на 629 производителей и 7035 моделей автомобилей в карточке авто;
 - отдельный раздел `Каталог авто`, API `/api/catalog` и CSV-экспорт полного списка производителей и моделей;
 - статусы ремонта, приоритеты, мастер-приемщик, механик, сроки;
 - работы, складские и вне-складские/заказные запчасти в заказ-наряде с расчетом итогов, скидки, оплаты и долга;
@@ -106,13 +106,16 @@ python -m PyInstaller --clean .\STO_CRM.spec
 
 ## Проверка
 
+Coverage настроен на исходный пакет `sto_crm`, поэтому порог не завышается покрытием самих тестов. Текущий честный baseline для source-only покрытия — 80%; повышайте его вместе с добавлением тестов для CLI/update/HTTP/seed.
+
 ```powershell
 python -m compileall -q .\sto_crm.py .\sto_crm .\tests
 python -m unittest discover -v
-python -m coverage run -m pytest -q
-python -m coverage report --fail-under=85
+python -m coverage run --source=sto_crm -m pytest -q
+python -m coverage report --fail-under=80
 python .\tests\check_frontend_contracts.py
 node --check .\sto_crm\assets\app.js
+python -m ruff check .
 ```
 
 Дополнительные инструменты разработки устанавливаются отдельно:

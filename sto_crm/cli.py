@@ -21,6 +21,7 @@ from .database import init_db
 from .http_server import CRMHandler, CRMServer, CRMServerV6
 from .runtime import (
     Runtime,
+    app_dir,
     clean_text,
     default_db_path,
     display_path,
@@ -87,7 +88,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--port", type=int, default=DEFAULT_PORT, help="порт локального сервера"
     )
-    parser.add_argument("--db", type=Path, default=None, help="путь к SQLite базе")
+    parser.add_argument("--db", default=None, help="путь к SQLite базе")
     parser.add_argument(
         "--no-browser", action="store_true", help="не открывать браузер автоматически"
     )
@@ -105,12 +106,23 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         args.host = normalize_bind_host(args.host)
     except ValueError as exc:
         parser.error(str(exc))
+    if args.db is not None:
+        args.db = normalize_db_path(args.db)
     return args
+
+
+def normalize_db_path(path: str | Path) -> Path:
+    raw = str(path)
+    resolved = Path(raw).expanduser().resolve()
+    app_root = app_dir().resolve()
+    if resolved == app_root or resolved.is_dir() or raw.endswith(("/", "\\")):
+        return resolved / "sto_crm.sqlite3"
+    return resolved
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
-    db_path = args.db.resolve() if args.db else default_db_path()
+    db_path = args.db if args.db else default_db_path()
     _runtime.RUNTIME = Runtime(
         db_path=db_path, start_time=time.time(), csrf_token=secrets.token_urlsafe(32)
     )

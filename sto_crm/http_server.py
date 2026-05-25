@@ -21,6 +21,7 @@ from .config import (
     APP_VERSION,
     INTERNAL_ERROR_MESSAGE,
     MAX_BODY_BYTES,
+    REQUEST_READ_TIMEOUT_SECONDS,
     UPDATE_STATUS_CACHE_SECONDS,
 )
 from .database import db
@@ -54,7 +55,15 @@ _UPDATE_STATUS_LOCK = threading.Lock()
 
 class CRMHandler(BaseHTTPRequestHandler):
     server_version = f"STO-CRM/{APP_VERSION}"
+    sys_version = ""
     protocol_version = "HTTP/1.1"
+
+    def setup(self) -> None:
+        super().setup()
+        self.connection.settimeout(REQUEST_READ_TIMEOUT_SECONDS)
+
+    def version_string(self) -> str:
+        return self.server_version
 
     def log_message(self, fmt: str, *args: Any) -> None:
         safe_log(
@@ -83,10 +92,28 @@ class CRMHandler(BaseHTTPRequestHandler):
                 b"",
                 "text/plain; charset=utf-8",
                 status=204,
-                headers={"Allow": "GET, POST, PUT, DELETE, OPTIONS"},
+                headers={"Allow": "GET, HEAD, POST, PUT, DELETE, OPTIONS"},
             )
         except PermissionError as exc:
             self.close_connection = True
+            self.send_error_json(403, str(exc))
+        finally:
+            self.discard_untrusted_request_body()
+
+    def do_PATCH(self) -> None:
+        self.reject_unsupported_method()
+
+    def do_TRACE(self) -> None:
+        self.reject_unsupported_method()
+
+    def do_CONNECT(self) -> None:
+        self.reject_unsupported_method()
+
+    def reject_unsupported_method(self) -> None:
+        try:
+            self.validate_local_request_context()
+            self.send_error_json(405, "Метод не поддерживается.")
+        except PermissionError as exc:
             self.send_error_json(403, str(exc))
         finally:
             self.discard_untrusted_request_body()
@@ -101,6 +128,7 @@ class CRMHandler(BaseHTTPRequestHandler):
             trusted_request = True
 
             if method == "HEAD" and path in {"/", "/app"}:
+                self.validate_local_request_context()
                 self.send_html(INDEX_HTML, write_body=False)
                 return
             if method == "HEAD" and path == "/api/health":
@@ -116,9 +144,11 @@ class CRMHandler(BaseHTTPRequestHandler):
                 return
 
             if method == "GET" and path in {"/", "/app"}:
+                self.validate_local_request_context()
                 self.send_html(INDEX_HTML)
                 return
             if method in {"GET", "HEAD"} and path in {"/favicon.ico", "/favicon.svg"}:
+                self.validate_local_request_context()
                 self.send_bytes(
                     FAVICON_SVG.encode("utf-8"),
                     "image/svg+xml; charset=utf-8",
@@ -270,6 +300,13 @@ class CRMHandler(BaseHTTPRequestHandler):
             self.send_error_json(500, str(exc) or INTERNAL_ERROR_MESSAGE)
         except BrokenPipeError:
             return
+        except TimeoutError:
+            self.close_connection = True
+            self.send_error_json(408, "Тело запроса не получено вовремя.")
+        except OSError:
+            if getattr(sys, "stderr", None):
+                traceback.print_exc()
+            self.send_error_json(500, INTERNAL_ERROR_MESSAGE)
         except Exception:
             if getattr(sys, "stderr", None):
                 traceback.print_exc()
@@ -320,6 +357,7 @@ class CRMHandler(BaseHTTPRequestHandler):
             return
         self.validate_local_request_context()
         if method in {"POST", "PUT"}:
+            self.reject_ambiguous_body_framing()
             raw_length = self.headers.get("Content-Length")
             try:
                 length = int(raw_length or "0")
@@ -334,6 +372,14 @@ class CRMHandler(BaseHTTPRequestHandler):
         self.require_csrf_token()
         if method in {"POST", "PUT"}:
             self.require_json_content_type()
+
+    def reject_ambiguous_body_framing(self) -> None:
+        transfer_encoding = self.headers.get("Transfer-Encoding")
+        if transfer_encoding:
+            raise ValueError("Transfer-Encoding не поддерживается.")
+        content_lengths = self.headers.get_all("Content-Length", [])
+        if len({value.strip() for value in content_lengths}) > 1:
+            raise ValueError("Некорректная длина запроса.")
 
     def validate_local_request_context(self) -> None:
         if not self.is_allowed_host_header(self.headers.get("Host")):
@@ -434,7 +480,24 @@ class CRMHandler(BaseHTTPRequestHandler):
             raise ValueError("Некорректный JSON.") from exc
         if not isinstance(data, dict):
             raise ValueError("Ожидался JSON-объект.")
+        self.ensure_json_is_utf8_encodable(data)
         return data
+
+    def ensure_json_is_utf8_encodable(self, value: Any) -> None:
+        if isinstance(value, str):
+            try:
+                value.encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise ValueError("Некорректные символы в JSON.") from exc
+            return
+        if isinstance(value, dict):
+            for key, item in value.items():
+                self.ensure_json_is_utf8_encodable(key)
+                self.ensure_json_is_utf8_encodable(item)
+            return
+        if isinstance(value, list):
+            for item in value:
+                self.ensure_json_is_utf8_encodable(item)
 
     def send_json(
         self, payload: Any, status: int = 200, *, write_body: bool = True
@@ -460,6 +523,7 @@ class CRMHandler(BaseHTTPRequestHandler):
             status=status,
             write_body=write_body,
             script_nonce=nonce,
+            style_nonce=nonce,
         )
 
     def send_error_json(self, status: int, message: str) -> None:
@@ -477,6 +541,7 @@ class CRMHandler(BaseHTTPRequestHandler):
         headers: dict[str, str] | None = None,
         write_body: bool = True,
         script_nonce: str = "",
+        style_nonce: str = "",
     ) -> None:
         self.close_connection = True
         self.send_response(status)
@@ -496,9 +561,14 @@ class CRMHandler(BaseHTTPRequestHandler):
             if script_nonce
             else "script-src 'self'"
         )
+        style_src = (
+            f"style-src 'self' 'nonce-{style_nonce}'"
+            if style_nonce
+            else "style-src 'self'"
+        )
         self.send_header(
             "Content-Security-Policy",
-            "default-src 'self'; style-src 'self' 'unsafe-inline'; "
+            f"default-src 'self'; {style_src}; "
             f"{script_src}; "
             "connect-src 'self'; "
             "img-src 'self' data:; object-src 'none'; base-uri 'none'; "

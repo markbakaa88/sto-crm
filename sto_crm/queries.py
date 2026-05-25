@@ -174,8 +174,10 @@ def list_orders(
         if q:
             where += """
                 AND (CASEFOLD(o.number) LIKE ? ESCAPE '\\' OR CASEFOLD(c.name) LIKE ? ESCAPE '\\' OR CASEFOLD(c.phone) LIKE ? ESCAPE '\\'
-                     OR CASEFOLD(c.email) LIKE ? ESCAPE '\\' OR CASEFOLD(v.plate) LIKE ? ESCAPE '\\' OR CASEFOLD(v.vin) LIKE ? ESCAPE '\\'
-                     OR CASEFOLD(v.make) LIKE ? ESCAPE '\\' OR CASEFOLD(v.model) LIKE ? ESCAPE '\\' OR CASEFOLD(o.complaint) LIKE ? ESCAPE '\\')
+                     OR CASEFOLD(c.email) LIKE ? ESCAPE '\\'
+                     OR (v.deleted_at IS NULL AND (CASEFOLD(v.plate) LIKE ? ESCAPE '\\' OR CASEFOLD(v.vin) LIKE ? ESCAPE '\\'
+                         OR CASEFOLD(v.make) LIKE ? ESCAPE '\\' OR CASEFOLD(v.model) LIKE ? ESCAPE '\\'))
+                     OR CASEFOLD(o.complaint) LIKE ? ESCAPE '\\')
             """
             needle = search_needle(q)
             params.extend(

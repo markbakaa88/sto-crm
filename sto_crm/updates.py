@@ -27,6 +27,8 @@ from .config import (
     GITHUB_UPDATE_MAX_JSON_BYTES,
     GITHUB_UPDATE_TIMEOUT,
     MANIFEST_ASSET_RE,
+    MAX_BACKUP_FILES,
+    MAX_BACKUP_TOTAL_BYTES,
     SHA256_RE,
     TRUSTED_UPDATE_DOWNLOAD_HOSTS,
 )
@@ -36,6 +38,8 @@ from .runtime import (
     clean_multiline,
     clean_text,
     display_path,
+    ensure_private_dir,
+    ensure_private_file,
     github_latest_release_api_url,
     github_latest_release_url,
     github_repository_url,
@@ -48,27 +52,63 @@ from .runtime import (
 )
 
 
+def prune_backups(backup_dir: Path, keep_path: Path | None = None) -> None:
+    """Keep automatic SQLite backups bounded so manual backup spam cannot fill the disk."""
+    if MAX_BACKUP_FILES <= 0 and MAX_BACKUP_TOTAL_BYTES <= 0:
+        return
+    keep_resolved = None
+    if keep_path is not None:
+        with contextlib.suppress(OSError):
+            keep_resolved = keep_path.resolve()
+    backups: list[tuple[float, int, Path, bool]] = []
+    for path in backup_dir.glob("sto_crm_backup_*.sqlite3"):
+        try:
+            stat = path.stat()
+            resolved = path.resolve()
+        except OSError:
+            continue
+        if path.is_file():
+            backups.append(
+                (stat.st_mtime, stat.st_size, path, resolved == keep_resolved)
+            )
+    backups.sort(key=lambda row: (row[3], row[0]), reverse=True)
+
+    total = 0
+    for index, (_mtime, size, path, is_keep_path) in enumerate(backups):
+        total += size
+        too_many = MAX_BACKUP_FILES > 0 and index >= MAX_BACKUP_FILES
+        too_large = MAX_BACKUP_TOTAL_BYTES > 0 and total > MAX_BACKUP_TOTAL_BYTES
+        if not is_keep_path and (too_many or too_large):
+            with contextlib.suppress(OSError):
+                path.unlink(missing_ok=True)
+
+
 def create_backup() -> dict[str, Any]:
     backup_dir = _runtime.RUNTIME.db_path.parent / "backups"
-    backup_dir.mkdir(parents=True, exist_ok=True)
     target = (
         backup_dir
         / f"sto_crm_backup_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.sqlite3"
     )
     try:
+        ensure_private_dir(backup_dir)
         with (
             closing(connect()) as source,
             closing(sqlite3.connect(target, timeout=30)) as destination,
         ):
             destination.execute("PRAGMA busy_timeout = 30000")
             source.backup(destination)
-    except sqlite3.Error as exc:
+        ensure_private_file(target)
+        size = target.stat().st_size
+        prune_backups(backup_dir, keep_path=target)
+    except (OSError, sqlite3.Error) as exc:
+        with contextlib.suppress(OSError):
+            target.unlink(missing_ok=True)
         raise RuntimeError(f"Не удалось создать резервную копию базы: {exc}") from exc
     return {
         "path": str(target),
         "display_path": display_path(target),
         "filename": target.name,
-        "size": target.stat().st_size,
+        "size": size,
     }
 
 
@@ -184,6 +224,10 @@ def validate_manifest_asset_download_url(url: str, repository: str, tag: str) ->
             raise RuntimeError(
                 "Manifest обновления указывает файл вне ожидаемого GitHub Release."
             )
+        if not EXE_ASSET_RE.search(Path(urllib.parse.unquote(parsed.path)).name):
+            raise RuntimeError(
+                "Manifest обновления должен указывать файл STO_CRM.exe из ожидаемого GitHub Release."
+            )
         return cleaned
     raise RuntimeError(
         "Manifest обновления должен указывать файл .exe из ожидаемого GitHub Release."
@@ -294,6 +338,8 @@ def normalize_release_asset(
         asset.get("name") or (manifest_asset or {}).get("name") or "STO_CRM.exe", 180
     )
     size = parse_int(asset.get("size") or (manifest_asset or {}).get("size"))
+    if size < 0:
+        raise RuntimeError("Manifest обновления содержит некорректный размер файла.")
     sha256 = validate_sha256(
         asset.get("sha256") or asset.get("hash") or "", required=require_sha256
     )
@@ -445,6 +491,8 @@ def download_release_asset(asset: dict[str, Any], target: Path) -> dict[str, Any
     url = validate_update_download_url(asset.get("download_url"))
     expected_sha = validate_sha256(asset.get("sha256"), required=True)
     expected_size = parse_int(asset.get("size"))
+    if expected_size < 0:
+        raise RuntimeError("Manifest обновления содержит некорректный размер файла.")
     if expected_size > GITHUB_UPDATE_MAX_ASSET_BYTES:
         raise RuntimeError(
             "Файл обновления слишком большой для безопасной автоматической установки."
@@ -659,7 +707,7 @@ def install_update_from_github() -> dict[str, Any]:
             "release": release,
         }
     asset = release.get("asset")
-    if not asset:
+    if not isinstance(asset, dict):
         raise RuntimeError(
             "В последнем GitHub Release нет файла STO_CRM.exe для обновления."
         )

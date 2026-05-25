@@ -232,8 +232,8 @@ try {
 
     Invoke-Checked $python @("-m", "compileall", "-q", $sourcePath, (Join-Path $ProjectRoot "sto_crm"), (Join-Path $ProjectRoot "tests"))
     Invoke-Checked $python @("-m", "unittest", "discover", "-v")
-    Invoke-Checked $python @("-m", "coverage", "run", "-m", "pytest", "-q")
-    Invoke-Checked $python @("-m", "coverage", "report", "--fail-under=85")
+    Invoke-Checked $python @("-m", "coverage", "run", "--source=sto_crm", "-m", "pytest", "-q")
+    Invoke-Checked $python @("-m", "coverage", "report", "--fail-under=80")
     Invoke-Checked $python @((Join-Path $ProjectRoot "tests\check_frontend_contracts.py"))
     Invoke-Checked $python @("-m", "ruff", "check", ".")
 

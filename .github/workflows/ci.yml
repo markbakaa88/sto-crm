@@ -34,6 +34,11 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-dev.txt
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Install dev dependencies
         run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
 
@@ -47,7 +52,7 @@ jobs:
         run: python -m coverage run -m pytest -q
 
       - name: Report coverage
-        run: python -m coverage report --fail-under=85
+        run: python -m coverage report --fail-under=80
 
       - name: Check frontend contracts
         run: python tests/check_frontend_contracts.py
@@ -78,7 +83,16 @@ jobs:
       - name: Validate release payload files
         shell: pwsh
         run: |
-          $required = @('STO_CRM.exe', 'STO_CRM.exe.sha256', 'latest.json')
-          foreach ($name in $required) {
+          $allowed = @('STO_CRM.exe', 'STO_CRM.exe.sha256', 'latest.json')
+          $unexpected = Get-ChildItem -LiteralPath .\release -File | Where-Object { $allowed -notcontains $_.Name }
+          if ($unexpected) { throw "Unexpected release files: $($unexpected.Name -join ', ')" }
+          foreach ($name in $allowed) {
             if (-not (Test-Path -LiteralPath (Join-Path '.\release' $name))) { throw "Missing release file: $name" }
           }
+          $manifest = Get-Content .\release\latest.json -Raw | ConvertFrom-Json
+          if ($manifest.asset.name -ne 'STO_CRM.exe') { throw 'Manifest asset name is invalid.' }
+          if ([int64]$manifest.asset.size -ne (Get-Item .\release\STO_CRM.exe).Length) { throw 'Manifest asset size does not match STO_CRM.exe.' }
+          if ($manifest.asset.sha256 -notmatch '^[0-9a-f]{64}$') { throw 'Manifest SHA-256 is invalid.' }
+          $hash = (Get-FileHash -Algorithm SHA256 .\release\STO_CRM.exe).Hash.ToLowerInvariant()
+          if ($manifest.asset.sha256 -ne $hash) { throw 'Manifest SHA-256 does not match STO_CRM.exe.' }
+          if ($manifest.asset.download_url -notmatch '^https://github\.com/.+/releases/download/.+/STO_CRM\.exe$') { throw 'Manifest download URL is invalid.' }

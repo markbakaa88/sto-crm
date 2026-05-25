@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import math
 import os
 import re
@@ -45,13 +46,36 @@ def user_data_dir() -> Path:
     return Path.home() / ".local" / "share" / "sto_crm"
 
 
+def ensure_private_dir(directory: Path) -> None:
+    """Create an application data directory without exposing CRM data to other Unix users."""
+    directory.mkdir(parents=True, exist_ok=True)
+    if os.name != "nt":
+        with contextlib.suppress(OSError):
+            directory.chmod(0o700)
+
+
+def ensure_private_file(path: Path) -> None:
+    """Tighten SQLite/backup file permissions on Unix-like systems."""
+    if os.name != "nt" and path.exists():
+        with contextlib.suppress(OSError):
+            path.chmod(0o600)
+
+
 def directory_writable(directory: Path) -> bool:
     try:
         directory.mkdir(parents=True, exist_ok=True)
         probe = directory / f".sto_crm_write_test_{os.getpid()}.tmp"
         probe.write_text("ok", encoding="utf-8")
+        ensure_private_file(probe)
         probe.unlink(missing_ok=True)
         return True
+    except OSError:
+        return False
+
+
+def is_user_data_directory(directory: Path) -> bool:
+    try:
+        return directory.resolve() == user_data_dir().resolve()
     except OSError:
         return False
 
@@ -62,10 +86,11 @@ def default_db_path() -> Path:
     )
     for directory in candidates:
         if directory_writable(directory):
-            directory.mkdir(parents=True, exist_ok=True)
+            if is_user_data_directory(directory):
+                ensure_private_dir(directory)
             return directory / "sto_crm.sqlite3"
     fallback = user_data_dir()
-    fallback.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(fallback)
     return fallback / "sto_crm.sqlite3"
 
 

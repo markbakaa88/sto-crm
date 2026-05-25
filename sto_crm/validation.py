@@ -304,6 +304,17 @@ def normalize_order_money(order_data: dict[str, Any]) -> None:
         ),
         "сумма заказ-наряда",
     )
+    ensure_finite_money(
+        sum(
+            ensure_finite_money(
+                parse_float(item.get("quantity")) * parse_float(item.get("unit_cost")),
+                "себестоимость позиции",
+            )
+            for item in items
+            if item_is_billable(item)
+        ),
+        "себестоимость заказ-наряда",
+    )
     order_data["discount"] = min(parse_float(order_data.get("discount")), subtotal)
     tax_rate = min(parse_float(order_data.get("tax_rate")), 100)
     order_data["tax_rate"] = tax_rate
@@ -465,9 +476,6 @@ def ensure_no_appointment_conflict(
     end = start + timedelta(minutes=duration_minutes)
     if end <= start:
         raise ValueError("Длительность записи должна быть больше нуля.")
-    # Максимальная длительность по валидатору — 480 минут (8 часов). Берём 9 часов
-    # с запасом, чтобы поймать любую существующую запись, которая тянется к моменту start.
-    window_start = (start - timedelta(minutes=540)).isoformat(timespec="minutes")
     window_end = end.isoformat(timespec="minutes")
 
     rows = conn.execute(
@@ -477,11 +485,10 @@ def ensure_no_appointment_conflict(
         JOIN customers c ON c.id = a.customer_id
         WHERE a.deleted_at IS NULL
           AND a.status IN ('scheduled', 'confirmed', 'arrived')
-          AND a.scheduled_at >= ?
           AND a.scheduled_at < ?
           AND (? IS NULL OR a.id <> ?)
         """,
-        (window_start, window_end, record_id, record_id),
+        (window_end, record_id, record_id),
     ).fetchall()
     for row in rows:
         try:

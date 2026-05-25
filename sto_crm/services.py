@@ -110,6 +110,10 @@ def delete_customer(record_id: int) -> dict[str, Any]:
             (stamp, stamp, record_id),
         )
         conn.execute(
+            "UPDATE appointments SET deleted_at=?, updated_at=? WHERE customer_id=? AND deleted_at IS NULL",
+            (stamp, stamp, record_id),
+        )
+        conn.execute(
             "UPDATE vehicles SET deleted_at=?, updated_at=? WHERE customer_id=? AND deleted_at IS NULL",
             (stamp, stamp, record_id),
         )
@@ -193,21 +197,28 @@ def update_vehicle(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError(
                     "Нельзя сменить клиента у автомобиля с активными записями в календаре."
                 )
-        # Любое сохранение карточки автомобиля считается явным ручным подтверждением
-        # видимого пробега.  Это защищает baseline от отката к старому значению,
-        # если текущий пробег пришёл из заказ-наряда и этот заказ позже удалят или
-        # отвяжут от автомобиля.
+        manual_mileage = parse_int(data["mileage"])
+        order_mileage_id, order_mileage = vehicle_order_mileage_source(conn, record_id)
+        visible_mileage = max(manual_mileage, order_mileage)
+        # Значение из формы сохраняем как ручной baseline, но видимый пробег не
+        # опускаем ниже максимального актуального одометра из заказ-нарядов. Это
+        # защищает от stale-save: старая вкладка может сохранить заметку/план ТО
+        # со старым пробегом, но не должна откатывать свежую историю автомобиля.
+        mileage_order_id = order_mileage_id if order_mileage > manual_mileage else None
         conn.execute(
             """
             UPDATE vehicles
             SET customer_id=:customer_id, make=:make, model=:model, year=:year, plate=:plate,
-                vin=:vin, mileage=:mileage, mileage_manual=:mileage,
-                mileage_order_id=NULL, next_service_at=:next_service_at,
+                vin=:vin, mileage=:visible_mileage, mileage_manual=:manual_mileage,
+                mileage_order_id=:mileage_order_id, next_service_at=:next_service_at,
                 next_service_mileage=:next_service_mileage, notes=:notes, updated_at=:updated_at
             WHERE id=:id AND deleted_at IS NULL
             """,
             {
                 **data,
+                "visible_mileage": visible_mileage,
+                "manual_mileage": manual_mileage,
+                "mileage_order_id": mileage_order_id,
                 "updated_at": now_iso(),
                 "id": record_id,
             },
@@ -238,6 +249,10 @@ def delete_vehicle(record_id: int) -> dict[str, Any]:
         stamp = now_iso()
         conn.execute(
             "UPDATE vehicles SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL",
+            (stamp, stamp, record_id),
+        )
+        conn.execute(
+            "UPDATE appointments SET deleted_at=?, updated_at=? WHERE vehicle_id=? AND deleted_at IS NULL",
             (stamp, stamp, record_id),
         )
         return {"deleted": True}
@@ -468,6 +483,30 @@ def sync_vehicle_mileage_from_order(
     )
 
 
+def vehicle_order_mileage_source(
+    conn: sqlite3.Connection, vehicle_id: int | None
+) -> tuple[int | None, int]:
+    """Return the highest active order odometer and its source order id."""
+    if not vehicle_id:
+        return None, 0
+    row = conn.execute(
+        """
+        SELECT id, odometer
+        FROM orders
+        WHERE vehicle_id = ?
+          AND deleted_at IS NULL
+          AND status <> 'cancelled'
+          AND odometer > 0
+        ORDER BY odometer DESC, id DESC
+        LIMIT 1
+        """,
+        (vehicle_id,),
+    ).fetchone()
+    if not row:
+        return None, 0
+    return int(row["id"]), parse_int(row["odometer"])
+
+
 def reconcile_vehicle_mileage_after_order_change(
     conn: sqlite3.Connection,
     vehicle_id: int | None,
@@ -493,29 +532,12 @@ def reconcile_vehicle_mileage_after_order_change(
         or parse_int(row["mileage_order_id"]) != previous_order_id
     ):
         return
-    max_order = conn.execute(
-        """
-        SELECT id, odometer
-        FROM orders
-        WHERE vehicle_id = ?
-          AND deleted_at IS NULL
-          AND status <> 'cancelled'
-          AND odometer > 0
-        ORDER BY odometer DESC, id DESC
-        LIMIT 1
-        """,
-        (vehicle_id,),
-    ).fetchone()
     manual_odometer = parse_int(row["mileage_manual"])
-    max_order_odometer = parse_int(max_order["odometer"] if max_order else 0)
+    max_order_id, max_order_odometer = vehicle_order_mileage_source(conn, vehicle_id)
     target_odometer = max(manual_odometer, max_order_odometer)
     if target_odometer >= previous_odometer:
         return
-    max_order_id = (
-        int(max_order["id"])
-        if max_order and max_order_odometer >= manual_odometer
-        else None
-    )
+    max_order_id = max_order_id if max_order_odometer >= manual_odometer else None
     stamp = now_iso()
     conn.execute(
         """
@@ -633,6 +655,17 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError(
                     "Отмененный после закрытия заказ-наряд нельзя повторно открыть или изменить. Создайте новый корректирующий заказ."
                 )
+        elif old_status == "cancelled":
+            if new_status != "cancelled":
+                raise ValueError(
+                    "Отмененный заказ-наряд нельзя повторно открыть. Создайте новый заказ."
+                )
+            if closed_order_signature(old, old_items) != closed_order_signature(
+                data, data["items"]
+            ):
+                raise ValueError(
+                    "Отмененный заказ-наряд нельзя изменить. Создайте новый заказ."
+                )
         apply_inventory_delta(conn, old_status, new_status, old_items, data["items"])
         conn.execute(
             """
@@ -713,6 +746,11 @@ def delete_order(record_id: int) -> dict[str, Any]:
             raise ValueError(
                 "Закрытый заказ-наряд сначала переведите в статус «Отменен», "
                 "чтобы возврат складских остатков был явным."
+            )
+        if str(old["closed_at"] or ""):
+            raise ValueError(
+                "Заказ-наряд с закрытой финансовой историей нельзя удалить. "
+                "Оставьте его отмененным или создайте корректирующий заказ."
             )
         old_items = list_order_items(conn, record_id)
         apply_inventory_delta(conn, str(old["status"]), "", old_items, [])

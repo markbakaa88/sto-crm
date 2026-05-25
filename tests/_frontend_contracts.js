@@ -1,6 +1,6 @@
-// Обязательные текстовые контракты из tests/test_sto_crm.py
-// Проверка запускается после генерации app.js — любая пропущенная
-// строка сразу показывается. Это «канатная страховка» для агента.
+// Shared static UI contracts for packaged smoke checks.
+// Keep this list focused on stable public behaviour and accessibility hooks;
+// avoid adding strings that exist only to satisfy the tests.
 
 const REQUIRED_SUBSTRINGS = [
   // a11y / dirty-state / общий shell
@@ -137,6 +137,10 @@ const REQUIRED_SUBSTRINGS = [
   "nextThemePreference",
   "localStorage.removeItem(key)",
   "handleModalKeydown",
+  'if ("inert" in app) {\n            app.removeAttribute("aria-hidden");',
+  'if (isMobile && !nextOpen && !hasNativeInert) sidebar.setAttribute("aria-hidden", "true");',
+  'id="modalBackdrop" role="presentation" hidden',
+  'id="commandPalette" role="presentation" hidden',
 
   // Premium headings
   "function sectionIntro(title, text, options = {})",
@@ -155,7 +159,7 @@ const REQUIRED_SUBSTRINGS = [
   "Заказ-наряды",
   "Каталог автомобилей",
   "Отчеты и аналитика",
-  'data-action="open-action-plan"',
+  'action: "open-action-plan"',
   "workspace-grid",
   "function riskRadar(report)",
   "function quickActions()",
@@ -179,6 +183,7 @@ const REQUIRED_SUBSTRINGS = [
   // DOM hooks used from index.html that must live inside JS
   '$("#modalBackdrop").classList.add("open");',
   '$("#commandPalette")?.classList.add("open");',
+  ".modal-backdrop[hidden], .command-palette-backdrop[hidden]",
 ];
 
 const FORBIDDEN_SUBSTRINGS = [
@@ -188,6 +193,10 @@ const FORBIDDEN_SUBSTRINGS = [
   "openInspectionModal",
   "lookupCustomers[0]?.id",
   '<a class="btn ghost" href="#" data-action="export-csv"',
+  'id="modalBackdrop" role="presentation" aria-hidden="true" hidden',
+  'id="commandPalette" role="presentation" aria-hidden="true" hidden',
+  'backdrop.setAttribute("aria-hidden", "true");',
+  'palette.setAttribute("aria-hidden", "true");',
   "?token=${token}",
   'window.open("about:blank", "_blank", "noreferrer")',
   'URL.revokeObjectURL(url);\n    toast("CSV экспортирован")',

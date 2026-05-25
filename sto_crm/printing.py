@@ -78,9 +78,9 @@ def print_order_html(order: dict[str, Any]) -> str:
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-__STO_CRM_CSP_NONCE__'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-__STO_CRM_CSP_NONCE__'; script-src 'nonce-__STO_CRM_CSP_NONCE__'; img-src data:; base-uri 'none'; form-action 'none'">
     <title>{html.escape(str(order.get("number")))} · заказ-наряд</title>
-    <style>
+    <style nonce="__STO_CRM_CSP_NONCE__">
         :root {{
             --ink: #101828;
             --muted: #667085;

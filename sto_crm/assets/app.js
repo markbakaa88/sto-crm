@@ -25,6 +25,8 @@ const state = {
 };
 
 const BOOTSTRAP_CACHE_KEY = "sto-crm-bootstrap";
+const BOOTSTRAP_CACHE_SCHEMA_VERSION = 2;
+const BOOTSTRAP_CACHE_TTL_MS = 30 * 60 * 1000;
 
 const routes = {
     dashboard: "Панель",
@@ -38,7 +40,6 @@ const routes = {
     updates: "Обновления"
 };
 
-// Legacy contract markers kept for packaged UI smoke tests: Premium workspace, Смена под контролем, data-action="open-action-plan", primary-kpi-grid, aria-label="Печать заказ-наряда, pipelineBoard(r.pipeline_by_status || []), appointmentTimeline(r.appointment_load_7_days || []), procurementList(r.procurement_plan || []), workloadList(r.workload_by_responsible || []), actionPlanList(r.action_plan || []), healthMetric(r).
 const routeSubtitles = {
     dashboard: "Сводка смены",
     appointments: "Визиты и приемка",
@@ -78,22 +79,39 @@ function safeExternalUrl(value, fallback = "#") {
         try {
             const url = new URL(String(candidate || ""), location.href);
             return url.protocol === "https:" && /(^|\.)github\.com$/i.test(url.hostname) ? url.href : null;
-        } catch (_error) {
+        } catch {
             return null;
         }
     };
     return normalize(value) || normalize(fallback) || "#";
 }
 
+function safeRecordId(value) {
+    const id = Number(value || 0);
+    return Number.isSafeInteger(id) && id > 0 ? String(id) : "";
+}
+
 function assertSafeModalMarkup(markup) {
     const template = document.createElement("template");
     template.innerHTML = String(markup || "");
+    const forbiddenTags = new Set(["script", "style", "iframe", "object", "embed", "link", "meta", "base"]);
+    const urlAttributes = new Set(["action", "formaction", "href", "src", "xlink:href", "poster"]);
+    const normalizeAttributeUrl = value => String(value || "")
+        .replace(/[\u0000-\u001f\u007f\s]+/g, "")
+        .trim()
+        .toLowerCase();
     for (const element of template.content.querySelectorAll("*")) {
+        if (forbiddenTags.has(element.tagName.toLowerCase())) {
+            throw new Error("Небезопасная разметка модального окна.");
+        }
         for (const attribute of element.attributes) {
             const name = attribute.name.toLowerCase();
-            const value = attribute.value.trim().toLowerCase();
-            const urlAttribute = ["action", "formaction", "href", "src", "xlink:href"].includes(name);
-            if (name.startsWith("on") || (urlAttribute && value.startsWith("javascript:"))) {
+            const value = normalizeAttributeUrl(attribute.value);
+            if (
+                name.startsWith("on") ||
+                name === "srcdoc" ||
+                (urlAttributes.has(name) && (value.startsWith("javascript:") || value.startsWith("data:text/html")))
+            ) {
                 throw new Error("Небезопасная разметка модального окна.");
             }
         }
@@ -218,7 +236,7 @@ function classToken(value) {
 }
 
 function helpTip(text, label = "?") {
-    return `<span class="help-tip" role="note" aria-label="${esc(text)}" title="${esc(text)}" tabindex="0"><span aria-hidden="true">${esc(label)}</span></span>`;
+    return `<span class="help-tip" role="note" aria-label="${esc(text)}" title="${esc(text)}"><span aria-hidden="true">${esc(label)}</span></span>`;
 }
 
 function textOrDash(value, fallback = "—") {
@@ -291,10 +309,6 @@ function appointmentStatusBadge(status) {
     return `<span class="status a-${classToken(status)}">${esc(label)}</span>`;
 }
 
-function itemApprovalBadge(status) {
-    const label = state.data?.item_approval_statuses?.[status] || itemApprovalFallback[status] || status;
-    return `<span class="status item-${classToken(status)}">${esc(label)}</span>`;
-}
 
 
 let announceFrame = 0;
@@ -437,8 +451,22 @@ function cacheBootstrap(data, loadedAt = new Date().toISOString()) {
         if (!window.sessionStorage) return;
         const cached = JSON.parse(JSON.stringify(data || {}));
         if (cached.app) delete cached.app.csrf_token;
-        sessionStorage.setItem(BOOTSTRAP_CACHE_KEY, JSON.stringify({ loadedAt, data: cached }));
-    } catch (_error) { /* sessionStorage can be unavailable in locked-down browsers */ }
+        const payload = {
+            schemaVersion: BOOTSTRAP_CACHE_SCHEMA_VERSION,
+            cachedAt: Date.now(),
+            loadedAt,
+            appVersion: cached.app?.version || "",
+            dbPath: cached.app?.db_path || "",
+            data: cached
+        };
+        sessionStorage.setItem(BOOTSTRAP_CACHE_KEY, JSON.stringify(payload));
+    } catch { /* sessionStorage can be unavailable in locked-down browsers */ }
+}
+
+function clearCachedBootstrap() {
+    try {
+        if (window.sessionStorage) sessionStorage.removeItem(BOOTSTRAP_CACHE_KEY);
+    } catch { /* sessionStorage can be unavailable in locked-down browsers */ }
 }
 
 function readCachedBootstrap() {
@@ -447,9 +475,23 @@ function readCachedBootstrap() {
         const raw = sessionStorage.getItem(BOOTSTRAP_CACHE_KEY);
         if (!raw) return null;
         const parsed = JSON.parse(raw);
-        if (parsed?.data && typeof parsed.data === "object") return parsed;
-        if (parsed?.app) return { loadedAt: "", data: parsed };
-    } catch (_error) { /* sessionStorage can be unavailable or contain stale data */ }
+        if (parsed?.data && typeof parsed.data === "object") {
+            if (parsed.schemaVersion !== BOOTSTRAP_CACHE_SCHEMA_VERSION) {
+                clearCachedBootstrap();
+                return null;
+            }
+            const cachedAt = Number(parsed.cachedAt || 0);
+            if (!Number.isFinite(cachedAt) || Date.now() - cachedAt > BOOTSTRAP_CACHE_TTL_MS) {
+                clearCachedBootstrap();
+                return null;
+            }
+            return parsed;
+        }
+        if (parsed?.app) {
+            clearCachedBootstrap();
+            return null;
+        }
+    } catch { /* sessionStorage can be unavailable or contain stale data */ }
     return null;
 }
 
@@ -474,7 +516,7 @@ function restoreCachedBootstrap() {
         const loadedText = state.lastLoadedAt ? ` от ${new Date(state.lastLoadedAt).toLocaleString("ru-RU")}` : "";
         announce(`Показаны сохраненные данные${loadedText}. Сервер CRM недоступен.`, true);
         return true;
-    } catch (_error) {
+    } catch {
         return false;
     }
 }
@@ -569,6 +611,7 @@ function setRoute(route, updateUrl = true) {
         loadData().catch(showError);
     }
     if (previousRoute !== route) {
+        setMobileNavOpen(false);
         $("#content")?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
         announce(`Открыт раздел ${routes[route]}.`);
     }
@@ -584,6 +627,7 @@ function render() {
     if (!state.data) return;
     const content = $("#content");
     if (!content) return;
+    resetWorkspaceToolbarObserver();
     const renderers = {
         dashboard: renderDashboard,
         appointments: renderAppointments,
@@ -629,17 +673,25 @@ function applyCellTitles(root) {
     });
 }
 
+let workspaceToolbarObserver = null;
+function resetWorkspaceToolbarObserver() {
+    if (workspaceToolbarObserver) {
+        workspaceToolbarObserver.disconnect();
+        workspaceToolbarObserver = null;
+    }
+}
+
 function bindWorkspaceToolbar(root) {
     const toolbar = root.querySelector(".workspace-toolbar");
     if (!toolbar || !("IntersectionObserver" in window)) return;
     const sentinel = document.createElement("div");
+    sentinel.className = "workspace-toolbar-sentinel";
     sentinel.setAttribute("aria-hidden", "true");
-    sentinel.style.height = "1px";
     toolbar.parentNode.insertBefore(sentinel, toolbar);
-    const observer = new IntersectionObserver(entries => {
+    workspaceToolbarObserver = new IntersectionObserver(entries => {
         for (const entry of entries) toolbar.classList.toggle("is-stuck", !entry.isIntersecting);
     }, { rootMargin: "-1px 0px 0px 0px", threshold: [1] });
-    observer.observe(sentinel);
+    workspaceToolbarObserver.observe(sentinel);
 }
 
 function updateScrollHints(root = document) {
@@ -853,7 +905,7 @@ function collectBellItems() {
         });
     });
     if (Number(r.low_stock_count || 0) > 0) {
-        items.push({ tone: "warn", icon: "▦", title: `Склад: ${r.low_stock_count} позиций ниже минимума`, hint: "Проверьте закупки", action: "goto-inventory", route: "inventory" });
+        items.push({ tone: "warning", icon: "▦", title: `Склад: ${r.low_stock_count} позиций ниже минимума`, hint: "Проверьте закупки", action: "goto-inventory", route: "inventory" });
     }
     if (state.updateStatus?.ok && state.updateStatus?.release?.is_newer) {
         items.push({ tone: "info", icon: "⬢", title: "Доступно обновление CRM", hint: state.updateStatus.release?.name || "", action: "goto-updates", route: "updates" });
@@ -876,7 +928,7 @@ function renderBell() {
     if (emptyEl) emptyEl.hidden = true;
     if (count) { count.hidden = false; count.textContent = String(items.length > 99 ? "99+" : items.length); }
     list.innerHTML = items.map(item => `
-        <button type="button" role="menuitem" class="bell-item ${esc(item.tone)}"
+        <button type="button" role="menuitem" class="bell-item" data-tone="${esc(classToken(item.tone || "info"))}"
             data-bell-action="${esc(item.action)}"
             data-bell-route="${esc(item.route || "")}"
             data-bell-id="${esc(item.id || "")}">
@@ -894,7 +946,176 @@ function renderShell() {
     renderBell();
 }
 
+let mobileNavTabbableSnapshot = [];
+let mobileNavLastFocusedElement = null;
+
+function meaningfulActiveElement(fallback = null) {
+    const active = document.activeElement;
+    return active instanceof HTMLElement && active !== document.body && active !== document.documentElement
+        ? active
+        : fallback;
+}
+
+function mobileNavFocusableElements() {
+    const sidebar = $("#appSidebar");
+    return sidebar ? $$('a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])', sidebar)
+        .filter(element => !element.closest('[hidden], [aria-hidden="true"]') && (element.getClientRects().length > 0 || element === document.activeElement)) : [];
+}
+
+function setSidebarInteractive(sidebar, isInteractive) {
+    if (!sidebar) return;
+    if ("inert" in sidebar) {
+        sidebar.inert = !isInteractive;
+    }
+    if (isInteractive) {
+        mobileNavTabbableSnapshot.forEach(({ element, tabindex }) => {
+            if (!document.contains(element)) return;
+            if (tabindex === null) element.removeAttribute("tabindex");
+            else element.setAttribute("tabindex", tabindex);
+        });
+        mobileNavTabbableSnapshot = [];
+        return;
+    }
+    if ("inert" in sidebar || mobileNavTabbableSnapshot.length) return;
+    mobileNavTabbableSnapshot = $$('a[href], button, textarea, input, select, [tabindex]', sidebar).map(element => ({
+        element,
+        tabindex: element.getAttribute("tabindex")
+    }));
+    mobileNavTabbableSnapshot.forEach(({ element }) => element.setAttribute("tabindex", "-1"));
+}
+
+function focusMobileNavStart() {
+    const sidebar = $("#appSidebar");
+    const preferred = $("#nav button.active", sidebar) || mobileNavFocusableElements()[0] || sidebar;
+    preferred?.focus({ preventScroll: true });
+}
+
+function setMobileNavOpen(isOpen, options = {}) {
+    const isMobile = window.matchMedia && window.matchMedia("(max-width: 1024px)").matches;
+    const nextOpen = Boolean(isOpen && isMobile);
+    const wasOpen = document.body.classList.contains("mobile-nav-open");
+    document.body.classList.toggle("mobile-nav-open", nextOpen);
+    const button = $("#mobileNavToggle");
+    const backdrop = $("#mobileNavBackdrop");
+    const sidebar = $("#appSidebar");
+    const main = $(".main");
+    if (button) {
+        button.setAttribute("aria-expanded", nextOpen ? "true" : "false");
+        button.setAttribute("aria-label", nextOpen ? "Закрыть навигацию" : "Открыть навигацию");
+    }
+    if (backdrop) backdrop.hidden = !nextOpen;
+    if (sidebar) {
+        const hasNativeInert = "inert" in sidebar;
+        if (isMobile && !nextOpen && !hasNativeInert) sidebar.setAttribute("aria-hidden", "true");
+        else sidebar.removeAttribute("aria-hidden");
+        setSidebarInteractive(sidebar, !isMobile || nextOpen);
+    }
+    if (main && "inert" in main) main.inert = nextOpen;
+    if (nextOpen && !wasOpen) {
+        mobileNavLastFocusedElement = meaningfulActiveElement(button);
+        requestAnimationFrame(focusMobileNavStart);
+    } else if (!nextOpen && wasOpen && options.restoreFocus !== false) {
+        const restoreTarget = mobileNavLastFocusedElement && document.contains(mobileNavLastFocusedElement)
+            ? mobileNavLastFocusedElement
+            : button;
+        restoreTarget?.focus({ preventScroll: true });
+        mobileNavLastFocusedElement = null;
+    }
+}
+
+function handleMobileNavKeydown(event) {
+    if (!document.body.classList.contains("mobile-nav-open")) return;
+    if (event.key === "Escape") {
+        event.preventDefault();
+        setMobileNavOpen(false);
+        return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = mobileNavFocusableElements();
+    if (!focusable.length) {
+        event.preventDefault();
+        $("#appSidebar")?.focus({ preventScroll: true });
+        return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!$("#appSidebar")?.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+    } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus({ preventScroll: true });
+    } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+    }
+}
+
+function initMobileNavigation() {
+    const button = $("#mobileNavToggle");
+    const backdrop = $("#mobileNavBackdrop");
+    const sidebar = $("#appSidebar");
+    if (!button || !backdrop || !sidebar || button.dataset.bound) return;
+    button.dataset.bound = "1";
+    const sync = () => {
+        const mobile = window.matchMedia("(max-width: 1024px)").matches;
+        if (!mobile) {
+            setMobileNavOpen(false, { restoreFocus: false });
+            sidebar.removeAttribute("aria-hidden");
+            setSidebarInteractive(sidebar, true);
+        } else {
+            setMobileNavOpen(document.body.classList.contains("mobile-nav-open"), { restoreFocus: false });
+        }
+    };
+    button.addEventListener("click", () => setMobileNavOpen(!document.body.classList.contains("mobile-nav-open")));
+    backdrop.addEventListener("click", () => setMobileNavOpen(false));
+    document.addEventListener("keydown", handleMobileNavKeydown);
+    window.addEventListener("resize", sync);
+    if (window.matchMedia) {
+        const query = window.matchMedia("(max-width: 1024px)");
+        if (query.addEventListener) query.addEventListener("change", sync);
+        else if (query.addListener) query.addListener(sync);
+    }
+    sync();
+}
+
+function menuPanelItems(panel) {
+    return panel ? $$('[role="menuitem"]:not([disabled])', panel) : [];
+}
+
+function focusMenuPanelItem(panel, index = 0) {
+    const items = menuPanelItems(panel);
+    if (!items.length) return;
+    items[((index % items.length) + items.length) % items.length].focus();
+}
+
+function handleMenuPanelKeydown(event, panel, triggerButton, closePanel, onOpenItem = null) {
+    const items = menuPanelItems(panel);
+    const activeIndex = items.findIndex(item => item === document.activeElement);
+    if (event.key === "Escape") {
+        event.preventDefault();
+        closePanel({ restoreFocus: true });
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        focusMenuPanelItem(panel, activeIndex + (event.key === "ArrowDown" ? 1 : -1));
+    } else if (event.key === "Home") {
+        event.preventDefault();
+        focusMenuPanelItem(panel, 0);
+    } else if (event.key === "End") {
+        event.preventDefault();
+        focusMenuPanelItem(panel, items.length - 1);
+    } else if ((event.key === "Enter" || event.key === " ") && activeIndex >= 0) {
+        if (onOpenItem) {
+            event.preventDefault();
+            onOpenItem(items[activeIndex]);
+        }
+    } else if (!panel?.contains(document.activeElement) && triggerButton) {
+        focusMenuPanelItem(panel, 0);
+    }
+}
+
 function initShell() {
+    initMobileNavigation();
     const collapseBtn = $("#sidebarCollapse");
     if (collapseBtn && !collapseBtn.dataset.bound) {
         collapseBtn.dataset.bound = "1";
@@ -902,6 +1123,11 @@ function initShell() {
         document.body.classList.toggle("sidebar-collapsed", saved);
         collapseBtn.setAttribute("aria-pressed", saved ? "true" : "false");
         collapseBtn.addEventListener("click", () => {
+            const mobile = window.matchMedia && window.matchMedia("(max-width: 1024px)").matches;
+            if (mobile) {
+                setMobileNavOpen(!document.body.classList.contains("mobile-nav-open"));
+                return;
+            }
             const next = !document.body.classList.contains("sidebar-collapsed");
             document.body.classList.toggle("sidebar-collapsed", next);
             safeStorageSet("sto-crm-sidebar", next ? "collapsed" : "open");
@@ -926,25 +1152,37 @@ function initShell() {
         const runAction = action => {
             if (typeof actionMap[action] === "function") actionMap[action]();
         };
+        const setCtaMenuOpen = (isOpen, { focusFirst = false, restoreFocus = false } = {}) => {
+            ctaMenu.hidden = !isOpen;
+            more.setAttribute("aria-expanded", isOpen ? "true" : "false");
+            if (isOpen && focusFirst) focusMenuPanelItem(ctaMenu, 0);
+            if (!isOpen && restoreFocus) more.focus({ preventScroll: true });
+        };
+        const activateCtaItem = item => {
+            if (!item) return;
+            setCtaMenuOpen(false);
+            runAction(item.dataset.action);
+        };
         primary.addEventListener("click", () => runAction(primary.dataset.action || "new-order"));
         more.addEventListener("click", event => {
             event.stopPropagation();
-            const open = ctaMenu.hidden;
-            ctaMenu.hidden = !open;
-            more.setAttribute("aria-expanded", open ? "true" : "false");
+            setCtaMenuOpen(ctaMenu.hidden, { focusFirst: ctaMenu.hidden });
         });
+        more.addEventListener("keydown", event => {
+            if (!["ArrowDown", "Enter", " "].includes(event.key)) return;
+            event.preventDefault();
+            setCtaMenuOpen(true, { focusFirst: true });
+        });
+        ctaMenu.addEventListener("keydown", event => handleMenuPanelKeydown(event, ctaMenu, more, setCtaMenuOpen, activateCtaItem));
         ctaMenu.addEventListener("click", event => {
             const item = event.target.closest("[data-action]");
             if (!item) return;
-            ctaMenu.hidden = true;
-            more.setAttribute("aria-expanded", "false");
-            runAction(item.dataset.action);
+            activateCtaItem(item);
         });
         document.addEventListener("click", event => {
             if (ctaMenu.hidden) return;
             if (ctaMenu.contains(event.target) || more.contains(event.target)) return;
-            ctaMenu.hidden = true;
-            more.setAttribute("aria-expanded", "false");
+            setCtaMenuOpen(false);
         });
     }
 
@@ -952,32 +1190,44 @@ function initShell() {
     const bellPanel = $("#bellPanel");
     if (bellBtn && bellPanel && !bellBtn.dataset.bound) {
         bellBtn.dataset.bound = "1";
-        bellBtn.addEventListener("click", event => {
-            event.stopPropagation();
-            const open = bellPanel.hidden;
-            bellPanel.hidden = !open;
-            bellBtn.setAttribute("aria-expanded", open ? "true" : "false");
-            if (open) renderBell();
-        });
-        document.addEventListener("click", event => {
-            if (bellPanel.hidden) return;
-            if (bellPanel.contains(event.target) || bellBtn.contains(event.target)) return;
-            bellPanel.hidden = true;
-            bellBtn.setAttribute("aria-expanded", "false");
-        });
-        bellPanel.addEventListener("click", event => {
-            const item = event.target.closest("[data-bell-route], [data-bell-action]");
+        const setBellPanelOpen = (isOpen, { focusFirst = false, restoreFocus = false } = {}) => {
+            bellPanel.hidden = !isOpen;
+            bellBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+            if (isOpen) renderBell();
+            if (isOpen && focusFirst) focusMenuPanelItem(bellPanel, 0);
+            if (!isOpen && restoreFocus) bellBtn.focus({ preventScroll: true });
+        };
+        const activateBellItem = item => {
             if (!item) return;
             const route = item.dataset.bellRoute;
             const action = item.dataset.bellAction;
             const id = item.dataset.bellId || "";
-            bellPanel.hidden = true;
-            bellBtn.setAttribute("aria-expanded", "false");
+            setBellPanelOpen(false);
             if (action && ["edit-order", "edit-appointment", "edit-vehicle", "edit-inventory"].includes(action)) {
                 openBellTarget(action, id, route).catch(showError);
                 return;
             }
             if (route && routes[route]) setRoute(route);
+        };
+        bellBtn.addEventListener("click", event => {
+            event.stopPropagation();
+            setBellPanelOpen(bellPanel.hidden, { focusFirst: bellPanel.hidden });
+        });
+        bellBtn.addEventListener("keydown", event => {
+            if (!["ArrowDown", "Enter", " "].includes(event.key)) return;
+            event.preventDefault();
+            setBellPanelOpen(true, { focusFirst: true });
+        });
+        document.addEventListener("click", event => {
+            if (bellPanel.hidden) return;
+            if (bellPanel.contains(event.target) || bellBtn.contains(event.target)) return;
+            setBellPanelOpen(false);
+        });
+        bellPanel.addEventListener("keydown", event => handleMenuPanelKeydown(event, bellPanel, bellBtn, setBellPanelOpen, activateBellItem));
+        bellPanel.addEventListener("click", event => {
+            const item = event.target.closest("[data-bell-route], [data-bell-action]");
+            if (!item) return;
+            activateBellItem(item);
         });
     }
 
@@ -1007,14 +1257,17 @@ function bindShellShortcuts() {
         const tag = el.tagName;
         return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
     };
+    const inInteractiveContext = el => Boolean(el?.closest?.('input, textarea, select, button, a[href], [role="button"], [role="menuitem"], [role="option"], [contenteditable="true"]'));
     document.addEventListener("keydown", event => {
-        if (event.defaultPrevented || event.metaKey || event.altKey) return;
+        if (event.defaultPrevented || event.metaKey || event.altKey || event.isComposing) return;
+        const interactive = inInteractiveContext(event.target);
         if (event.ctrlKey && (event.key === "b" || event.key === "B")) {
+            if (inEditable(event.target)) return;
             event.preventDefault();
             $("#sidebarCollapse")?.click();
             return;
         }
-        if (event.ctrlKey || inEditable(event.target)) return;
+        if (event.ctrlKey || interactive) return;
         if ($("#modalBackdrop")?.classList.contains("open") || $("#commandPalette")?.classList.contains("open")) return;
         if (event.key === "/") {
             const input = $("#globalSearch");
@@ -1090,9 +1343,9 @@ function commandItems() {
         { icon: "О", title: "Отчеты", hint: "Финансы и риски", keys: "G R", run: () => setRoute("reports") },
         { icon: "М", title: "Каталог авто", hint: "Марки и модели", keys: "G K", run: () => setRoute("catalog") },
         { icon: "↻", title: "Обновить", hint: "Перезагрузить данные", keys: "R", run: () => loadData().then(() => toast("Обновлено")).catch(showError) },
-        { icon: "↕", title: "Плотность", hint: "Компактно / обычно", keys: "D", run: () => toggleDensity() },
-        { icon: "⇩", title: "Резерв", hint: "Backup SQLite", keys: "B", run: () => createBackupFromUi() },
-        { icon: "⬢", title: "Обновления", hint: "GitHub Releases", keys: "U", run: () => { setRoute("updates"); checkForUpdates(true).catch(showError); } }
+        { icon: "↕", title: "Плотность", hint: "Компактно / обычно", keys: "Ctrl+K → Плотность", run: () => toggleDensity() },
+        { icon: "⇩", title: "Резерв", hint: "Backup SQLite", keys: "Ctrl+K → Резерв", run: () => createBackupFromUi() },
+        { icon: "⬢", title: "Обновления", hint: "GitHub Releases", keys: "G U", run: () => { setRoute("updates"); checkForUpdates(true).catch(showError); } }
     ];
 }
 
@@ -1129,7 +1382,11 @@ function renderCommandPalette() {
 function openCommandPalette() {
     if (!state.data) return;
     if ($("#modalBackdrop")?.classList.contains("open")) return;
-    lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const palette = $("#commandPalette");
+    if (!palette) return;
+    setMobileNavOpen(false, { restoreFocus: false });
+    lastFocusedElement = meaningfulActiveElement(null);
+    palette.hidden = false;
     $("#commandPalette")?.classList.add("open");
     setAppInert(true);
     const input = $("#commandSearch");
@@ -1142,8 +1399,12 @@ function openCommandPalette() {
 }
 
 function closeCommandPalette() {
-    const wasOpen = $("#commandPalette")?.classList.contains("open");
-    $("#commandPalette")?.classList.remove("open");
+    const palette = $("#commandPalette");
+    const wasOpen = palette?.classList.contains("open");
+    palette?.classList.remove("open");
+    if (palette) {
+        palette.hidden = true;
+    }
     if (wasOpen) setAppInert(false);
     updateCommandSearchAria("");
     if (wasOpen && lastFocusedElement && document.contains(lastFocusedElement)) {
@@ -1216,9 +1477,15 @@ function insightCard(label, value, hint, options = {}) {
 
 function viewHeading(title, text, meta = [], actions = []) {
     const metaHtml = meta.length ? `<div class="view-meta">${meta.map(item => `<span class="count-pill">${esc(item)}</span>`).join("")}</div>` : "";
-    const actionsHtml = actions.length ? `<div class="view-heading-actions">${actions.map(action => action.action === "export-csv"
-        ? `<button class="btn ghost" type="button" data-action="export-csv" data-export="${esc(action.export || "")}">${esc(action.label || "CSV")}</button>`
-        : `<button class="btn ${esc(action.className || "")}" type="button" data-action="${esc(action.action || "")}"${action.export ? ` data-export="${esc(action.export)}"` : ""}>${esc(action.label || "Открыть")}</button>`).join("")}</div>` : "";
+    const actionsHtml = actions.length ? `<div class="view-heading-actions">${actions.map(action => {
+        const disabledAttr = action.disabled ? " disabled" : "";
+        const titleAttr = action.title ? ` title="${esc(action.title)}"` : "";
+        const exportAttr = action.export ? ` data-export="${esc(action.export)}"` : "";
+        if (action.action === "export-csv") {
+            return `<button class="btn ghost" type="button" data-action="export-csv" data-export="${esc(action.export || "")}"${titleAttr}${disabledAttr}>${esc(action.label || "CSV")}</button>`;
+        }
+        return `<button class="btn ${esc(action.className || "")}" type="button" data-action="${esc(action.action || "")}"${exportAttr}${titleAttr}${disabledAttr}>${esc(action.label || "Открыть")}</button>`;
+    }).join("")}</div>` : "";
     return `<section class="view-heading"><div><h2>${esc(title)}</h2><p>${esc(text)}</p>${metaHtml}</div>${actionsHtml}</section>`;
 }
 
@@ -1416,7 +1683,7 @@ function pipelineBoard(statuses = []) {
                         <strong>${esc(order.number || "Без номера")}</strong>
                         <div class="muted">${esc(order.customer_name || "")} · ${esc(order.vehicle || "Авто не выбрано")}</div>
                         <div>${money(order.total)} · ${esc(priorityLabels[order.priority] || order.priority || "")}</div>
-                        <button class="btn ghost" type="button" data-action="edit-order" data-id="${order.id}" aria-label="Открыть заказ-наряд ${esc(order.number || order.id)}">Открыть</button>
+                        <button class="btn ghost" type="button" data-action="edit-order" data-id="${safeRecordId(order.id)}" aria-label="Открыть заказ-наряд ${esc(order.number || order.id)}">Открыть</button>
                     </div>`;
                 }).join("") || `<div class="muted">Нет заказов в статусе.</div>`}
             </div>
@@ -1438,15 +1705,6 @@ function appointmentTimeline(days = []) {
     }).join("")}</div>`;
 }
 
-function overdueOrderList(orders = []) {
-    if (!orders.length) return `<div class="muted">Просроченных заказ-нарядов нет.</div>`;
-    return `<div class="stack">${orders.map(order => `
-        <div class="deal-card overdue">
-            <strong>${esc(order.number)} · ${money(order.total)}</strong>
-            <div class="muted">${esc(order.customer_name || "")} · ${esc(order.vehicle || "")} · срок ${dateShort(order.promised_at)}</div>
-            <button class="btn ghost" type="button" data-action="edit-order" data-id="${order.id}" aria-label="Открыть заказ-наряд ${esc(order.number || order.id)}">Открыть</button>
-        </div>`).join("")}</div>`;
-}
 
 function procurementList(items = []) {
     if (!items.length) return `<div class="muted">Склад в нормативе.</div>`;
@@ -1491,7 +1749,7 @@ function actionPlanList(items = []) {
             </div>
             <div class="action-side">
                 <span class="action-score" title="Приоритет задачи: ${Number(item.priority || 0)} из 100" aria-label="Приоритет задачи: ${Number(item.priority || 0)} из 100">Приоритет ${Number(item.priority || 0)}/100</span>
-                <button class="btn primary" type="button" data-action="${esc(item.action || "")}" data-id="${esc(item.record_id || "")}" data-route-target="${esc(item.route || "dashboard")}" data-reload-before-action="1">${esc(item.cta || "Открыть")}</button>
+                <button class="btn primary" type="button" data-action="${esc(item.action || "")}" data-id="${safeRecordId(item.record_id)}" data-route-target="${esc(item.route || "dashboard")}" data-reload-before-action="1">${esc(item.cta || "Открыть")}</button>
             </div>
         </article>`;
     }).join("")}${hiddenNote}</div>`;
@@ -1508,7 +1766,7 @@ function renderAppointments() {
                             <td>${Number(appointment.duration_minutes || 0)} мин</td>
                             <td>${esc(appointment.advisor || "")}</td>
                             <td><div class="cell-title"><strong>${esc(appointment.reason || "")}</strong><div class="muted">${esc(appointment.notes || "")}</div></div></td>
-                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-appointment" data-id="${appointment.id}" aria-label="Открыть запись ${esc(appointment.customer_name || appointment.id)} на ${esc(dateShort(appointment.scheduled_at))}">Открыть</button></div></td>
+                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-appointment" data-id="${safeRecordId(appointment.id)}" aria-label="Открыть запись ${esc(appointment.customer_name || appointment.id)} на ${esc(dateShort(appointment.scheduled_at))}">Открыть</button></div></td>
                         </tr>`).join("");
     return `
         ${viewHeading("Календарь приемки", "Планируйте визиты, подтверждения, прибытия и неявки в одном аккуратном рабочем списке.", [
@@ -1536,34 +1794,10 @@ function renderAppointments() {
 
 
 
-function smallOrderList(orders) {
-    if (!orders.length) return `<div class="muted">Нет запланированных выдач.</div>`;
-    return `<div class="stack">${orders.map(order => `
-        <div>
-            <strong>${esc(order.number)}</strong> · ${statusBadge(order.status)}
-            <div class="muted">${esc(order.customer_name)} · ${esc(orderVehicle(order))} · ${dateShort(order.promised_at)}</div>
-        </div>`).join("")}</div>`;
-}
-
-function appointmentList(appointments) {
-    if (!appointments?.length) return `<div class="muted">Записей на сегодня нет.</div>`;
-    return `<div class="stack">${appointments.map(appointment => `
-        <div>
-            <strong>${dateShort(appointment.scheduled_at)} · ${esc(appointment.customer_name)}</strong> ${appointmentStatusBadge(appointment.status)}
-            <div class="muted">${esc(appointmentVehicle(appointment) || "Авто не выбрано")} · ${esc(appointment.reason || "")}</div>
-        </div>`).join("")}</div>`;
-}
 
 
 
-function lowStockList(parts) {
-    if (!parts.length) return `<div class="muted">Критичных остатков нет.</div>`;
-    return `<div class="stack">${parts.map(part => `
-        <div>
-            <strong>${esc(part.name)}</strong>
-            <div class="muted">${esc(part.sku)} · остаток ${qty(part.quantity)} ${esc(part.unit)} · минимум ${qty(part.min_quantity)}</div>
-        </div>`).join("")}</div>`;
-}
+
 
 function vipCustomerList(customers = []) {
     if (!customers.length) return `<div class="muted">Недостаточно истории для VIP-сегмента.</div>`;
@@ -1605,9 +1839,9 @@ function renderOrders() {
 function orderRowActions(order) {
     const number = order.number || "заказа";
     return `<div class="row-actions order-row-actions">
-        <button class="btn" type="button" data-action="edit-order" data-id="${order.id}" aria-label="Открыть заказ-наряд ${esc(number)}" data-tooltip="Открыть">Открыть</button>
-        <button class="btn ghost icon-sm" type="button" data-action="print-order" data-id="${order.id}" aria-label="Печать заказ-наряда ${esc(number)}" data-tooltip="Печать · P"><span aria-hidden="true">⎙</span></button>
-        <button class="btn ghost icon-sm" type="button" data-action="duplicate-order" data-id="${order.id}" aria-label="Повторить заказ-наряд ${esc(number)}" data-tooltip="Повторить заказ"><span aria-hidden="true">⎘</span></button>
+        <button class="btn" type="button" data-action="edit-order" data-id="${safeRecordId(order.id)}" aria-label="Открыть заказ-наряд ${esc(number)}" data-tooltip="Открыть">Открыть</button>
+        <button class="btn ghost icon-sm" type="button" data-action="print-order" data-id="${safeRecordId(order.id)}" aria-label="Печать заказ-наряда ${esc(number)}" data-tooltip="Печать"><span aria-hidden="true">⎙</span></button>
+        <button class="btn ghost icon-sm" type="button" data-action="duplicate-order" data-id="${safeRecordId(order.id)}" aria-label="Повторить заказ-наряд ${esc(number)}" data-tooltip="Повторить заказ"><span aria-hidden="true">⎘</span></button>
     </div>`;
 }
 
@@ -1689,7 +1923,7 @@ function renderCustomers() {
                             <td>${textOrDash(c.source)}</td>
                             <td>${c.vehicles_count}</td>
                             <td><div class="cell-title"><strong>${c.orders_count}</strong><div class="muted">${c.last_order_at ? `посл. ${dateShort(c.last_order_at)}` : "нет заказов"}</div></div></td>
-                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-customer" data-id="${c.id}" aria-label="Открыть клиента ${esc(c.name || c.id)}">Открыть</button></div></td>
+                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-customer" data-id="${safeRecordId(c.id)}" aria-label="Открыть клиента ${esc(c.name || c.id)}">Открыть</button></div></td>
                         </tr>`).join("") || `<tr><td colspan="8" class="empty"><strong>Клиентов не найдено</strong><span>Добавьте клиента или измените поиск.</span></td></tr>`}
                 </tbody>
             </table>
@@ -1709,7 +1943,7 @@ function renderVehicles() {
                             <td><div class="cell-title">${esc(v.customer_name)}<div class="muted">${esc(v.customer_phone)}</div></div></td>
                             <td>${num(v.mileage).toLocaleString("ru-RU")} км</td>
                             <td><div class="cell-title">${esc(v.next_service_at || "")}<div class="muted">${v.next_service_mileage ? `${num(v.next_service_mileage).toLocaleString("ru-RU")} км` : ""}</div></div></td>
-                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-vehicle" data-id="${v.id}" aria-label="Открыть автомобиль ${esc(vehicleName(v) || v.plate || v.id)}">Открыть</button></div></td>
+                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-vehicle" data-id="${safeRecordId(v.id)}" aria-label="Открыть автомобиль ${esc(vehicleName(v) || v.plate || v.id)}">Открыть</button></div></td>
                         </tr>`).join("");
     return `
         ${viewHeading("Автомобили", "Паспорт автомобиля, VIN, пробег, сервисный план и быстрый доступ к офлайн-каталогу марок и моделей.", [
@@ -1864,7 +2098,7 @@ function renderInventory() {
                             <td class="money">${money(p.price)}</td>
                             <td class="money">${money(p.cost)}</td>
                             <td>${esc(p.supplier)}</td>
-                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-inventory" data-id="${p.id}" aria-label="Открыть складскую позицию ${esc(p.name || p.sku || p.id)}">Открыть</button></div></td>
+                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-inventory" data-id="${safeRecordId(p.id)}" aria-label="Открыть складскую позицию ${esc(p.name || p.sku || p.id)}">Открыть</button></div></td>
                         </tr>`).join("");
     return `
         ${viewHeading("Склад", "Следите за остатками, себестоимостью, поставщиками и закупкой до остановки ремонта.", [
@@ -2012,8 +2246,8 @@ function renderUpdates() {
             `Версия ${esc(app.version)}`,
             status?.release?.is_newer ? `Есть ${esc(status.release.version || status.release.tag || "")}` : "Актуальная версия"
         ], [
-            { label: state.updateLoading ? "Проверяем…" : "Проверить", action: "check-update", className: "ghost" },
-            { label: state.updateInstalling ? "Устанавливаем…" : "Установить", action: "install-update", className: "primary" }
+            { label: state.updateLoading ? "Проверяем…" : "Проверить", action: "check-update", className: "ghost", disabled: state.updateLoading },
+            { label: state.updateInstalling ? "Устанавливаем…" : "Установить", action: "install-update", className: "primary", disabled: installDisabled, title: installTitle }
         ])}
         <section class="update-card">
             <div class="toolbar">
@@ -2065,8 +2299,19 @@ async function checkForUpdates(showToast = true) {
 
 async function installUpdate() {
     if (!requiresFreshCsrf("установку обновления")) return;
-    if (!state.updateStatus?.release?.is_newer) {
+    const status = state.updateStatus;
+    const release = status?.release || {};
+    if (state.updateInstalling) return;
+    if (!status?.ok || !release.is_newer) {
         toast("Новых обновлений нет");
+        return;
+    }
+    if (!release.has_asset) {
+        toast("В релизе нет файла STO_CRM.exe", "error");
+        return;
+    }
+    if (!status.can_install) {
+        toast("Автоустановка доступна только в собранном Windows .exe", "error");
         return;
     }
     if (!confirm("Скачать обновление, закрыть CRM и перезапустить новую версию? Перед установкой будут созданы резервные копии базы SQLite и текущего exe.")) return;
@@ -2074,6 +2319,14 @@ async function installUpdate() {
     render();
     try {
         const result = await api("/api/update/install", { method: "POST", body: "{}" }, 0);
+        if (!result.updated) {
+            state.updateInstalling = false;
+            toast(result.message || "Обновление не требуется");
+            state.updateStatus = { ...(state.updateStatus || {}), release: result.release || state.updateStatus?.release || {} };
+            render();
+            updateNavigationBadges();
+            return;
+        }
         toast(result.message || "Обновление запущено");
         const backupText = result.backup?.display_path ? ` Резервная копия базы: ${esc(result.backup.display_path)}.` : " Перед установкой создана резервная копия базы.";
         document.body.innerHTML = `<main class="shutdown-state"><section class="shutdown-card"><h1>СТО CRM обновляется</h1><p>Приложение закроется, заменит exe и запустится снова.${backupText}</p></section></main>`;
@@ -2250,8 +2503,22 @@ function shouldKeepModalForEscape(event) {
     if (!(target instanceof HTMLElement)) return false;
     if (target.isContentEditable) return true;
     if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true;
-    if (target instanceof HTMLInputElement) return Boolean(target.getAttribute("list"));
+    if (target instanceof HTMLInputElement) return false;
     return false;
+}
+
+function currentDocumentNonce() {
+    const node = document.querySelector("script[nonce], style[nonce]");
+    return node?.nonce || node?.getAttribute("nonce") || "";
+}
+
+function alignPrintHtmlNonce(htmlText) {
+    const nonce = currentDocumentNonce();
+    if (!nonce) return htmlText;
+    const safeNonce = esc(nonce);
+    return String(htmlText)
+        .replace(/\bnonce="[^"]*"/g, `nonce="${safeNonce}"`)
+        .replace(/'nonce-[^']*'/g, `'nonce-${safeNonce}'`);
 }
 
 function focusModalStart() {
@@ -2265,11 +2532,12 @@ function setAppInert(isInert) {
     const app = $(".app");
     if (!app) return;
     if (isInert) {
-        app.setAttribute("aria-hidden", "true");
         if ("inert" in app) {
+            app.removeAttribute("aria-hidden");
             app.inert = true;
             return;
         }
+        app.setAttribute("aria-hidden", "true");
         appTabbableSnapshot = $$('a[href], button, textarea, input, select, [tabindex]', app).map(element => ({
             element,
             tabindex: element.getAttribute("tabindex")
@@ -2288,15 +2556,19 @@ function setAppInert(isInert) {
 }
 
 function openModal(title, body, foot, size = "") {
-    lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setMobileNavOpen(false, { restoreFocus: false });
+    lastFocusedElement = meaningfulActiveElement(null);
     const allowedSizes = new Set(["", "small", "wide"]);
     const modalSize = allowedSizes.has(size) ? size : "";
+    const backdrop = $("#modalBackdrop");
+    if (!backdrop) return;
     assertSafeModalMarkup(body);
     assertSafeModalMarkup(foot);
     $("#modalTitle").textContent = title;
     $("#modalBody").innerHTML = body;
     $("#modalFoot").innerHTML = foot;
     $("#modal").className = modalSize ? `modal ${modalSize}` : "modal";
+    backdrop.hidden = false;
     $("#modalBackdrop").classList.add("open");
     state.modalDirty = false;
     setAppInert(true);
@@ -2309,7 +2581,11 @@ function openModal(title, body, foot, size = "") {
 function closeModal(force = false) {
     if (state.saving && !force) return false;
     if (!force && state.modalDirty && !confirm("Закрыть окно без сохранения изменений?")) return false;
-    $("#modalBackdrop").classList.remove("open");
+    const backdrop = $("#modalBackdrop");
+    backdrop?.classList.remove("open");
+    if (backdrop) {
+        backdrop.hidden = true;
+    }
     setAppInert(false);
     $("#modalBody").innerHTML = "";
     $("#modalFoot").innerHTML = "";
@@ -2422,7 +2698,7 @@ async function openPrintOrder(id) {
         toast("Разрешите всплывающие окна, чтобы открыть печатную форму.", "error");
         return;
     }
-    try { printWindow.opener = null; } catch (_error) {}
+    try { printWindow.opener = null; } catch { /* Some embedded browsers expose opener as readonly. */ }
     printWindow.document.write("<p>Загрузка печатной формы...</p>");
     try {
         const response = await fetch(`/print/order/${encodeURIComponent(id)}`, {
@@ -2437,12 +2713,12 @@ async function openPrintOrder(id) {
                 try {
                     const payload = JSON.parse(bodyText);
                     message = payload?.error || message;
-                } catch (_error) { /* keep raw text if server returned malformed JSON */ }
+                } catch { /* keep raw text if server returned malformed JSON */ }
             }
             throw new Error(message);
         }
         printWindow.document.open();
-        printWindow.document.write(bodyText);
+        printWindow.document.write(alignPrintHtmlNonce(bodyText));
         printWindow.document.close();
     } catch (error) {
         printWindow.close();
@@ -2604,9 +2880,9 @@ function openAppointmentModal(appointment = {}) {
                 </div>
             </fieldset>
         </form>`,
-        `${appointment.id ? `<button class="btn danger" type="button" data-save="delete-appointment" data-id="${appointment.id}">Удалить</button>` : ""}
+        `${appointment.id ? `<button class="btn danger" type="button" data-save="delete-appointment" data-id="${safeRecordId(appointment.id)}">Удалить</button>` : ""}
          <button class="btn" type="button" data-save="cancel">Отмена</button>
-         <button class="btn primary" type="button" data-save="appointment" data-id="${appointment.id || ""}">Сохранить</button>`,
+         <button class="btn primary" type="button" data-save="appointment" data-id="${safeRecordId(appointment.id)}">Сохранить</button>`,
         "small"
     );
     $("#appointment_customer_id").addEventListener("change", event => {
@@ -2642,9 +2918,9 @@ function openCustomerModal(customer = {}) {
                 </div>
             </fieldset>
         </form>`,
-        `${customer.id ? `<button class="btn danger" type="button" data-save="delete-customer" data-id="${customer.id}">Удалить</button>` : ""}
+        `${customer.id ? `<button class="btn danger" type="button" data-save="delete-customer" data-id="${safeRecordId(customer.id)}">Удалить</button>` : ""}
          <button class="btn" type="button" data-save="cancel">Отмена</button>
-         <button class="btn primary" type="button" data-save="customer" data-id="${customer.id || ""}">Сохранить</button>`,
+         <button class="btn primary" type="button" data-save="customer" data-id="${safeRecordId(customer.id)}">Сохранить</button>`,
         "small"
     );
 }
@@ -2685,9 +2961,9 @@ function openVehicleModal(vehicle = {}) {
                 </div>
             </fieldset>
         </form>`,
-        `${vehicle.id ? `<button class="btn danger" type="button" data-save="delete-vehicle" data-id="${vehicle.id}">Удалить</button>` : ""}
+        `${vehicle.id ? `<button class="btn danger" type="button" data-save="delete-vehicle" data-id="${safeRecordId(vehicle.id)}">Удалить</button>` : ""}
          <button class="btn" type="button" data-save="cancel">Отмена</button>
-         <button class="btn primary" type="button" data-save="vehicle" data-id="${vehicle.id || ""}" ${hasCustomers ? "" : "disabled"}>Сохранить</button>`,
+         <button class="btn primary" type="button" data-save="vehicle" data-id="${safeRecordId(vehicle.id)}" ${hasCustomers ? "" : "disabled"}>Сохранить</button>`,
         "small"
     );
     bindVehicleCatalog();
@@ -2739,9 +3015,9 @@ function openInventoryModal(part = {}) {
                 </div>
             </fieldset>
         </form>`,
-        `${part.id ? `<button class="btn danger" type="button" data-save="delete-inventory" data-id="${part.id}">Удалить</button>` : ""}
+        `${part.id ? `<button class="btn danger" type="button" data-save="delete-inventory" data-id="${safeRecordId(part.id)}">Удалить</button>` : ""}
          <button class="btn" type="button" data-save="cancel">Отмена</button>
-         <button class="btn primary" type="button" data-save="inventory" data-id="${part.id || ""}">Сохранить</button>`,
+         <button class="btn primary" type="button" data-save="inventory" data-id="${safeRecordId(part.id)}">Сохранить</button>`,
         "small"
     );
 }
@@ -2838,10 +3114,10 @@ function openOrderModal(order = {}) {
             <div class="notice">Запчасть можно выбрать со склада или указать вручную как «вне склада» — такие позиции не списывают остатки, но учитываются в сумме заказ-наряда.</div>
             <div id="itemsHost"></div>
         </form>`,
-        `${order.id ? `<button class="btn danger" type="button" data-save="delete-order" data-id="${order.id}">Удалить</button>` : ""}
-         ${order.id ? `<button class="btn ghost" type="button" data-save="print-order" data-id="${order.id}">Печать</button>` : ""}
+        `${order.id ? `<button class="btn danger" type="button" data-save="delete-order" data-id="${safeRecordId(order.id)}">Удалить</button>` : ""}
+         ${order.id ? `<button class="btn ghost" type="button" data-save="print-order" data-id="${safeRecordId(order.id)}">Печать</button>` : ""}
          <button class="btn" type="button" data-save="cancel">Отмена</button>
-         <button class="btn primary" type="button" data-save="order" data-id="${order.id || ""}">Сохранить</button>`
+         <button class="btn primary" type="button" data-save="order" data-id="${safeRecordId(order.id)}">Сохранить</button>`
     );
     renderOrderItems();
     $("#order_customer_id").addEventListener("change", event => {
@@ -2964,6 +3240,19 @@ function orderTotalsHtml() {
     </div>`;
 }
 
+async function refreshAfterMutation(successMessage) {
+    toast(successMessage);
+    try {
+        await loadData();
+    } catch (error) {
+        if (error?.name === "AbortError") return;
+        const message = error?.message ? `Операция выполнена, но не удалось обновить данные. Нажмите «Обновить». Причина: ${error.message}` : "Операция выполнена, но не удалось обновить данные. Нажмите «Обновить».";
+        const refreshError = new Error(message);
+        refreshError.status = error?.status;
+        showError(refreshError);
+    }
+}
+
 async function saveEntity(kind, id) {
     const form = $("#entityForm");
     if (!form) return;
@@ -2975,8 +3264,7 @@ async function saveEntity(kind, id) {
     try {
         await api(path, { method, body: JSON.stringify(data) });
         closeModal(true);
-        await loadData();
-        toast("Сохранено");
+        await refreshAfterMutation("Сохранено");
     } catch (error) {
         showError(error);
     } finally {
@@ -2996,7 +3284,7 @@ async function saveOrder(id) {
         const parts = [];
         if (missingTitle) parts.push("укажите наименование позиции");
         if (missingQty) parts.push("количество должно быть больше нуля");
-        applyFormError(new Error(`Проверьте позиции заказ-наряда: ${parts.join("; ")} (строк с ошибкой: ${invalidItems.length}).`));
+        markFirstInvalidOrderItem(missingTitle ? "title" : "quantity", `Проверьте позиции заказ-наряда: ${parts.join("; ")} (строк с ошибкой: ${invalidItems.length}).`);
         return;
     }
     data.items = state.orderDraftItems.map(item => ({
@@ -3014,8 +3302,7 @@ async function saveOrder(id) {
     try {
         await api(path, { method, body: JSON.stringify(data) });
         closeModal(true);
-        await loadData();
-        toast("Заказ-наряд сохранен");
+        await refreshAfterMutation("Заказ-наряд сохранен");
     } catch (error) {
         showError(error);
     } finally {
@@ -3049,6 +3336,43 @@ function syncOrderItemStateOnly(event) {
     if (totals) totals.outerHTML = orderTotalsHtml();
 }
 
+function markFirstInvalidOrderItem(preferredField, message) {
+    const form = $("#orderForm");
+    const fieldSelector = preferredField === "quantity"
+        ? '[data-item="quantity"]'
+        : '[data-item="title"]';
+    const rows = $$("#itemsHost tr[data-index]");
+    let target = null;
+    for (const row of rows) {
+        const title = row.querySelector('[data-item="title"]');
+        const quantity = row.querySelector('[data-item="quantity"]');
+        const invalidTitle = !String(title?.value || "").trim();
+        const invalidQuantity = num(quantity?.value, 0) <= 0;
+        if (preferredField === "quantity" && invalidQuantity) target = quantity;
+        else if (invalidTitle) target = title;
+        else if (invalidQuantity) target = quantity;
+        if (target) break;
+    }
+    if (!target) target = $(fieldSelector, form || document);
+    if (!target) {
+        applyFormError(new Error(message));
+        return;
+    }
+    clearAllFormErrors(form);
+    target.classList.add("invalid");
+    target.setAttribute("aria-invalid", "true");
+    const id = `${target.dataset.item || target.name || target.id || "field"}-error`;
+    const previous = (target.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean).filter(token => token !== id);
+    target.dataset.errorDescribedby = id;
+    target.setAttribute("aria-describedby", [...previous, id].join(" "));
+    const errorNode = document.createElement("div");
+    errorNode.className = "field-error";
+    errorNode.id = id;
+    errorNode.textContent = message;
+    (target.closest("td") || target.parentElement)?.append(errorNode);
+    target.focus({ preventScroll: false });
+}
+
 async function deleteEntity(kind, id) {
     if (state.saving) return;
     if (!confirm("Удалить запись? Это действие скроет запись из активной базы CRM.")) return;
@@ -3056,8 +3380,7 @@ async function deleteEntity(kind, id) {
     try {
         await api(`/api/${kind}/${id}`, { method: "DELETE" });
         closeModal(true);
-        await loadData();
-        toast("Удалено");
+        await refreshAfterMutation("Удалено");
     } catch (error) {
         showError(error);
     } finally {
@@ -3140,6 +3463,7 @@ window.addEventListener("online", () => {
 });
 $("#refreshBtn")?.addEventListener("click", () => loadData().then(() => toast("Обновлено")).catch(showError));
 $("#backupBtn")?.addEventListener("click", createBackupFromUi);
+$("#statusBackup")?.addEventListener("click", createBackupFromUi);
 $("#commandBtn")?.addEventListener("click", openCommandPalette);
 $("#commandClose")?.addEventListener("click", closeCommandPalette);
 $("#commandPalette")?.addEventListener("click", event => {
@@ -3241,6 +3565,7 @@ async function shutdownApp() {
     if (!confirm("Остановить локальное приложение СТО CRM? Окно можно будет закрыть, а для продолжения работы CRM нужно запустить снова.")) return;
     try {
         await api("/api/shutdown", { method: "POST", body: "{}" });
+        clearCachedBootstrap();
         document.body.innerHTML = '<main class="shutdown-state"><section class="shutdown-card"><h1>СТО CRM остановлена</h1><p>Локальный сервер завершает работу. Окно можно закрыть.</p></section></main>';
     } catch (error) {
         toast(error.message || String(error), "error");
@@ -3311,7 +3636,7 @@ function toggleDensity() {
 
 function safeStorageGet(key) {
     try { return window.localStorage ? localStorage.getItem(key) : null; }
-    catch (_error) { return null; }
+    catch { return null; }
 }
 
 function safeStorageSet(key, value) {
@@ -3320,7 +3645,7 @@ function safeStorageSet(key, value) {
         if (value === null || value === "") localStorage.removeItem(key);
         else localStorage.setItem(key, value);
     }
-    catch (_error) { /* storage can be disabled in private or locked-down modes */ }
+    catch { /* storage can be disabled in private or locked-down modes */ }
 }
 
 function nextThemePreference(current) {

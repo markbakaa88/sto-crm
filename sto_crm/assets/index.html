@@ -11,13 +11,13 @@
     <meta name="format-detection" content="telephone=no">
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230f766e'/%3E%3Cpath d='M17 34h30M23 24h18M24 44h16' stroke='white' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
     <title>СТО CRM</title>
-    <style>__STO_CRM_APP_CSS__</style>
+    <style nonce="__STO_CRM_CSP_NONCE__">__STO_CRM_APP_CSS__</style>
 </head>
 <body>
 <a class="skip-link" href="#content">К основному содержанию</a>
 <div class="app-progress" id="appProgress" role="progressbar" aria-hidden="true" aria-label="Загрузка данных"></div>
 <div class="app">
-    <aside class="sidebar" aria-label="Навигация CRM">
+    <aside class="sidebar" id="appSidebar" aria-label="Навигация CRM">
         <div class="brand">
             <button type="button" class="brand-mark" id="brandHome" aria-label="На панель" title="Перейти к Панели (G D)" data-route="dashboard" data-tooltip="Панель · G D" data-tooltip-placement="right">CRM</button>
             <div class="brand-copy">
@@ -48,8 +48,10 @@
         </nav>
         <div class="db-path" id="dbPath"></div>
     </aside>
+    <button type="button" class="mobile-nav-backdrop" id="mobileNavBackdrop" aria-label="Закрыть навигацию" hidden></button>
     <main class="main">
         <header class="topbar">
+            <button type="button" class="btn icon mobile-nav-toggle" id="mobileNavToggle" aria-label="Открыть навигацию" aria-expanded="false" aria-controls="appSidebar" title="Навигация" data-tooltip="Навигация">☰</button>
             <div class="title-block">
                 <h1 id="viewTitle">Панель</h1>
                 <div class="view-subtitle" id="viewSubtitle">Оперативная сводка автосервиса</div>
@@ -122,14 +124,14 @@
         </footer>
     </main>
 </div>
-<div class="modal-backdrop" id="modalBackdrop" role="presentation">
+<div class="modal-backdrop" id="modalBackdrop" role="presentation" hidden>
     <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" tabindex="-1">
         <div class="modal-head"><div class="modal-title" id="modalTitle"></div><button type="button" class="btn icon" id="modalClose" title="Закрыть" aria-label="Закрыть окно" data-tooltip="Закрыть · Esc">×</button></div>
         <div class="modal-body" id="modalBody"></div>
         <div class="modal-foot" id="modalFoot"></div>
     </div>
 </div>
-<div class="command-palette-backdrop" id="commandPalette" role="presentation">
+<div class="command-palette-backdrop" id="commandPalette" role="presentation" hidden>
     <div class="command-palette" role="dialog" aria-modal="true" aria-labelledby="commandPaletteTitle">
         <div class="command-palette-head">
             <span aria-hidden="true">⌘</span>

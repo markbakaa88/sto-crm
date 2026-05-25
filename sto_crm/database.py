@@ -8,7 +8,7 @@ from contextlib import contextmanager
 
 from . import runtime as _runtime
 from .config import APP_VERSION, LOOKUP_LIMIT
-from .runtime import clean_multiline, now_iso, parse_int, safe_log
+from .runtime import clean_multiline, ensure_private_file, now_iso, parse_int, safe_log
 
 
 def _seed_demo_data() -> None:
@@ -33,6 +33,7 @@ def connect() -> sqlite3.Connection:
     conn.execute("PRAGMA busy_timeout = 30000")
     conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA temp_store = MEMORY")
+    ensure_private_file(_runtime.RUNTIME.db_path)
     return conn
 
 
