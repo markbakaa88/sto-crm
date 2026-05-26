@@ -3578,6 +3578,109 @@ class StoCrmTests(unittest.TestCase):
             script.index("Move-Item -LiteralPath $Current -Destination $Backup -Force"),
         )
 
+    def test_update_status_requires_installable_hash_before_enabling_install(self):
+        old_latest = sto_crm.latest_release_info
+        old_frozen = sto_crm.is_frozen
+        old_app_executable_path = sto_crm.app_executable_path
+        try:
+            sto_crm.is_frozen = lambda: True
+            sto_crm.app_executable_path = lambda: Path("C:/CRM/STO_CRM.exe")
+            sto_crm.latest_release_info = lambda: {
+                "version": "99.0.0",
+                "tag": "v99.0.0",
+                "asset": {
+                    "name": "STO_CRM.exe",
+                    "size": 123,
+                    "download_url": "https://github.com/markbakaa88/sto-crm/releases/download/v99.0.0/STO_CRM.exe",
+                },
+            }
+            status = sto_crm.update_status()
+            self.assertTrue(status["ok"])
+            self.assertFalse(status["release"]["has_asset"])
+            self.assertFalse(status["can_install"])
+        finally:
+            sto_crm.latest_release_info = old_latest
+            sto_crm.is_frozen = old_frozen
+            sto_crm.app_executable_path = old_app_executable_path
+
+    def test_install_update_serializes_concurrent_requests_and_cleans_failed_download(self):
+        old_latest = sto_crm.latest_release_info
+        old_frozen = sto_crm.is_frozen
+        old_app_executable_path = sto_crm.app_executable_path
+        old_create_backup = sto_crm.create_backup
+        old_download = sto_crm.download_release_asset
+        old_ensure = sto_crm.ensure_downloaded_executable
+        old_schedule = sto_crm.schedule_windows_update
+        old_can_install = sto_crm.updates.can_install_windows_update
+        lock_path = Path(self.tempdir.name) / "download.lock"
+        cleanup_path_holder = {}
+        release = {
+            "version": "99.0.0",
+            "tag": "v99.0.0",
+            "prerelease": False,
+            "draft": False,
+            "asset": {
+                "name": "STO_CRM.exe",
+                "size": 123,
+                "sha256": "c" * 64,
+                "download_url": "https://github.com/markbakaa88/sto-crm/releases/download/v99.0.0/STO_CRM.exe",
+            },
+        }
+
+        def stuck_download(_asset, target):
+            cleanup_path_holder["path"] = target
+            target.write_bytes(b"partial")
+            lock_path.write_text("started", encoding="utf-8")
+            time.sleep(0.2)
+            raise RuntimeError("network failed")
+
+        try:
+            sto_crm.is_frozen = lambda: True
+            sto_crm.updates.can_install_windows_update = lambda: True
+            sto_crm.app_executable_path = lambda: Path("C:/CRM/STO_CRM.exe")
+            sto_crm.latest_release_info = lambda: release
+            sto_crm.create_backup = lambda: {"display_path": "backup.sqlite3"}
+            sto_crm.download_release_asset = stuck_download
+            sto_crm.ensure_downloaded_executable = lambda _path: None
+            sto_crm.schedule_windows_update = lambda _path, _sha: None
+            errors = []
+
+            def run_install():
+                try:
+                    sto_crm.install_update_from_github()
+                except RuntimeError as exc:
+                    errors.append(str(exc))
+
+            first = threading.Thread(target=run_install)
+            first.start()
+            deadline = time.time() + 2
+            while not lock_path.exists() and time.time() < deadline:
+                time.sleep(0.01)
+            with self.assertRaisesRegex(RuntimeError, "уже выполняется"):
+                sto_crm.install_update_from_github()
+            first.join(timeout=2)
+            self.assertFalse(first.is_alive())
+            self.assertIn("network failed", errors)
+            self.assertFalse(cleanup_path_holder["path"].exists())
+
+            sto_crm.download_release_asset = lambda _asset, target: (
+                target.write_bytes(b"MZ"),
+                {"size": 2, "sha256": "c" * 64},
+            )[1]
+            sto_crm.ensure_downloaded_executable = old_ensure
+            with self.assertRaisesRegex(RuntimeError, "Windows .exe"):
+                sto_crm.install_update_from_github()
+        finally:
+            sto_crm.latest_release_info = old_latest
+            sto_crm.is_frozen = old_frozen
+            sto_crm.app_executable_path = old_app_executable_path
+            sto_crm.create_backup = old_create_backup
+            sto_crm.download_release_asset = old_download
+            sto_crm.ensure_downloaded_executable = old_ensure
+            sto_crm.schedule_windows_update = old_schedule
+            sto_crm.updates.can_install_windows_update = old_can_install
+            sto_crm.updates._finish_update_install(scheduled=False)
+
     def test_home_page_exposes_github_updates_ui_and_api_hooks(self):
         html = sto_crm.INDEX_HTML
         self.assertIn('data-route="updates"', html)
@@ -3829,8 +3932,10 @@ class StoCrmTests(unittest.TestCase):
 
         old_latest = sto_crm.latest_release_info
         old_is_frozen = sto_crm.is_frozen
+        old_can_install = sto_crm.updates.can_install_windows_update
         try:
             sto_crm.is_frozen = lambda: True
+            sto_crm.updates.can_install_windows_update = lambda: True
             sto_crm.latest_release_info = lambda: saved_release
             result = sto_crm.install_update_from_github()
             self.assertTrue(result["ok"])
@@ -3848,6 +3953,7 @@ class StoCrmTests(unittest.TestCase):
         finally:
             sto_crm.latest_release_info = old_latest
             sto_crm.is_frozen = old_is_frozen
+            sto_crm.updates.can_install_windows_update = old_can_install
 
 
 if __name__ == "__main__":

@@ -32,10 +32,9 @@ from .runtime import (
     display_path,
     github_latest_release_url,
     github_repository_url,
-    is_frozen,
     normalize_github_repository,
 )
-from .updates import latest_backup_info
+from .updates import can_install_windows_update, latest_backup_info
 
 
 def bootstrap_payload(q: str = "", status: str = "all") -> dict[str, Any]:
@@ -71,7 +70,7 @@ def bootstrap_payload(q: str = "", status: str = "all") -> dict[str, Any]:
             "repository": normalize_github_repository(),
             "repository_url": github_repository_url(),
             "releases_url": github_latest_release_url(),
-            "can_install_update": is_frozen(),
+            "can_install_update": can_install_windows_update(),
             "last_backup_at": last_backup["created_at"] if last_backup else "",
             "last_backup": last_backup,
         },

@@ -139,10 +139,13 @@ function Write-ReleaseMetadata {
     $exe = Get-Item -LiteralPath $ReleaseExe
     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $exe.FullName).Hash.ToLowerInvariant()
     "$hash  STO_CRM.exe" | Set-Content -Encoding ASCII (Join-Path $ReleaseDir "STO_CRM.exe.sha256")
+    # Keep this string ASCII-only so Windows PowerShell 5.1 cannot mojibake
+    # the UTF-8 source file before writing latest.json.
+    $displayName = ([string][char]0x0421) + ([string][char]0x0422) + ([string][char]0x041E) + " CRM $version"
     $manifest = [ordered]@{
         version = $version
         tag = $Tag
-        name = "СТО CRM $version"
+        name = $displayName
         release_url = "https://github.com/$Repository/releases/tag/$Tag"
         asset = [ordered]@{
             name = "STO_CRM.exe"

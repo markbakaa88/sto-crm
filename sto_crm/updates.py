@@ -10,6 +10,7 @@ import re
 import secrets
 import sqlite3
 import subprocess
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -50,6 +51,52 @@ from .runtime import (
     updater_log_path,
     user_data_dir,
 )
+
+
+_UPDATE_INSTALL_LOCK = threading.Lock()
+_UPDATE_INSTALL_IN_PROGRESS = False
+_UPDATE_INSTALL_SCHEDULED = False
+
+
+def can_install_windows_update() -> bool:
+    """Return whether this runtime can safely replace itself with a Windows exe."""
+    app_path = app_executable_path()
+    return is_frozen() and os.name == "nt" and app_path.suffix.lower() == ".exe"
+
+
+def is_installable_update_asset(asset: dict[str, Any] | None) -> bool:
+    """Check whether release metadata contains everything required for install."""
+    if not isinstance(asset, dict):
+        return False
+    try:
+        validate_update_download_url(str(asset.get("download_url") or ""))
+        validate_sha256(asset.get("sha256"), required=True)
+    except RuntimeError:
+        return False
+    return True
+
+
+def _begin_update_install() -> None:
+    global _UPDATE_INSTALL_IN_PROGRESS, _UPDATE_INSTALL_SCHEDULED
+    with _UPDATE_INSTALL_LOCK:
+        if _UPDATE_INSTALL_IN_PROGRESS or _UPDATE_INSTALL_SCHEDULED:
+            raise RuntimeError(
+                "Установка обновления уже выполняется. Дождитесь перезапуска CRM."
+            )
+        _UPDATE_INSTALL_IN_PROGRESS = True
+
+
+def _finish_update_install(*, scheduled: bool) -> None:
+    global _UPDATE_INSTALL_IN_PROGRESS, _UPDATE_INSTALL_SCHEDULED
+    with _UPDATE_INSTALL_LOCK:
+        _UPDATE_INSTALL_IN_PROGRESS = False
+        if scheduled:
+            _UPDATE_INSTALL_SCHEDULED = True
+
+
+def _safe_unlink(path: Path) -> None:
+    with contextlib.suppress(OSError):
+        path.unlink(missing_ok=True)
 
 
 def prune_backups(backup_dir: Path, keep_path: Path | None = None) -> None:
@@ -471,20 +518,19 @@ def latest_release_info() -> dict[str, Any]:
 def update_status() -> dict[str, Any]:
     repository = normalize_github_repository()
     app_path = app_executable_path()
-    frozen = is_frozen()
     try:
         release = latest_release_info()
         release["is_newer"] = is_newer_version(
             release.get("version") or release.get("tag"), APP_VERSION
         )
-        release["has_asset"] = bool(release.get("asset"))
+        release["has_asset"] = is_installable_update_asset(release.get("asset"))
         return {
             "ok": True,
             "current_version": APP_VERSION,
             "repository": repository,
             "repository_url": github_repository_url(repository),
             "releases_url": github_latest_release_url(repository),
-            "can_install": frozen,
+            "can_install": can_install_windows_update(),
             "app_path": app_path.name,
             "log_path": display_path(updater_log_path()),
             "release": release,
@@ -496,7 +542,7 @@ def update_status() -> dict[str, Any]:
             "repository": repository,
             "repository_url": github_repository_url(repository),
             "releases_url": github_latest_release_url(repository),
-            "can_install": frozen,
+            "can_install": can_install_windows_update(),
             "app_path": app_path.name,
             "log_path": display_path(updater_log_path()),
             "error": str(exc),
@@ -514,7 +560,7 @@ def append_updater_log(message: str) -> None:
 
 
 def download_release_asset(asset: dict[str, Any], target: Path) -> dict[str, Any]:
-    url = validate_update_download_url(asset.get("download_url"))
+    url = validate_update_download_url(str(asset.get("download_url") or ""))
     expected_sha = validate_sha256(asset.get("sha256"), required=True)
     expected_size = parse_int(asset.get("size"))
     if expected_size < 0:
@@ -567,13 +613,13 @@ def download_release_asset(asset: dict[str, Any], target: Path) -> dict[str, Any
             )
         tmp_target.replace(target)
     except urllib.error.HTTPError as exc:
-        tmp_target.unlink(missing_ok=True)
+        _safe_unlink(tmp_target)
         raise RuntimeError(f"Не удалось скачать обновление: HTTP {exc.code}.") from exc
     except (OSError, TimeoutError) as exc:
-        tmp_target.unlink(missing_ok=True)
+        _safe_unlink(tmp_target)
         raise RuntimeError(f"Не удалось скачать обновление: {exc}") from exc
     except Exception as exc:
-        tmp_target.unlink(missing_ok=True)
+        _safe_unlink(tmp_target)
         if isinstance(exc, RuntimeError):
             raise
         raise RuntimeError(f"Не удалось скачать обновление: {exc}") from exc
@@ -677,6 +723,8 @@ try {{
 
 
 def schedule_windows_update(downloaded_exe: Path, expected_sha256: str) -> None:
+    if os.name != "nt":
+        raise RuntimeError("Автоустановка доступна только в Windows.")
     current_exe = app_executable_path()
     if not current_exe.exists():
         raise RuntimeError("Текущий исполняемый файл не найден.")
@@ -712,55 +760,66 @@ def schedule_windows_update(downloaded_exe: Path, expected_sha256: str) -> None:
 
 
 def install_update_from_github() -> dict[str, Any]:
-    if not is_frozen():
+    if not can_install_windows_update():
         raise RuntimeError(
-            "Автоустановка доступна в Windows-версии STO_CRM.exe. Для исходников используйте git pull."
+            "Автоустановка доступна только в Windows-версии STO_CRM.exe. Для исходников используйте git pull."
         )
-    release = latest_release_info()
-    if release.get("prerelease") or release.get("draft"):
+    _begin_update_install()
+    downloaded: Path | None = None
+    scheduled = False
+    try:
+        release = latest_release_info()
+        if release.get("prerelease") or release.get("draft"):
+            return {
+                "ok": True,
+                "updated": False,
+                "message": "Стабильных обновлений нет.",
+                "release": release,
+            }
+        version = release.get("version") or release.get("tag")
+        if not is_newer_version(version, APP_VERSION):
+            return {
+                "ok": True,
+                "updated": False,
+                "message": "Установлена актуальная версия.",
+                "release": release,
+            }
+        asset = release.get("asset")
+        if not isinstance(asset, dict):
+            raise RuntimeError(
+                "В последнем GitHub Release нет файла STO_CRM.exe для обновления."
+            )
+        validate_sha256(asset.get("sha256"), required=True)
+        validate_update_download_url(str(asset.get("download_url") or ""))
+        update_dir = user_data_dir() / "updates"
+        update_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = re.sub(
+            r"[^A-Za-z0-9_.-]+", "_", asset.get("name") or "STO_CRM.exe"
+        )
+        downloaded = (
+            update_dir
+            / f"download-{datetime.now().strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(8)}-{safe_name}"
+        )
+        backup = create_backup()
+        append_updater_log(
+            f"Перед обновлением создана резервная копия базы: {backup['display_path']}."
+        )
+        details = download_release_asset(asset, downloaded)
+        ensure_downloaded_executable(downloaded)
+        append_updater_log(
+            f"Скачано обновление {version}: {details['size']} байт, sha256={details['sha256']}."
+        )
+        schedule_windows_update(downloaded, details["sha256"])
+        scheduled = True
         return {
             "ok": True,
-            "updated": False,
-            "message": "Стабильных обновлений нет.",
+            "updated": True,
+            "message": "Обновление скачано. CRM закроется, заменит exe и запустится снова.",
             "release": release,
+            "download": details,
+            "backup": backup,
         }
-    version = release.get("version") or release.get("tag")
-    if not is_newer_version(version, APP_VERSION):
-        return {
-            "ok": True,
-            "updated": False,
-            "message": "Установлена актуальная версия.",
-            "release": release,
-        }
-    asset = release.get("asset")
-    if not isinstance(asset, dict):
-        raise RuntimeError(
-            "В последнем GitHub Release нет файла STO_CRM.exe для обновления."
-        )
-    validate_sha256(asset.get("sha256"), required=True)
-    validate_update_download_url(asset.get("download_url"))
-    update_dir = user_data_dir() / "updates"
-    update_dir.mkdir(parents=True, exist_ok=True)
-    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", asset.get("name") or "STO_CRM.exe")
-    downloaded = (
-        update_dir
-        / f"download-{datetime.now().strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(8)}-{safe_name}"
-    )
-    backup = create_backup()
-    append_updater_log(
-        f"Перед обновлением создана резервная копия базы: {backup['display_path']}."
-    )
-    details = download_release_asset(asset, downloaded)
-    ensure_downloaded_executable(downloaded)
-    append_updater_log(
-        f"Скачано обновление {version}: {details['size']} байт, sha256={details['sha256']}."
-    )
-    schedule_windows_update(downloaded, details["sha256"])
-    return {
-        "ok": True,
-        "updated": True,
-        "message": "Обновление скачано. CRM закроется, заменит exe и запустится снова.",
-        "release": release,
-        "download": details,
-        "backup": backup,
-    }
+    finally:
+        if not scheduled and downloaded is not None:
+            _safe_unlink(downloaded)
+        _finish_update_install(scheduled=scheduled)

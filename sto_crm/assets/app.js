@@ -768,6 +768,11 @@ function render() {
     updateScrollHints(content);
     applyCellTitles(content);
     updateNavigationBadges();
+    requestAnimationFrame(() => {
+        if (!document.contains(content)) return;
+        updateScrollHints(content);
+        applyCellTitles(content);
+    });
 }
 
 function applyCellTitles(root) {
@@ -1006,11 +1011,18 @@ function renderStatusBar() {
 function collectBellItems() {
     const items = [];
     const r = state.data?.reports || {};
+    const normalizeTone = tone => {
+        const value = classToken(tone || "info");
+        if (value === "warn") return "warning";
+        if (value === "ok") return "success";
+        return ["danger", "warning", "info", "success"].includes(value) ? value : "info";
+    };
     (r.action_plan || []).slice(0, 6).forEach(action => {
         if (!action) return;
+        const tone = normalizeTone(action.tone);
         items.push({
-            tone: action.tone === "danger" ? "danger" : action.tone === "warning" ? "warning" : "info",
-            icon: action.tone === "danger" ? "!" : action.tone === "warning" ? "◐" : "◎",
+            tone,
+            icon: tone === "danger" ? "!" : tone === "warning" ? "◐" : tone === "success" ? "✓" : "◎",
             title: action.title || "Задача смены",
             hint: action.subtitle || action.description || action.detail || "",
             action: action.action || "",
@@ -1049,7 +1061,7 @@ function renderBell() {
             data-bell-route="${esc(item.route || "")}"
             data-bell-id="${esc(item.id || "")}">
             <span aria-hidden="true">${esc(item.icon)}</span>
-            <span><strong>${esc(item.title)}</strong>${item.hint ? `<div class="meta">${esc(item.hint)}</div>` : ""}</span>
+            <span class="bell-item-body"><strong>${esc(item.title)}</strong>${item.hint ? `<small>${esc(item.hint)}</small>` : ""}</span>
             <span class="muted" aria-hidden="true">›</span>
         </button>
     `).join("");
@@ -1508,7 +1520,7 @@ function renderCommandPalette() {
         return `
         <div id="${optionId}" class="command-item ${index === 0 ? "active" : ""}" role="option" data-command-index="${index}" aria-selected="${index === 0 ? "true" : "false"}">
             <span aria-hidden="true">${esc(item.icon)}</span>
-            <span><strong>${esc(item.title)}</strong><div class="muted">${esc(item.hint)}</div></span>
+            <span><strong>${esc(item.title)}</strong><small>${esc(item.hint)}</small></span>
             <kbd>${esc(item.keys)}</kbd>
         </div>`;
     }).join("") || `<div class="empty"><strong>Команда не найдена</strong><span>Попробуйте другой запрос.</span></div>`;
@@ -1594,7 +1606,7 @@ function sectionIntro(title, text, options = {}) {
             : `<button class="btn ${esc(action.className || "")}" type="button" data-action="${esc(action.action || "")}">${esc(action.label || "Открыть")}</button>`).join("")}</div>`
         : "";
     const stats = (options.stats || []).length
-        ? `<div class="hero-stat-stack">${options.stats.map(item => `<div class="hero-stat"><strong>${esc(item.value)}</strong><span>${esc(item.label)}</span></div>`).join("")}</div>`
+        ? `<div class="hero-stat-stack">${options.stats.map(item => `<div class="hero-stat"><strong>${esc(item.value)}</strong><small>${esc(item.label)}</small></div>`).join("")}</div>`
         : "";
     if (options.hero) {
         return `<section class="${className}"><div class="hero-layout"><div>${eyebrow}<h3>${esc(title)}</h3><p>${esc(text)}</p>${summary}${actions}</div>${stats}</div></section>`;
@@ -1698,9 +1710,9 @@ function renderDashboard() {
             hero: true,
             eyebrow: "Premium workspace",
             summary: [
-                { label: "План", value: `${r.action_plan_total || 0} задач`, tone: r.action_plan_total ? "warn" : "ok" },
-                { label: "Выручка", value: moneyCompact(r.revenue_month || 0), tone: "ok" },
-                { label: "Риски", value: r.risk_total || 0, tone: r.risk_total ? "danger" : "ok" }
+                { label: "План", value: `${r.action_plan_total || 0} задач`, tone: r.action_plan_total ? "warn" : "success" },
+                { label: "Выручка", value: moneyCompact(r.revenue_month || 0), tone: "success" },
+                { label: "Риски", value: r.risk_total || 0, tone: r.risk_total ? "danger" : "success" }
             ],
             actions: [
                 { label: "Открыть план", action: "open-action-plan", className: "primary" },
@@ -1716,7 +1728,7 @@ function renderDashboard() {
             ${healthMetric(r)}
             ${metric("Активная воронка", money(r.pipeline_value || 0), `${money(r.pipeline_due || 0)} ожидает оплаты`)}
             ${metric("К оплате", money(r.due_total || 0), "Долг по открытым заказам")}
-            ${metric("Низкий склад", r.low_stock_count || 0, "Позиции ниже минимума", { tone: (r.low_stock_count || 0) ? "warning" : "" })}
+            ${metric("Низкий склад", r.low_stock_count || 0, "Позиции ниже минимума", { tone: (r.low_stock_count || 0) ? "warn" : "" })}
         </section>
         ${safeStorageGet("sto-crm-dashboard-hints-dismissed") === "1" ? "" : `<section class="business-hints" aria-label="Визуальные подсказки панели">
             <strong>Подсказки</strong>
@@ -1814,7 +1826,7 @@ function quickActions() {
         ["open-inventory", "▦", "Склад", "Остатки и закупка", "inventory", "G S"],
         ["open-reports", "↗", "Отчёты", "Финансы и загрузка", "reports", "G R"]
     ];
-    return `<div class="quick-grid">${actions.map(([action, icon, title, hint, target, keys]) => `<button class="quick-tile" type="button" data-action="${esc(action)}" data-route-target="${esc(target)}" data-tooltip="${esc(title)} · ${esc(keys)}"><span class="quick-icon" aria-hidden="true">${esc(icon)}</span><strong>${esc(title)} <kbd>${esc(keys)}</kbd></strong><span>${esc(hint)}</span></button>`).join("")}</div>`;
+    return `<div class="quick-grid">${actions.map(([action, icon, title, hint, target, keys]) => `<button class="quick-tile" type="button" data-action="${esc(action)}" data-route-target="${esc(target)}" data-tooltip="${esc(title)} · ${esc(keys)}"><span class="quick-icon" aria-hidden="true">${esc(icon)}</span><strong>${esc(title)} <kbd>${esc(keys)}</kbd></strong><small>${esc(hint)}</small></button>`).join("")}</div>`;
 }
 
 function healthMetric(report) {
@@ -1914,13 +1926,13 @@ function renderAppointments() {
     const upcoming = state.data.reports?.appointments_upcoming || [];
     const body = rows.map(appointment => `
                         <tr>
-                            <td class="nowrap">${dateShort(appointment.scheduled_at)}</td>
-                            <td><div class="cell-title"><strong>${esc(appointment.customer_name)}</strong><div class="muted">${esc(appointment.customer_phone)} · ${esc(appointmentVehicle(appointment) || "Авто не выбрано")}</div></div></td>
-                            <td>${appointmentStatusBadge(appointment.status)}</td>
-                            <td>${Number(appointment.duration_minutes || 0)} мин</td>
-                            <td>${esc(appointment.advisor || "")}</td>
-                            <td><div class="cell-title"><strong>${esc(appointment.reason || "")}</strong><div class="muted">${esc(appointment.notes || "")}</div></div></td>
-                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-appointment" data-id="${safeRecordId(appointment.id)}" aria-label="Открыть запись ${esc(appointment.customer_name || appointment.id)} на ${esc(dateShort(appointment.scheduled_at))}">Открыть</button></div></td>
+                            <td class="nowrap" data-label="Дата и время">${dateShort(appointment.scheduled_at)}</td>
+                            <td data-label="Клиент и авто"><div class="cell-title"><strong>${esc(appointment.customer_name)}</strong><div class="muted">${esc(appointment.customer_phone)} · ${esc(appointmentVehicle(appointment) || "Авто не выбрано")}</div></div></td>
+                            <td data-label="Статус">${appointmentStatusBadge(appointment.status)}</td>
+                            <td data-label="Длительность">${Number(appointment.duration_minutes || 0)} мин</td>
+                            <td data-label="Мастер">${esc(appointment.advisor || "")}</td>
+                            <td data-label="Причина"><div class="cell-title"><strong>${esc(appointment.reason || "")}</strong><div class="muted">${esc(appointment.notes || "")}</div></div></td>
+                            <td data-label="Действия"><div class="row-actions"><button class="btn" type="button" data-action="edit-appointment" data-id="${safeRecordId(appointment.id)}" aria-label="Открыть запись ${esc(appointment.customer_name || appointment.id)} на ${esc(dateShort(appointment.scheduled_at))}">Открыть</button></div></td>
                         </tr>`).join("");
     return `
         ${viewHeading("Календарь приемки", "Планируйте визиты, подтверждения, прибытия и неявки в одном аккуратном рабочем списке.", [
@@ -1937,8 +1949,8 @@ function renderAppointments() {
             ${metric("Клиентов в базе", state.data.lookups.customers.length, "Можно быстро поставить в календарь")}
             ${metric("CRM задачи", state.data.reports.crm_tasks_count, "Напоминания, follow-up и отложенные работы")}
         </section>
-        ${rows.length ? `<div class="table-wrap">
-            <table aria-label="Таблица записей клиентов">
+        ${rows.length ? `<div class="table-wrap responsive-table-wrap">
+            <table class="responsive-table" aria-label="Таблица записей клиентов">
                 <thead>${tableHead(["Дата и время", "Клиент и авто", "Статус", "Длительность", "Мастер", "Причина", ""])}</thead>
                 <tbody>${body}</tbody>
             </table>
@@ -2002,17 +2014,17 @@ function orderRowActions(order) {
 function ordersTable(orders, compact) {
     if (!orders.length) return emptyState("Заказ-нарядов не найдено", "Создайте первый заказ или измените поиск/фильтр.", `<button class="btn primary" type="button" data-action="new-order">Новый заказ</button>`);
     if (compact) {
-        return `<div class="table-wrap">
-            <table class="compact-table" aria-label="Таблица последних заказ-нарядов">
+        return `<div class="table-wrap responsive-table-wrap">
+            <table class="compact-table responsive-table" aria-label="Таблица последних заказ-нарядов">
                 <thead>${tableHead(["Номер", "Клиент и авто", "Статус", {text: "Итого", className: "money"}, ""])}</thead>
                 <tbody>
                     ${orders.map(order => `
                         <tr>
-                            <td><div class="cell-title"><strong>${esc(order.number)}</strong><span class="priority-dot" data-priority="${esc(order.priority)}">${esc(priorityLabels[order.priority] || order.priority)}</span></div></td>
-                            <td><div class="cell-title"><strong>${esc(order.customer_name)}</strong><div class="muted">${esc(orderVehicle(order) || "Авто не выбрано")}</div></div></td>
-                            <td>${statusBadge(order.status)}</td>
-                            <td class="money">${money(order.total)}</td>
-                            <td>
+                            <td data-label="Номер"><div class="cell-title"><strong>${esc(order.number)}</strong><span class="priority-dot" data-priority="${esc(order.priority)}">${esc(priorityLabels[order.priority] || order.priority)}</span></div></td>
+                            <td data-label="Клиент и авто"><div class="cell-title"><strong>${esc(order.customer_name)}</strong><div class="muted">${esc(orderVehicle(order) || "Авто не выбрано")}</div></div></td>
+                            <td data-label="Статус">${statusBadge(order.status)}</td>
+                            <td class="money" data-label="Итого">${money(order.total)}</td>
+                            <td data-label="Действия">
                                 ${orderRowActions(order)}
                             </td>
                         </tr>
@@ -2021,20 +2033,20 @@ function ordersTable(orders, compact) {
             </table>
         </div>`;
     }
-    return `<div class="table-wrap">
-        <table aria-label="Таблица заказ-нарядов">
+    return `<div class="table-wrap responsive-table-wrap">
+        <table class="responsive-table" aria-label="Таблица заказ-нарядов">
             <thead>${tableHead(["Номер", "Клиент и авто", "Статус", "Срок", "Мастер", {text: "Итого", className: "money"}, {text: "К оплате", className: "money"}, ""])}</thead>
             <tbody>
                 ${orders.map(order => `
                     <tr>
-                        <td><div class="cell-title"><strong>${esc(order.number)}</strong><span class="priority-dot" data-priority="${esc(order.priority)}">${esc(priorityLabels[order.priority] || order.priority)}</span></div></td>
-                        <td><div class="cell-title"><strong>${esc(order.customer_name)}</strong><div class="muted">${esc(orderVehicle(order) || "Авто не выбрано")}</div></div></td>
-                        <td>${statusBadge(order.status)}</td>
-                        <td class="nowrap">${dateOrDash(order.promised_at)}</td>
-                        <td>${textOrDash(order.mechanic || order.advisor, "Не назначен")}</td>
-                        <td class="money">${money(order.total)}</td>
-                        <td class="money">${money(order.due)}</td>
-                        <td>
+                        <td data-label="Номер"><div class="cell-title"><strong>${esc(order.number)}</strong><span class="priority-dot" data-priority="${esc(order.priority)}">${esc(priorityLabels[order.priority] || order.priority)}</span></div></td>
+                        <td data-label="Клиент и авто"><div class="cell-title"><strong>${esc(order.customer_name)}</strong><div class="muted">${esc(orderVehicle(order) || "Авто не выбрано")}</div></div></td>
+                        <td data-label="Статус">${statusBadge(order.status)}</td>
+                        <td class="nowrap" data-label="Срок">${dateOrDash(order.promised_at)}</td>
+                        <td data-label="Мастер">${textOrDash(order.mechanic || order.advisor, "Не назначен")}</td>
+                        <td class="money" data-label="Итого">${money(order.total)}</td>
+                        <td class="money" data-label="К оплате">${money(order.due)}</td>
+                        <td data-label="Действия">
                             ${orderRowActions(order)}
                         </td>
                     </tr>
@@ -2064,21 +2076,21 @@ function renderCustomers() {
             { label: "Новый клиент", action: "new-customer", className: "primary" }
         ])}
         ${paginationControls("customers", state.customerPage, maxPage, total, pageSize, "клиентов")}
-        <div class="table-wrap">
-            <table aria-label="Таблица клиентов">
+        <div class="table-wrap responsive-table-wrap">
+            <table class="responsive-table" aria-label="Таблица клиентов">
                 <thead>${tableHead(["Клиент", "Телефон", "Email", "Канал", "Источник", "Авто", "Заказы", ""])}</thead>
                 <tbody>
                     ${pageRows.map(c => `
                         <tr>
-                            <td><div class="cell-title"><strong>${esc(c.name)}</strong><div class="muted">${textOrDash(c.notes)}</div></div></td>
-                            <td>${textOrDash(c.phone, "Нет телефона")}</td>
-                            <td>${textOrDash(c.email, "Нет email")}</td>
-                            <td>${esc(channelLabel(c.preferred_channel))}${Number(c.reminder_consent) ? "" : `<div><span class="count-pill" data-tone="warn" title="Клиент отказался от напоминаний" aria-label="Без напоминаний">без напоминаний</span></div>`}</td>
-                            <td>${textOrDash(c.source)}</td>
-                            <td>${c.vehicles_count}</td>
-                            <td><div class="cell-title"><strong>${c.orders_count}</strong><div class="muted">${c.last_order_at ? `посл. ${dateShort(c.last_order_at)}` : "нет заказов"}</div></div></td>
-                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-customer" data-id="${safeRecordId(c.id)}" aria-label="Открыть клиента ${esc(c.name || c.id)}">Открыть</button></div></td>
-                        </tr>`).join("") || `<tr><td colspan="8" class="empty"><strong>Клиентов не найдено</strong><span>Добавьте клиента или измените поиск.</span></td></tr>`}
+                            <td data-label="Клиент"><div class="cell-title"><strong>${esc(c.name)}</strong><div class="muted">${textOrDash(c.notes)}</div></div></td>
+                            <td data-label="Телефон">${textOrDash(c.phone, "Нет телефона")}</td>
+                            <td data-label="Email">${textOrDash(c.email, "Нет email")}</td>
+                            <td data-label="Канал">${esc(channelLabel(c.preferred_channel))}${Number(c.reminder_consent) ? "" : `<div><span class="count-pill" data-tone="warn" title="Клиент отказался от напоминаний" aria-label="Без напоминаний">без напоминаний</span></div>`}</td>
+                            <td data-label="Источник">${textOrDash(c.source)}</td>
+                            <td data-label="Авто">${c.vehicles_count}</td>
+                            <td data-label="Заказы"><div class="cell-title"><strong>${c.orders_count}</strong><div class="muted">${c.last_order_at ? `посл. ${dateShort(c.last_order_at)}` : "нет заказов"}</div></div></td>
+                            <td data-label="Действия"><div class="row-actions"><button class="btn" type="button" data-action="edit-customer" data-id="${safeRecordId(c.id)}" aria-label="Открыть клиента ${esc(c.name || c.id)}">Открыть</button></div></td>
+                        </tr>`).join("") || `<tr><td colspan="8"><div class="empty table-empty"><strong>Клиентов не найдено</strong><span>Добавьте клиента или измените поиск.</span></div></td></tr>`}
                 </tbody>
             </table>
         </div>
@@ -2091,13 +2103,13 @@ function renderVehicles() {
     const catalog = state.data.car_catalog?.stats || { makes: 0, models: 0 };
     const body = rows.map(v => `
                         <tr>
-                            <td><div class="cell-title"><strong>${esc(vehicleName(v))}</strong><div class="muted">${esc(v.notes)}</div></div></td>
-                            <td>${v.plate ? `<span class="plate">${esc(v.plate)}</span>` : ""}</td>
-                            <td>${esc(v.vin)}</td>
-                            <td><div class="cell-title">${esc(v.customer_name)}<div class="muted">${esc(v.customer_phone)}</div></div></td>
-                            <td>${num(v.mileage).toLocaleString("ru-RU")} км</td>
-                            <td><div class="cell-title">${esc(v.next_service_at || "")}<div class="muted">${v.next_service_mileage ? `${num(v.next_service_mileage).toLocaleString("ru-RU")} км` : ""}</div></div></td>
-                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-vehicle" data-id="${safeRecordId(v.id)}" aria-label="Открыть автомобиль ${esc(vehicleName(v) || v.plate || v.id)}">Открыть</button></div></td>
+                            <td data-label="Автомобиль"><div class="cell-title"><strong>${esc(vehicleName(v))}</strong><div class="muted">${esc(v.notes)}</div></div></td>
+                            <td data-label="Госномер">${v.plate ? `<span class="plate">${esc(v.plate)}</span>` : ""}</td>
+                            <td data-label="VIN">${esc(v.vin)}</td>
+                            <td data-label="Клиент"><div class="cell-title">${esc(v.customer_name)}<div class="muted">${esc(v.customer_phone)}</div></div></td>
+                            <td data-label="Пробег">${num(v.mileage).toLocaleString("ru-RU")} км</td>
+                            <td data-label="Следующий сервис"><div class="cell-title">${esc(v.next_service_at || "")}<div class="muted">${v.next_service_mileage ? `${num(v.next_service_mileage).toLocaleString("ru-RU")} км` : ""}</div></div></td>
+                            <td data-label="Действия"><div class="row-actions"><button class="btn" type="button" data-action="edit-vehicle" data-id="${safeRecordId(v.id)}" aria-label="Открыть автомобиль ${esc(vehicleName(v) || v.plate || v.id)}">Открыть</button></div></td>
                         </tr>`).join("");
     return `
         ${viewHeading("Автомобили", "Паспорт автомобиля, VIN, пробег, сервисный план и быстрый доступ к офлайн-каталогу марок и моделей.", [
@@ -2109,8 +2121,8 @@ function renderVehicles() {
             { label: "CSV", action: "export-csv", export: "vehicles", className: "ghost" },
             { label: "Новый автомобиль", action: "new-vehicle", className: "primary" }
         ])}
-        ${rows.length ? `<div class="table-wrap">
-            <table aria-label="Таблица автомобилей">
+        ${rows.length ? `<div class="table-wrap responsive-table-wrap">
+            <table class="responsive-table" aria-label="Таблица автомобилей">
                 <thead>${tableHead(["Автомобиль", "Госномер", "VIN", "Клиент", "Пробег", "Следующий сервис", ""])}</thead>
                 <tbody>${body}</tbody>
             </table>
@@ -2245,14 +2257,14 @@ function renderInventory() {
     const lowCount = rows.filter(part => Number(part.is_low)).length;
     const body = rows.map(p => `
                         <tr>
-                            <td><div class="cell-title"><strong>${esc(p.name)}</strong>${Number(p.is_low) ? `<div><span class="count-pill" data-tone="danger" title="Остаток ниже минимального" aria-label="Ниже минимума">ниже минимума</span></div>` : ""}</div></td>
-                            <td>${esc(p.sku)}</td>
-                            <td>${esc(p.brand)}</td>
-                            <td>${qty(p.quantity)} ${esc(p.unit)}<div class="muted">мин. ${qty(p.min_quantity)}</div></td>
-                            <td class="money">${money(p.price)}</td>
-                            <td class="money">${money(p.cost)}</td>
-                            <td>${esc(p.supplier)}</td>
-                            <td><div class="row-actions"><button class="btn" type="button" data-action="edit-inventory" data-id="${safeRecordId(p.id)}" aria-label="Открыть складскую позицию ${esc(p.name || p.sku || p.id)}">Открыть</button></div></td>
+                            <td data-label="Позиция"><div class="cell-title"><strong>${esc(p.name)}</strong>${Number(p.is_low) ? `<div><span class="count-pill" data-tone="danger" title="Остаток ниже минимального" aria-label="Ниже минимума">ниже минимума</span></div>` : ""}</div></td>
+                            <td data-label="Артикул">${esc(p.sku)}</td>
+                            <td data-label="Бренд">${esc(p.brand)}</td>
+                            <td data-label="Остаток">${qty(p.quantity)} ${esc(p.unit)}<div class="muted">мин. ${qty(p.min_quantity)}</div></td>
+                            <td class="money" data-label="Цена">${money(p.price)}</td>
+                            <td class="money" data-label="Себестоимость">${money(p.cost)}</td>
+                            <td data-label="Поставщик">${esc(p.supplier)}</td>
+                            <td data-label="Действия"><div class="row-actions"><button class="btn" type="button" data-action="edit-inventory" data-id="${safeRecordId(p.id)}" aria-label="Открыть складскую позицию ${esc(p.name || p.sku || p.id)}">Открыть</button></div></td>
                         </tr>`).join("");
     return `
         ${viewHeading("Склад", "Следите за остатками, себестоимостью, поставщиками и закупкой до остановки ремонта.", [
@@ -2268,8 +2280,8 @@ function renderInventory() {
             ${insightCard("Ниже минимума", lowCount, "Позиции для закупки")}
             ${insightCard("Стоимость склада", money(state.data.reports.inventory_value || 0), "По себестоимости остатков")}
         </section>
-        ${rows.length ? `<div class="table-wrap">
-            <table aria-label="Таблица складских позиций">
+        ${rows.length ? `<div class="table-wrap responsive-table-wrap">
+            <table class="responsive-table" aria-label="Таблица складских позиций">
                 <thead>${tableHead(["Позиция", "Артикул", "Бренд", "Остаток", {text: "Цена", className: "money"}, {text: "Себестоимость", className: "money"}, "Поставщик", ""])}</thead>
                 <tbody>${body}</tbody>
             </table>
@@ -3451,7 +3463,8 @@ function openOrderModal(order = {}) {
         `${order.id && !closedFinancialOrder ? `<button class="btn danger" type="button" data-save="delete-order" data-id="${safeRecordId(order.id)}">Удалить</button>` : ""}
          ${order.id ? `<button class="btn ghost" type="button" data-save="print-order" data-id="${safeRecordId(order.id)}">Печать</button>` : ""}
          <button class="btn" type="button" data-save="cancel">Отмена</button>
-         <button class="btn primary" type="button" data-save="order" data-id="${safeRecordId(order.id)}" ${order.status === "cancelled" ? "disabled" : ""}>Сохранить</button>`
+         <button class="btn primary" type="button" data-save="order" data-id="${safeRecordId(order.id)}" ${order.status === "cancelled" ? "disabled" : ""}>Сохранить</button>`,
+        "wide"
     );
     renderOrderItems();
     $("#order_customer_id").addEventListener("change", event => {
@@ -3571,13 +3584,13 @@ function orderTotalsHtml() {
     const paidPreview = Math.min(num(document.querySelector('#orderForm [name="paid"]')?.value, 0), Math.max(0, subtotal - discountPreview) + taxPreview);
     const duePreview = Math.max(0, subtotal - discountPreview + taxPreview - paidPreview);
     return `<div class="totals" id="orderTotals">
-        <div><span>Работы</span><strong>${money(service)}</strong></div>
-        <div><span>Запчасти</span><strong>${money(parts)}</strong></div>
-        <div><span>Отложено/отказ</span><strong>${money(deferred)}</strong></div>
-        <div><span>Скидка</span><strong>${money(discountPreview)}</strong></div>
-        <div><span>Налог</span><strong>${money(taxPreview)}</strong></div>
-        <div><span>Оплачено</span><strong>${money(paidPreview)}</strong></div>
-        <div class="grand"><span>К оплате</span><strong>${money(duePreview)}</strong></div>
+        <div><small>Работы</small><strong>${money(service)}</strong></div>
+        <div><small>Запчасти</small><strong>${money(parts)}</strong></div>
+        <div><small>Отложено/отказ</small><strong>${money(deferred)}</strong></div>
+        <div><small>Скидка</small><strong>${money(discountPreview)}</strong></div>
+        <div><small>Налог</small><strong>${money(taxPreview)}</strong></div>
+        <div><small>Оплачено</small><strong>${money(paidPreview)}</strong></div>
+        <div class="grand"><small>К оплате</small><strong>${money(duePreview)}</strong></div>
     </div>`;
 }
 
