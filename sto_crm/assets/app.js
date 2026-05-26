@@ -3700,7 +3700,7 @@ function insufficientStockMessage(status) {
         const part = stock.get(id);
         if (!part) return;
         const available = num(part.quantity, 0);
-        if (available + 0.000001 < need) shortages.push(`${part.name}: доступно ${qty(available)}, требуется ${qty(need)}`);
+        if (available < need) shortages.push(`${part.name}: доступно ${qty(available)}, требуется ${qty(need)}`);
     });
     return shortages.length ? `Недостаточно на складе для закрытия заказа: ${shortages.join("; ")}.` : "";
 }

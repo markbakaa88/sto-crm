@@ -87,6 +87,47 @@ class StoCrmTests(unittest.TestCase):
             }
         )
 
+    def order_payload_from_record(self, order):
+        return {
+            key: order.get(key)
+            for key in [
+                "customer_id",
+                "vehicle_id",
+                "status",
+                "priority",
+                "advisor",
+                "mechanic",
+                "promised_at",
+                "odometer",
+                "complaint",
+                "diagnosis",
+                "recommendations",
+                "discount",
+                "tax_rate",
+                "paid",
+                "payment_method",
+                "authorized_by",
+                "authorized_at",
+                "follow_up_at",
+            ]
+        } | {
+            "items": [
+                {
+                    key: item.get(key)
+                    for key in [
+                        "kind",
+                        "inventory_id",
+                        "title",
+                        "approval_status",
+                        "quantity",
+                        "unit_price",
+                        "unit_cost",
+                    ]
+                }
+                for item in order["items"]
+            ]
+        }
+
     def test_order_rejects_vehicle_from_another_customer(self):
         first = self.create_customer("First")
         second = self.create_customer("Second")
@@ -280,6 +321,149 @@ class StoCrmTests(unittest.TestCase):
         self.assertTrue(
             any(item["title"] == "Declined part" for item in reports["deferred_work"])
         )
+
+    def test_tiny_order_item_quantity_is_rejected_before_stock_delta(self):
+        customer = self.create_customer("Tiny Quantity Customer")
+        part = sto_crm.create_inventory(
+            {"sku": "TINY", "name": "Tiny part", "quantity": 0, "price": 10}
+        )
+
+        with self.assertRaisesRegex(ValueError, "не меньше 0.01"):
+            sto_crm.create_order(
+                {
+                    "customer_id": customer["id"],
+                    "status": "closed",
+                    "priority": "normal",
+                    "items": [
+                        {
+                            "kind": "part",
+                            "inventory_id": part["id"],
+                            "title": "Tiny part",
+                            "quantity": 0.000001,
+                            "unit_price": 10,
+                        }
+                    ],
+                }
+            )
+        with sto_crm.db() as conn:
+            self.assertEqual(sto_crm.get_inventory(conn, part["id"])["quantity"], 0)
+
+    def test_cancelled_order_noop_allows_its_deleted_inventory_reference(self):
+        customer = self.create_customer("Cancelled Stock Customer")
+        part = sto_crm.create_inventory(
+            {"sku": "CANCELLED-STOCK", "name": "Cancelled stock", "quantity": 1, "price": 10}
+        )
+        order = sto_crm.create_order(
+            {
+                "customer_id": customer["id"],
+                "status": "cancelled",
+                "priority": "normal",
+                "items": [
+                    {
+                        "kind": "part",
+                        "inventory_id": part["id"],
+                        "title": part["name"],
+                        "quantity": 1,
+                        "unit_price": 10,
+                    }
+                ],
+            }
+        )
+        self.assertEqual(sto_crm.delete_inventory(part["id"]), {"deleted": True})
+
+        noop = sto_crm.update_order(order["id"], self.order_payload_from_record(order))
+        self.assertEqual(noop["status"], "cancelled")
+
+        changed = self.order_payload_from_record(order)
+        changed["items"][0]["quantity"] = 2
+        with self.assertRaisesRegex(ValueError, "нельзя изменить"):
+            sto_crm.update_order(order["id"], changed)
+
+    def test_fractional_stock_exact_sum_does_not_false_fail(self):
+        customer = self.create_customer("Fractional Stock Customer")
+        part = sto_crm.create_inventory(
+            {"sku": "FRACTIONAL", "name": "Bulk fluid", "quantity": 0.3, "price": 10}
+        )
+
+        order = sto_crm.create_order(
+            {
+                "customer_id": customer["id"],
+                "status": "closed",
+                "priority": "normal",
+                "items": [
+                    {
+                        "kind": "part",
+                        "inventory_id": part["id"],
+                        "title": "Bulk fluid 0.1",
+                        "quantity": 0.1,
+                        "unit_price": 10,
+                    },
+                    {
+                        "kind": "part",
+                        "inventory_id": part["id"],
+                        "title": "Bulk fluid 0.2",
+                        "quantity": 0.2,
+                        "unit_price": 10,
+                    },
+                ],
+            }
+        )
+        self.assertEqual(order["status"], "closed")
+        with sto_crm.db() as conn:
+            self.assertEqual(sto_crm.get_inventory(conn, part["id"])["quantity"], 0)
+
+    def test_closed_order_rejects_sub_cent_financial_change(self):
+        customer = self.create_customer("Sub-cent Closed Customer")
+        order = sto_crm.create_order(
+            {
+                "customer_id": customer["id"],
+                "status": "closed",
+                "priority": "normal",
+                "items": [
+                    {
+                        "kind": "service",
+                        "title": "Bulk service",
+                        "quantity": 1000,
+                        "unit_price": 10,
+                        "unit_cost": 1,
+                    }
+                ],
+            }
+        )
+
+        changed_price = self.order_payload_from_record(order)
+        changed_price["items"][0]["unit_price"] = 10.004
+        with self.assertRaisesRegex(ValueError, "Финансовые данные"):
+            sto_crm.update_order(order["id"], changed_price)
+
+        changed_tax = self.order_payload_from_record(order)
+        changed_tax["tax_rate"] = 0.004
+        with self.assertRaisesRegex(ValueError, "Финансовые данные"):
+            sto_crm.update_order(order["id"], changed_tax)
+
+    def test_legacy_closed_order_noop_uses_same_money_normalization(self):
+        customer = self.create_customer("Legacy Closed Money Customer")
+        order = sto_crm.create_order(
+            {
+                "customer_id": customer["id"],
+                "status": "closed",
+                "priority": "normal",
+                "paid": 0,
+                "items": [service_item(100)],
+            }
+        )
+        with sto_crm.db() as conn:
+            conn.execute(
+                "UPDATE orders SET paid = ?, discount = ? WHERE id = ?",
+                (999, 999, order["id"]),
+            )
+            legacy = sto_crm.get_order(conn, order["id"])
+
+        self.assertEqual(legacy["paid"], 0)
+        self.assertEqual(legacy["total"], 0)
+        noop = sto_crm.update_order(order["id"], self.order_payload_from_record(legacy))
+        self.assertEqual(noop["status"], "closed")
+        self.assertEqual(noop["paid"], 0)
 
     def test_appointments_reject_wrong_vehicle_and_report_today(self):
         first = self.create_customer("Appointment One")
@@ -1982,6 +2166,31 @@ class StoCrmTests(unittest.TestCase):
             number = sto_crm.generate_order_number(conn)
         self.assertEqual(number, f"{today_prefix}-101")
 
+    def test_order_number_skips_legacy_seven_digit_collision(self):
+        today_prefix = sto_crm.datetime.now().strftime("СТО-%Y%m%d")
+        stamp = sto_crm.now_iso()
+        with sto_crm.db() as conn:
+            conn.execute(
+                """
+                INSERT INTO customers(name, phone, email, source, notes, created_at, updated_at)
+                VALUES ('Number Collision Customer', '', '', '', '', ?, ?)
+                """,
+                (stamp, stamp),
+            )
+            customer_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+            conn.executemany(
+                """
+                INSERT INTO orders(number, customer_id, status, priority, created_at, updated_at)
+                VALUES (?, ?, 'new', 'normal', ?, ?)
+                """,
+                [
+                    (f"{today_prefix}-999999", customer_id, stamp, stamp),
+                    (f"{today_prefix}-1000000", customer_id, stamp, stamp),
+                ],
+            )
+            number = sto_crm.generate_order_number(conn)
+        self.assertEqual(number, f"{today_prefix}-1000001")
+
     def test_order_search_does_not_match_soft_deleted_vehicle_fields(self):
         customer = self.create_customer("Deleted Vehicle Search")
         vehicle = self.create_vehicle(customer["id"], "H777ID")
@@ -2370,6 +2579,70 @@ class StoCrmTests(unittest.TestCase):
         finally:
             sto_crm.RUNTIME = current_runtime
 
+    def test_legacy_order_number_migration_avoids_second_order_collision(self):
+        current_runtime = sto_crm.RUNTIME
+        legacy_db = Path(self.tempdir.name) / "legacy-order-number-collision.sqlite3"
+        conn = sqlite3.connect(legacy_db)
+        try:
+            conn.execute(
+                """
+                CREATE TABLE customers(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    deleted_at TEXT
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE orders(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    number TEXT NOT NULL DEFAULT '',
+                    customer_id INTEGER NOT NULL DEFAULT 1,
+                    status TEXT NOT NULL DEFAULT 'new',
+                    priority TEXT NOT NULL DEFAULT 'normal',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    deleted_at TEXT
+                )
+                """
+            )
+            conn.execute("INSERT INTO customers(id, name) VALUES (1, 'Legacy')")
+            conn.executemany(
+                "INSERT INTO orders(id, number, customer_id) VALUES (?, ?, 1)",
+                [(1, "DUP"), (2, "DUP"), (3, "DUP-000002")],
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        sto_crm.RUNTIME = sto_crm.Runtime(legacy_db, time.time(), "legacy-token")
+        try:
+            sto_crm.init_db()
+            migrated = sqlite3.connect(legacy_db)
+            try:
+                numbers = [
+                    row[0]
+                    for row in migrated.execute(
+                        "SELECT number FROM orders ORDER BY id"
+                    ).fetchall()
+                ]
+                duplicate_count = migrated.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM (
+                        SELECT number FROM orders GROUP BY number HAVING COUNT(*) > 1
+                    )
+                    """
+                ).fetchone()[0]
+            finally:
+                migrated.close()
+            self.assertEqual(numbers, ["DUP", "DUP-000002-2", "DUP-000002"])
+            self.assertEqual(duplicate_count, 0)
+        finally:
+            sto_crm.RUNTIME = current_runtime
+
     def test_backup_creates_readable_sqlite_copy(self):
         customer = self.create_customer("Backup Customer")
         result = sto_crm.create_backup()
@@ -2536,6 +2809,27 @@ class StoCrmTests(unittest.TestCase):
                 for item in reports["vip_customers"]
             )
         )
+
+    def test_reports_count_all_upcoming_appointments_not_only_preview(self):
+        customer = self.create_customer("Upcoming Count Customer")
+        tomorrow = (sto_crm.datetime.now() + sto_crm.timedelta(days=1)).replace(
+            microsecond=0
+        )
+        for index in range(10):
+            sto_crm.create_appointment(
+                {
+                    "customer_id": customer["id"],
+                    "scheduled_at": (
+                        tomorrow + sto_crm.timedelta(hours=index)
+                    ).isoformat(timespec="minutes"),
+                    "duration_minutes": 30,
+                    "status": "scheduled",
+                }
+            )
+
+        reports = sto_crm.bootstrap_payload()["reports"]
+        self.assertEqual(reports["appointments_upcoming_count"], 10)
+        self.assertEqual(len(reports["appointments_upcoming"]), 8)
 
     def test_reports_count_all_customers_and_top_services_use_closed_sales(self):
         customer_with_open_order = self.create_customer("Open report customer")

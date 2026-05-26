@@ -299,6 +299,18 @@ def resolve_active_duplicate_values(
     return resolved
 
 
+def unique_order_number_for_migration(
+    conn: sqlite3.Connection, base_number: str, row_id: int
+) -> str:
+    candidate_base = f"{base_number}-{row_id:06d}"
+    candidate = candidate_base
+    suffix = 2
+    while conn.execute("SELECT 1 FROM orders WHERE number = ?", (candidate,)).fetchone():
+        candidate = f"{candidate_base}-{suffix}"
+        suffix += 1
+    return candidate
+
+
 def ensure_unique_index(
     conn: sqlite3.Connection, statement: str, table: str, column: str, label: str
 ) -> None:
@@ -439,9 +451,10 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             (duplicate["number"],),
         ).fetchall()
         for row in rows[1:]:
+            row_id = int(row["id"])
             conn.execute(
                 "UPDATE orders SET number = ? WHERE id = ?",
-                (f"{row['number']}-{int(row['id']):06d}", int(row["id"])),
+                (unique_order_number_for_migration(conn, str(row["number"]), row_id), row_id),
             )
 
     ensure_column(conn, "order_items", "order_id", "INTEGER NOT NULL DEFAULT 0")

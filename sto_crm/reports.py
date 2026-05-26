@@ -210,12 +210,13 @@ def build_reports(
         if appointment.get("status") in appointment_active_statuses
         and str(appointment.get("scheduled_at") or "").startswith(today.isoformat())
     ]
-    appointments_upcoming = [
+    appointments_upcoming_all = [
         appointment
         for appointment in appointments
         if appointment.get("status") in appointment_active_statuses
         and str(appointment.get("scheduled_at") or "")[:10] >= today.isoformat()
-    ][:8]
+    ]
+    appointments_upcoming = appointments_upcoming_all[:8]
     appointment_load_7_days = []
     for offset in range(7):
         day = today + timedelta(days=offset)
@@ -666,7 +667,7 @@ def build_reports(
         "avg_check": round(avg_check, 2),
         "low_stock_count": len(low_stock),
         "appointments_today_count": len(appointments_today),
-        "appointments_upcoming_count": len(appointments_upcoming),
+        "appointments_upcoming_count": len(appointments_upcoming_all),
         "overdue_orders_count": len(overdue_orders),
         "crm_tasks_count": crm_tasks_count,
         "action_plan": action_plan,

@@ -14,6 +14,7 @@ from .config import (
     EMAIL_RE,
     ITEM_APPROVAL_STATUSES,
     MAX_FINANCIAL_TOTAL,
+    MIN_QUANTITY_STEP,
     ORDER_PRIORITIES,
     ORDER_STATUSES,
     PREFERRED_CHANNELS,
@@ -70,8 +71,8 @@ def generate_order_number(conn: sqlite3.Connection) -> str:
 
     Намеренно игнорируем legacy-номера с суффиксом вне диапазона 3-6 цифр,
     чтобы случайный импорт/ручная правка с аномальным суффиксом не ломали
-    ежедневный инкремент. Сгенерированный номер всегда 3-значный и не
-    конфликтует с 7+-значными legacy-номерами.
+    ежедневный инкремент. При редкой коллизии с таким legacy-номером счетчик
+    продвигается дальше до первого свободного номера.
     """
     prefix = datetime.now().strftime("СТО-%Y%m%d")
     pattern = re.compile(rf"^{re.escape(prefix)}-(\d{{3,6}})$")
@@ -89,7 +90,13 @@ def generate_order_number(conn: sqlite3.Connection) -> str:
         except (TypeError, ValueError):
             continue
         max_suffix = max(max_suffix, suffix)
-    return f"{prefix}-{max_suffix + 1:03d}"
+    existing_numbers = {str(row["number"] or "") for row in rows}
+    next_suffix = max_suffix + 1
+    while True:
+        number = f"{prefix}-{next_suffix:03d}"
+        if number not in existing_numbers:
+            return number
+        next_suffix += 1
 
 
 def parse_bool_field(value: Any, field_name: str, default: bool = False) -> int:
@@ -385,6 +392,10 @@ def validate_order_item(
     )
     if quantity <= 0:
         raise ValueError("Количество в позиции должно быть больше нуля.")
+    if quantity < MIN_QUANTITY_STEP:
+        raise ValueError(
+            f"Количество в позиции должно быть не меньше {MIN_QUANTITY_STEP:g}."
+        )
 
     return {
         "kind": kind,

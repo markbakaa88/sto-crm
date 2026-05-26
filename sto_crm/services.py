@@ -22,6 +22,7 @@ from .validation import (
     ensure_unique_active_value,
     generate_order_number,
     item_is_billable,
+    normalize_order_money,
     validate_appointment,
     validate_customer,
     validate_inventory,
@@ -594,15 +595,17 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         if not old:
             raise KeyError("Заказ-наряд не найден.")
         old_items = list_order_items(conn, record_id)
+        old_status = str(old["status"])
         old_deleted_inventory_ids = {
             int(item["inventory_id"])
             for item in old_items
             if item.get("inventory_id")
             and item.get("inventory_deleted_at")
-            and str(old["closed_at"] or "")
-            and str(old["status"]) in {"closed", "cancelled"}
+            and (
+                str(old["closed_at"] or "")
+                or old_status in {"closed", "cancelled"}
+            )
         }
-        old_status = str(old["status"])
         old_deleted_vehicle_id = (
             int(old["vehicle_id"] or 0) if old["vehicle_id"] else None
         )
@@ -817,6 +820,11 @@ def part_quantities(items: list[dict[str, Any]]) -> dict[int, float]:
     return dict(result)
 
 
+def closed_signature_number(value: Any) -> float:
+    """Канонизирует числа для защиты закрытых заказов от скрытых правок."""
+    return round(parse_float(value), 9)
+
+
 def closed_item_signature(item: dict[str, Any]) -> tuple[Any, ...]:
     """Стабильный финансовый снимок строки закрытого заказ-наряда."""
     return (
@@ -824,15 +832,29 @@ def closed_item_signature(item: dict[str, Any]) -> tuple[Any, ...]:
         int(item.get("inventory_id") or 0),
         str(item.get("title") or ""),
         str(item.get("approval_status") or "approved"),
-        round(parse_float(item.get("quantity")), 6),
-        round(parse_float(item.get("unit_price")), 2),
-        round(parse_float(item.get("unit_cost")), 2),
+        closed_signature_number(item.get("quantity")),
+        closed_signature_number(item.get("unit_price")),
+        closed_signature_number(item.get("unit_cost")),
     )
+
+
+def canonical_closed_order(
+    order: dict[str, Any] | sqlite3.Row, items: list[dict[str, Any]]
+) -> dict[str, Any]:
+    canonical = {
+        "discount": parse_float(order["discount"]),
+        "tax_rate": parse_float(order["tax_rate"]),
+        "paid": parse_float(order["paid"]),
+        "items": items,
+    }
+    normalize_order_money(canonical)
+    return canonical
 
 
 def closed_order_signature(
     order: dict[str, Any] | sqlite3.Row, items: list[dict[str, Any]]
 ) -> tuple[Any, ...]:
+    canonical = canonical_closed_order(order, items)
     return (
         str(order["status"]),
         int(order["customer_id"]),
@@ -845,9 +867,9 @@ def closed_order_signature(
         str(order["complaint"] or ""),
         str(order["diagnosis"] or ""),
         str(order["recommendations"] or ""),
-        round(parse_float(order["discount"]), 2),
-        round(parse_float(order["tax_rate"]), 4),
-        round(parse_float(order["paid"]), 2),
+        closed_signature_number(canonical["discount"]),
+        closed_signature_number(canonical["tax_rate"]),
+        closed_signature_number(canonical["paid"]),
         str(order["payment_method"] or ""),
         str(order["authorized_by"] or ""),
         str(order["authorized_at"] or ""),
@@ -891,6 +913,7 @@ def apply_inventory_delta(
     old_items: list[dict[str, Any]],
     new_items: list[dict[str, Any]],
 ) -> None:
+    stock_epsilon = 1e-9
     old_consumed = (
         part_quantities(old_items) if old_status in CONSUMING_STATUSES else {}
     )
@@ -900,7 +923,7 @@ def apply_inventory_delta(
     all_part_ids = sorted(set(old_consumed) | set(new_consumed))
     for part_id in all_part_ids:
         delta = new_consumed.get(part_id, 0.0) - old_consumed.get(part_id, 0.0)
-        if abs(delta) < 0.000001:
+        if abs(delta) < stock_epsilon:
             continue
         part = conn.execute(
             "SELECT id, name, quantity, deleted_at FROM inventory WHERE id=?",
@@ -917,11 +940,14 @@ def apply_inventory_delta(
                 f"Восстановите позицию склада «{part['name']}» перед возвратом остатков отмененного заказа."
             )
         current_qty = parse_float(part["quantity"])
-        if delta > 0 and current_qty + 0.000001 < delta:
+        if delta > 0 and current_qty + stock_epsilon < delta:
             raise ValueError(
                 f"Недостаточно на складе: {part['name']}. Доступно {current_qty:g}, требуется {delta:g}."
             )
+        new_quantity = current_qty - delta
+        if abs(new_quantity) < stock_epsilon:
+            new_quantity = 0.0
         conn.execute(
-            "UPDATE inventory SET quantity = quantity - ?, updated_at = ? WHERE id = ?",
-            (delta, now_iso(), part_id),
+            "UPDATE inventory SET quantity = ?, updated_at = ? WHERE id = ?",
+            (new_quantity, now_iso(), part_id),
         )
