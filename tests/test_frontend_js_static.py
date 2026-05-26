@@ -7,6 +7,7 @@ most important accessibility/mobile-navigation contracts.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import unittest
@@ -75,6 +76,7 @@ class FrontendStaticQualityTests(unittest.TestCase):
         self.assertNotIn(".style.", js)
         self.assertNotIn("style=", js)
         self.assertNotIn("catch (_error)", js)
+        self.assertNotIn("document.documentElement.style", js)
 
     def test_frontend_mobile_nav_and_dialog_visibility_contracts(self) -> None:
         html = read(INDEX_HTML)
@@ -86,15 +88,18 @@ class FrontendStaticQualityTests(unittest.TestCase):
         self.assertIn('aria-controls="appSidebar"', html)
         self.assertIn("function initMobileNavigation()", js)
         self.assertIn("setMobileNavOpen(false);", js)
+        self.assertIn('setMobileNavOpen(false, { restoreFocus: false });', js)
         self.assertIn("body.mobile-nav-open .sidebar", css)
         self.assertIn("mobileNavBackdrop", js)
-        self.assertIn('id="modalBackdrop" role="presentation" hidden', html)
-        self.assertIn('id="commandPalette" role="presentation" hidden', html)
+        self.assertIn('id="modalBackdrop" hidden', html)
+        self.assertIn('id="commandPalette" hidden', html)
+        self.assertNotIn('id="modalBackdrop" role="presentation"', html)
+        self.assertNotIn('id="commandPalette" role="presentation"', html)
         self.assertNotIn(
-            'id="modalBackdrop" role="presentation" aria-hidden="true" hidden', html
+            'id="modalBackdrop" aria-hidden="true" hidden', html
         )
         self.assertNotIn(
-            'id="commandPalette" role="presentation" aria-hidden="true" hidden', html
+            'id="commandPalette" aria-hidden="true" hidden', html
         )
         self.assertIn("backdrop.hidden = false;", js)
         self.assertIn("backdrop.hidden = true;", js)
@@ -107,9 +112,10 @@ class FrontendStaticQualityTests(unittest.TestCase):
             'if ("inert" in app) {\n            app.removeAttribute("aria-hidden");', js
         )
         self.assertIn(
-            'if (isMobile && !nextOpen && !hasNativeInert) sidebar.setAttribute("aria-hidden", "true");',
+            'if (isMobile && !nextOpen) sidebar.setAttribute("aria-hidden", "true");',
             js,
         )
+        self.assertIn('main.toggleAttribute("aria-hidden", nextOpen);', js)
         self.assertNotIn('backdrop.setAttribute("aria-hidden", "true");', js)
         self.assertNotIn('palette.setAttribute("aria-hidden", "true");', js)
 
@@ -121,6 +127,53 @@ class FrontendStaticQualityTests(unittest.TestCase):
         self.assertIn("if (!result.updated)", js)
         self.assertIn("Обновление не требуется", js)
         self.assertIn("disabled: installDisabled", js)
+
+    def test_frontend_bootstrap_guards_and_order_route_filter_reload(self) -> None:
+        js = read(APP_JS)
+        self.assertIn('function ensureBootstrapReady(actionName = "действие")', js)
+        for modal, label in [
+            ("openAppointmentModal", "создание записи"),
+            ("openCustomerModal", "создание клиента"),
+            ("openVehicleModal", "создание автомобиля"),
+            ("openInventoryModal", "создание складской позиции"),
+            ("openOrderModal", "создание заказ-наряда"),
+        ]:
+            pattern = rf"function {modal}\([^)]*\) \{{\n\s+if \(!ensureBootstrapReady\(\"{re.escape(label)}\"\)\) return;"
+            self.assertRegex(js, pattern)
+        self.assertIn(
+            "const needsRouteFilterReload = enteringFilteredOrders || leavingFilteredOrders;",
+            js,
+        )
+        self.assertIn('state.status = "all";', js)
+
+    def test_frontend_order_history_readonly_contracts(self) -> None:
+        js = read(APP_JS)
+        self.assertIn("state.orderDraftReadOnly = historicalOrder;", js)
+        self.assertIn(
+            'readonlyField("Follow-up", readonlyValue(inputDateValue(order.follow_up_at)))',
+            js,
+        )
+        self.assertIn('hiddenInput("follow_up_at", inputDateValue(order.follow_up_at))', js)
+        self.assertIn('if (state.orderDraftReadOnly) return;\n        markModalDirty();', js)
+        self.assertIn(
+            "function syncAllOrderItems() {\n    if (state.orderDraftReadOnly) return;",
+            js,
+        )
+        self.assertIn(
+            "function syncOrderItemsFromDom(event) {\n    if (state.orderDraftReadOnly) return;",
+            js,
+        )
+        self.assertIn(
+            "function syncOrderItemStateOnly(event) {\n    if (state.orderDraftReadOnly) return;",
+            js,
+        )
+        self.assertIn("${ordersTable(recent, true)}", js)
+        self.assertIn(
+            "function findById(list, id) {\n    return Array.isArray(list)",
+            js,
+        )
+        self.assertIn("function closeTransientPanels(", js)
+        self.assertIn("closeTransientPanels();\n    const previousRoute = state.route;", js)
 
     def test_frontend_lints_without_unused_variables_when_eslint_available(
         self,
@@ -147,6 +200,8 @@ class FrontendStaticQualityTests(unittest.TestCase):
 
     def test_css_mobile_responsiveness_contracts(self) -> None:
         css = read(APP_CSS)
+        html = read(INDEX_HTML)
+        js = read(APP_JS)
         self.assertIn("body.compact { --header-h: 52px;", css)
         self.assertIn("minmax(min(100%, 320px), 1fr)", css)
         self.assertIn("@media (pointer: coarse)", css)
@@ -156,6 +211,50 @@ class FrontendStaticQualityTests(unittest.TestCase):
         self.assertIn(".modal-backdrop[hidden], .command-palette-backdrop[hidden]", css)
         self.assertRegex(css, r"\.modal\.small\s*\{\s*max-width:\s*520px")
         self.assertRegex(css, r"\.modal\.wide\s*\{\s*max-width:\s*1080px")
+        self.assertIn("@media (max-width: 1280px) and (min-width: 1025px)", css)
+        self.assertIn("body.sidebar-collapsed .nav-label { display: inline; }", css)
+        self.assertIn(".cta-wrap, .system-menu { position: relative; }", css)
+        self.assertIn(
+            ".top-actions, .bell-wrap, .cta-wrap, .system-menu { overflow: visible; }",
+            css,
+        )
+        self.assertIn(".sidebar { position: fixed; top: 0; left: 0; width: 260px;", css)
+        self.assertIn("#primaryCtaMore { width: 44px; min-width: 44px;", css)
+        self.assertIn(".system-menu-button { width: 44px; min-width: 44px;", css)
+        self.assertIn(".search-clear,", css)
+        self.assertIn(".breadcrumbs .crumb,", css)
+        self.assertIn(".system-menu-panel { display: none !important; }", css)
+        self.assertIn(".business-hints { padding-right: var(--space-5); }", css)
+        self.assertIn(".hint-dismiss { top: var(--space-1); right: var(--space-1);", css)
+        self.assertIn('aria-haspopup="dialog"', html)
+        self.assertIn('id="bellPanel" role="dialog"', html)
+        self.assertIn('id="statusbar" aria-label="Статус приложения"', html)
+        self.assertNotIn('id="statusbar" role="status"', html)
+        self.assertIn('aria-keyshortcuts="Control+K Meta+K"', html)
+        self.assertIn('class="system-menu-icon" aria-hidden="true">⚙', html)
+        self.assertIn('class="btn ghost bell-panel-close"', html)
+        self.assertIn('role="note" tabindex="0" aria-label', js)
+        self.assertIn('$("#bellClose")?.addEventListener("click"', js)
+        self.assertNotIn("#commandBtn,\n    #refreshBtn,", css)
+        self.assertNotIn("#refreshBtn,\n    #systemMenuBtn", css)
+        self.assertIn("#commandBtn, #refreshBtn { width: 44px;", css)
+        self.assertIn("#commandBtn::before", css)
+        self.assertIn("--topbar-offset: var(--header-h)", css)
+        self.assertIn("top: var(--topbar-offset)", css)
+        self.assertIn(
+            "max-height: calc(100dvh - var(--topbar-offset) - var(--space-4))",
+            css,
+        )
+        self.assertIn('html[data-topbar-offset="lg"] { --topbar-offset: 140px; }', css)
+        self.assertIn(".breadcrumbs { padding-inline: var(--space-4); }", css)
+        self.assertIn(".search-hint { display: none; }", css)
+        self.assertIn("updateTopbarOffset", js)
+        self.assertIn('closeTransientPanels("cta")', js)
+        self.assertIn('closeTransientPanels("bell")', js)
+        self.assertIn('closeTransientPanels("system")', js)
+        self.assertIn("closePanel(false, { restoreFocus: true });", js)
+        self.assertIn("content?.focus({ preventScroll: true });", js)
+        self.assertIn('setMobileNavOpen(false, { restoreFocus: false });', js)
 
 
 if __name__ == "__main__":

@@ -109,6 +109,32 @@ def create_backup() -> dict[str, Any]:
         "display_path": display_path(target),
         "filename": target.name,
         "size": size,
+        "created_at": datetime.fromtimestamp(target.stat().st_mtime).isoformat(
+            timespec="minutes"
+        ),
+    }
+
+
+def latest_backup_info() -> dict[str, Any] | None:
+    backup_dir = _runtime.RUNTIME.db_path.parent / "backups"
+    try:
+        backups = [
+            path for path in backup_dir.glob("sto_crm_backup_*.sqlite3") if path.is_file()
+        ]
+        if not backups:
+            return None
+        latest = max(backups, key=lambda path: path.stat().st_mtime)
+        stat = latest.stat()
+    except OSError:
+        return None
+    return {
+        "path": str(latest),
+        "display_path": display_path(latest),
+        "filename": latest.name,
+        "size": stat.st_size,
+        "created_at": datetime.fromtimestamp(stat.st_mtime).isoformat(
+            timespec="minutes"
+        ),
     }
 
 

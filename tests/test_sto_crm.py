@@ -3184,8 +3184,9 @@ class StoCrmTests(unittest.TestCase):
             "Сессия безопасности устарела. Обновите данные CRM и повторите действие.",
             html,
         )
-        self.assertIn('if (state.route === "orders" && state.status !== "all")', html)
-        self.assertIn("const needsRouteFilterReload = hasOrderFilter && (", html)
+        self.assertIn('const requestStatus = state.route === "orders" ? state.status : "all";', html)
+        self.assertIn("const leavingFilteredOrders = hasOrderFilter", html)
+        self.assertIn("const enteringFilteredOrders = hasOrderFilter", html)
         self.assertIn('data-reload-before-action="1"', html)
         self.assertIn("function exportUrl(entity)", html)
         self.assertIn("async function downloadCsv(entity)", html)
@@ -3218,7 +3219,7 @@ class StoCrmTests(unittest.TestCase):
             'const invalidItems = state.orderDraftItems.filter(item => !String(item.title || "").trim() || num(item.quantity, 0) <= 0);',
             html,
         )
-        self.assertEqual(html.count("applyFormError("), 3)
+        self.assertEqual(html.count("applyFormError("), 4)
 
     def test_frontend_shortcuts_customer_selection_and_layout_contracts(self):
         html = sto_crm.INDEX_HTML
@@ -3690,6 +3691,7 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn("procurementList(r.procurement_plan || [])", dashboard)
         self.assertIn("workloadList(r.workload_by_responsible || [])", dashboard)
         self.assertIn('action: "open-action-plan"', dashboard)
+        self.assertIn("${ordersTable(recent, true)}", dashboard)
 
     def test_frontend_css_matches_runtime_shell_states_and_dense_components(self):
         html = sto_crm.INDEX_HTML
@@ -3709,6 +3711,9 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn(".scroll-hint { display: none;", html)
         self.assertIn(".has-horizontal-overflow .scroll-hint { display: block; }", html)
         self.assertIn(".span-3 { grid-column: 1 / -1; }", html)
+        self.assertIn(".business-hints { padding-right: var(--space-5); }", html)
+        self.assertIn("function closeTransientPanels(", html)
+        self.assertIn('closeTransientPanels("cta")', html)
 
     def test_print_order_html_uses_professional_document_design(self):
         order = {

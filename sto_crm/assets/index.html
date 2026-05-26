@@ -15,7 +15,7 @@
 </head>
 <body>
 <a class="skip-link" href="#content">К основному содержанию</a>
-<div class="app-progress" id="appProgress" role="progressbar" aria-hidden="true" aria-label="Загрузка данных"></div>
+<div class="app-progress" id="appProgress" aria-hidden="true"></div>
 <div class="app">
     <aside class="sidebar" id="appSidebar" aria-label="Навигация CRM">
         <div class="brand">
@@ -48,7 +48,7 @@
         </nav>
         <div class="db-path" id="dbPath"></div>
     </aside>
-    <button type="button" class="mobile-nav-backdrop" id="mobileNavBackdrop" aria-label="Закрыть навигацию" hidden></button>
+    <button type="button" class="mobile-nav-backdrop" id="mobileNavBackdrop" aria-label="Закрыть навигацию" tabindex="-1" hidden></button>
     <main class="main">
         <header class="topbar">
             <button type="button" class="btn icon mobile-nav-toggle" id="mobileNavToggle" aria-label="Открыть навигацию" aria-expanded="false" aria-controls="appSidebar" title="Навигация" data-tooltip="Навигация">☰</button>
@@ -77,17 +77,18 @@
                     </div>
                 </div>
                 <div class="bell-wrap">
-                    <button type="button" class="bell" id="bellBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="bellPanel" aria-label="Уведомления" data-tooltip="Задачи и напоминания"><span aria-hidden="true">◌</span><span class="bell-count" id="bellCount" hidden>0</span></button>
-                    <div class="bell-panel" id="bellPanel" role="menu" aria-label="Очередь событий" hidden>
+                    <button type="button" class="bell" id="bellBtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="bellPanel" aria-label="Уведомления: новых событий нет" data-tooltip="Задачи и напоминания"><span aria-hidden="true">◌</span><span class="bell-count" id="bellCount" hidden>0</span></button>
+                    <div class="bell-panel" id="bellPanel" role="dialog" aria-label="Очередь событий" hidden>
                         <h4>События смены</h4>
+                        <button type="button" class="btn ghost bell-panel-close" id="bellClose" aria-label="Закрыть уведомления">Закрыть</button>
                         <div class="bell-empty" id="bellEmpty">Всё спокойно — новых сигналов нет.</div>
                         <div id="bellList"></div>
                     </div>
                 </div>
-                <button type="button" class="btn ghost" id="commandBtn" title="Командная палитра Ctrl+K" aria-label="Открыть командную палитру" data-tooltip="Командная палитра · Ctrl+K">⌘K</button>
+                <button type="button" class="btn ghost" id="commandBtn" title="Командная палитра Ctrl+K" aria-label="Открыть командную палитру" aria-keyshortcuts="Control+K Meta+K" data-tooltip="Командная палитра · Ctrl+K">⌘K</button>
                 <button type="button" class="btn icon" id="refreshBtn" title="Обновить" aria-label="Обновить данные" data-tooltip="Обновить · R">↻</button>
                 <div class="system-menu" id="systemMenuRoot">
-                    <button type="button" class="btn ghost system-menu-button" id="systemMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="systemMenu" title="Системные действия CRM" data-tooltip="Система и настройки"><span>Система</span><span aria-hidden="true">▾</span></button>
+                    <button type="button" class="btn ghost system-menu-button" id="systemMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="systemMenu" aria-label="Системные действия CRM" title="Системные действия CRM" data-tooltip="Система и настройки"><span>Система</span><span class="system-menu-icon" aria-hidden="true">⚙</span></button>
                     <div class="system-menu-panel" id="systemMenu" role="menu" aria-label="Системные действия CRM" hidden>
                         <button type="button" role="menuitem" class="system-menu-item" id="themeToggle" title="Тёмная/светлая тема" aria-label="Переключить тёмную или светлую тему" aria-pressed="false"><span data-menu-icon aria-hidden="true">◐</span><span data-menu-label>Тема</span></button>
                         <button type="button" role="menuitem" class="system-menu-item" id="densityToggle" title="Плотность интерфейса" aria-label="Переключить плотность интерфейса" aria-pressed="false"><span data-menu-icon aria-hidden="true">↕</span><span data-menu-label>Плотность</span></button>
@@ -109,7 +110,7 @@
                 <div class="notice" role="alert"><strong>Для работы СТО CRM требуется JavaScript.</strong><p>Включите JavaScript в браузере и обновите страницу локального приложения.</p></div>
             </noscript>
         </section>
-        <footer class="statusbar" id="statusbar" role="contentinfo" aria-label="Статус приложения">
+        <footer class="statusbar" id="statusbar" aria-label="Статус приложения">
             <div class="status-left">
                 <span class="status-item" id="statusConnection" data-tooltip="Локальная база данных"><span class="dot" aria-hidden="true"></span><span id="statusConnectionText">Подключено</span></span>
                 <span class="status-item" id="statusDbPath"><span class="path" id="statusDbPathText"></span></span>
@@ -124,14 +125,14 @@
         </footer>
     </main>
 </div>
-<div class="modal-backdrop" id="modalBackdrop" role="presentation" hidden>
+<div class="modal-backdrop" id="modalBackdrop" hidden>
     <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" tabindex="-1">
         <div class="modal-head"><div class="modal-title" id="modalTitle"></div><button type="button" class="btn icon" id="modalClose" title="Закрыть" aria-label="Закрыть окно" data-tooltip="Закрыть · Esc">×</button></div>
         <div class="modal-body" id="modalBody"></div>
         <div class="modal-foot" id="modalFoot"></div>
     </div>
 </div>
-<div class="command-palette-backdrop" id="commandPalette" role="presentation" hidden>
+<div class="command-palette-backdrop" id="commandPalette" hidden>
     <div class="command-palette" role="dialog" aria-modal="true" aria-labelledby="commandPaletteTitle">
         <div class="command-palette-head">
             <span aria-hidden="true">⌘</span>

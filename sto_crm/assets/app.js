@@ -12,6 +12,7 @@ const state = {
     loadSeq: 0,
     lastError: "",
     orderDraftItems: [],
+    orderDraftReadOnly: false,
     bootstrapAbortController: null,
     modalDirty: false,
     saving: false,
@@ -58,6 +59,16 @@ if (requestedRoute && routes[requestedRoute]) {
 }
 
 const priorityLabels = { low: "Низкий", normal: "Обычный", high: "Высокий", urgent: "Срочно" };
+const orderStatusTransitions = {
+    new: ["diagnostics", "estimate", "approved", "in_progress", "done", "closed", "cancelled"],
+    diagnostics: ["estimate", "approved", "in_progress", "done", "closed", "cancelled"],
+    estimate: ["approved", "in_progress", "done", "closed", "cancelled"],
+    approved: ["in_progress", "done", "closed", "cancelled"],
+    in_progress: ["done", "closed", "cancelled"],
+    done: ["closed", "cancelled"],
+    closed: ["cancelled"],
+    cancelled: []
+};
 const channelLabels = { phone: "Телефон", sms: "SMS", email: "Email", messenger: "Мессенджер", none: "Не писать" };
 function channelLabel(key) {
     return (state.data?.preferred_channels || channelLabels)[key] || channelLabels[key] || key;
@@ -96,10 +107,10 @@ function assertSafeModalMarkup(markup) {
     template.innerHTML = String(markup || "");
     const forbiddenTags = new Set(["script", "style", "iframe", "object", "embed", "link", "meta", "base"]);
     const urlAttributes = new Set(["action", "formaction", "href", "src", "xlink:href", "poster"]);
-    const normalizeAttributeUrl = value => String(value || "")
-        .replace(/[\u0000-\u001f\u007f\s]+/g, "")
-        .trim()
-        .toLowerCase();
+    const normalizeAttributeUrl = value => Array.from(String(value || ""), ch => {
+        const codePoint = ch.codePointAt(0) || 0;
+        return codePoint <= 0x20 || codePoint === 0x7f || ch.trim() === "" ? "" : ch;
+    }).join("").toLowerCase();
     for (const element of template.content.querySelectorAll("*")) {
         if (forbiddenTags.has(element.tagName.toLowerCase())) {
             throw new Error("Небезопасная разметка модального окна.");
@@ -201,8 +212,25 @@ function qty(value) {
 
 function num(value, fallback = 0) {
     if (value === null || value === undefined || value === "") return fallback;
-    const parsed = Number(String(value).replace(/\s+/g, "").replace(",", "."));
+    const parsed = Number(String(value).replace(/\s+/g, "").replace(/,/g, "."));
     return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseNumericInput(value, fallback = 0) {
+    if (value === null || value === undefined || value === "") return { valid: true, value: fallback };
+    const parsed = Number(String(value).replace(/\s+/g, "").replace(/,/g, "."));
+    return Number.isFinite(parsed)
+        ? { valid: true, value: parsed }
+        : { valid: false, value: fallback };
+}
+
+function ensureBootstrapReady(actionName = "действие") {
+    if (state.data) return true;
+    const message = state.loading
+        ? `Данные CRM ещё загружаются — ${actionName} будет доступно после загрузки.`
+        : `Данные CRM не загружены — обновите приложение, чтобы выполнить ${actionName}.`;
+    toast(message, "error");
+    return false;
 }
 
 function dateShort(value) {
@@ -236,7 +264,7 @@ function classToken(value) {
 }
 
 function helpTip(text, label = "?") {
-    return `<span class="help-tip" role="note" aria-label="${esc(text)}" title="${esc(text)}"><span aria-hidden="true">${esc(label)}</span></span>`;
+    return `<span class="help-tip" role="note" tabindex="0" aria-label="${esc(text)}" title="${esc(text)}"><span aria-hidden="true">${esc(label)}</span></span>`;
 }
 
 function textOrDash(value, fallback = "—") {
@@ -353,33 +381,73 @@ function applyFormError(error) {
     clearAllFormErrors(form);
     const message = error?.message || String(error || "");
     let target = null;
-    let matchedName = "";
     const lower = message.toLocaleLowerCase("ru-RU");
+    const isVisibleFieldTarget = candidate => candidate instanceof HTMLElement && !(candidate instanceof HTMLInputElement && candidate.type === "hidden");
+    const fieldTarget = names => {
+        for (const name of Array.isArray(names) ? names : [names]) {
+            let candidate = form.elements[name] || form.querySelector(`[data-item="${name}"]`);
+            if (window.RadioNodeList && candidate instanceof RadioNodeList) {
+                candidate = Array.from(candidate).find(isVisibleFieldTarget);
+            }
+            if (isVisibleFieldTarget(candidate)) return candidate;
+        }
+        return null;
+    };
     const hints = [
         ["email", ["email", "почт"]],
+        ["preferred_channel", ["канал связи"]],
+        ["reminder_consent", ["согласие на напоминания", "напоминан"]],
         ["vin", ["vin"]],
+        ["plate", ["госномер", "номер"]],
+        ["make", ["марку", "марка"]],
+        ["model", ["модель"]],
         ["year", ["год"]],
-        ["scheduled_at", ["дата", "время", "запис"]],
-        ["promised_at", ["срок"]],
+        ["next_service_at", ["дата следующего сервиса", "следующий сервис"]],
+        ["next_service_mileage", ["сервисный пробег"]],
+        ["odometer", ["пробег в заказ"]],
+        ["mileage", ["пробег"]],
+        ["scheduled_at", ["дата и время записи", "время записи", "запис"]],
+        ["duration_minutes", ["длитель"]],
+        ["promised_at", ["срок заказа", "срок"]],
+        ["authorized_at", ["дата согласования"]],
+        ["follow_up_at", ["follow-up"]],
         ["customer_id", ["клиент"]],
         ["vehicle_id", ["автомоб"]],
-        ["inventory_id", ["склад", "позици"]],
+        ["approval_status", ["статус согласования", "согласован"]],
+        ["kind", ["тип позиции"]],
         ["title", ["наименование", "запчаст"]],
-        ["quantity", ["количество"]],
-        ["unit_price", ["цена"]],
+        ["min_quantity", ["миним"]],
+        ["quantity", ["количество", "остаток"]],
+        ["unit_cost", ["себестоимость позиции"]],
+        ["cost", ["себестоим"]],
+        ["unit_price", ["цена позиции"]],
+        ["price", ["цена"]],
+        ["inventory_id", ["склад"]],
+        ["discount", ["скидк"]],
+        ["tax_rate", ["налог"]],
+        ["paid", ["оплат"]],
+        ["priority", ["приоритет"]],
+        ["status", ["статус"]],
+        ["sku", ["артикул"]],
         ["name", ["имя", "название"]]
     ];
-    for (const [name, tokens] of hints) {
+    for (const [names, tokens] of hints) {
         if (tokens.some(token => lower.includes(token))) {
-            matchedName = name;
-            target = form.elements[name] || form.querySelector(`[data-item="${name}"]`);
-            break;
+            target = fieldTarget(names);
+            if (target) break;
         }
     }
-    if (window.RadioNodeList && target instanceof RadioNodeList) target = target[0];
-    if (!(target instanceof HTMLElement) && matchedName) target = form.querySelector(`[data-item="${matchedName}"]`);
-    if (!(target instanceof HTMLElement)) target = form.querySelector("input, select, textarea");
-    if (!target) return;
+    if (!(target instanceof HTMLElement)) {
+        const errorNode = document.createElement("div");
+        errorNode.className = "field-error form-error";
+        errorNode.id = "form-error";
+        errorNode.setAttribute("role", "alert");
+        errorNode.tabIndex = -1;
+        errorNode.textContent = message;
+        form.prepend(errorNode);
+        errorNode.focus({ preventScroll: false });
+        return;
+    }
     target.classList.add("invalid");
     target.setAttribute("aria-invalid", "true");
     const id = `${target.name || target.id || "field"}-error`;
@@ -396,8 +464,10 @@ function applyFormError(error) {
 
 function clearFormError(target) {
     if (!target) return;
+    target.closest("form")?.querySelectorAll(".form-error").forEach(node => node.remove());
     target.classList.remove("invalid");
     target.removeAttribute("aria-invalid");
+    if (typeof target.setCustomValidity === "function") target.setCustomValidity("");
     const errorId = target.dataset.errorDescribedby;
     if (errorId) document.getElementById(errorId)?.remove();
     const describedBy = (target.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean).filter(token => token !== errorId);
@@ -446,9 +516,16 @@ async function api(path, options = {}, retries = null) {
     }
 }
 
-function cacheBootstrap(data, loadedAt = new Date().toISOString()) {
+function cacheBootstrap(data, loadedAt = new Date().toISOString(), query = {}) {
     try {
         if (!window.sessionStorage) return;
+        const q = String(query.q || "");
+        const status = String(query.status || "all");
+        const route = String(query.route || state.route || "dashboard");
+        if (q || status !== "all") {
+            clearCachedBootstrap();
+            return;
+        }
         const cached = JSON.parse(JSON.stringify(data || {}));
         if (cached.app) delete cached.app.csrf_token;
         const payload = {
@@ -457,6 +534,7 @@ function cacheBootstrap(data, loadedAt = new Date().toISOString()) {
             loadedAt,
             appVersion: cached.app?.version || "",
             dbPath: cached.app?.db_path || "",
+            query: { q, status, route },
             data: cached
         };
         sessionStorage.setItem(BOOTSTRAP_CACHE_KEY, JSON.stringify(payload));
@@ -477,6 +555,11 @@ function readCachedBootstrap() {
         const parsed = JSON.parse(raw);
         if (parsed?.data && typeof parsed.data === "object") {
             if (parsed.schemaVersion !== BOOTSTRAP_CACHE_SCHEMA_VERSION) {
+                clearCachedBootstrap();
+                return null;
+            }
+            const query = parsed.query || {};
+            if (String(query.q || "") || String(query.status || "all") !== "all") {
                 clearCachedBootstrap();
                 return null;
             }
@@ -536,6 +619,31 @@ function setLoadingState(isLoading) {
     renderShell();
 }
 
+function updateTopbarOffset() {
+    const topbar = $(".topbar");
+    if (!topbar) return;
+    const bottom = Math.max(0, Math.ceil(topbar.getBoundingClientRect().bottom));
+    const offset = bottom > 152 ? "xl" : bottom > 128 ? "lg" : bottom > 112 ? "md" : "sm";
+    document.documentElement.setAttribute("data-topbar-offset", offset);
+}
+
+function closeTransientPanels(except = "", { restoreFocus = false } = {}) {
+    const closePanel = (panelSelector, buttonSelector, key) => {
+        if (except === key) return null;
+        const panel = $(panelSelector);
+        const button = $(buttonSelector);
+        if (!panel || panel.hidden) return null;
+        panel.hidden = true;
+        button?.setAttribute("aria-expanded", "false");
+        return button;
+    };
+    const restoreTarget =
+        closePanel("#primaryCtaMenu", "#primaryCtaMore", "cta") ||
+        closePanel("#bellPanel", "#bellBtn", "bell") ||
+        closePanel("#systemMenu", "#systemMenuBtn", "system");
+    if (restoreFocus) restoreTarget?.focus({ preventScroll: true });
+}
+
 async function loadData() {
     const seq = ++state.loadSeq;
     if (state.bootstrapAbortController) state.bootstrapAbortController.abort();
@@ -543,8 +651,9 @@ async function loadData() {
     state.bootstrapAbortController = controller;
     setLoadingState(true);
     const params = new URLSearchParams({ q: state.q });
-    if (state.route === "orders" && state.status !== "all") {
-        params.set("status", state.status);
+    const requestStatus = state.route === "orders" ? state.status : "all";
+    if (requestStatus !== "all") {
+        params.set("status", requestStatus);
     }
     try {
         const data = await api(`/api/bootstrap?${params}`, { signal: controller.signal });
@@ -553,7 +662,7 @@ async function loadData() {
         state.data = data;
         state.lastLoadedAt = loadedAt;
         state.offlineMode = false;
-        cacheBootstrap(data, loadedAt);
+        cacheBootstrap(data, loadedAt, { q: state.q, status: requestStatus, route: state.route });
         state.lastError = "";
         setOnlineState(true);
         const dbPath = $("#dbPath");
@@ -579,13 +688,14 @@ function prefersReducedMotion() {
 
 function setRoute(route, updateUrl = true) {
     if (!routes[route]) return;
+    closeTransientPanels();
     const previousRoute = state.route;
     const sameRoute = previousRoute === route;
     const hasOrderFilter = state.status !== "all" && !state.offlineMode;
-    const needsRouteFilterReload = hasOrderFilter && (
-        (route === "orders" && previousRoute !== "orders") ||
-        (route !== "orders" && previousRoute === "orders")
-    );
+    const leavingFilteredOrders = hasOrderFilter && route !== "orders" && previousRoute === "orders";
+    const enteringFilteredOrders = hasOrderFilter && route === "orders" && previousRoute !== "orders";
+    const needsRouteFilterReload = enteringFilteredOrders || leavingFilteredOrders;
+    if (leavingFilteredOrders) state.status = "all";
     state.route = route;
     if (route === "updates" && !state.updateStatus && !state.updateLoading && !state.updateCheckScheduled) {
         state.updateCheckScheduled = true;
@@ -612,7 +722,9 @@ function setRoute(route, updateUrl = true) {
     }
     if (previousRoute !== route) {
         setMobileNavOpen(false);
-        $("#content")?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+        const content = $("#content");
+        content?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+        content?.focus({ preventScroll: true });
         announce(`Открыт раздел ${routes[route]}.`);
     }
 }
@@ -849,8 +961,10 @@ function renderBreadcrumbs() {
         const isLast = index === trail.length - 1;
         if (crumb.route && !isLast) {
             parts.push(`<button class="crumb" type="button" data-crumb-route="${esc(crumb.route)}">${esc(crumb.label)}</button>`);
+        } else if (isLast) {
+            parts.push(`<span aria-current="page">${esc(crumb.label)}</span>`);
         } else {
-            parts.push(`<span aria-current="${isLast ? "page" : "false"}">${esc(crumb.label)}</span>`);
+            parts.push(`<span>${esc(crumb.label)}</span>`);
         }
     });
     container.innerHTML = parts.join("");
@@ -882,7 +996,7 @@ function renderStatusBar() {
     }
 
     const versionEl = $("#statusVersionText");
-    const version = state.data?.app?.version || state.updateStatus?.current?.version || "";
+    const version = state.data?.app?.version || state.updateStatus?.current_version || "";
     if (versionEl) versionEl.textContent = version ? `v${version}` : "v—";
 
     const clockEl = $("#statusClockText");
@@ -905,10 +1019,10 @@ function collectBellItems() {
         });
     });
     if (Number(r.low_stock_count || 0) > 0) {
-        items.push({ tone: "warning", icon: "▦", title: `Склад: ${r.low_stock_count} позиций ниже минимума`, hint: "Проверьте закупки", action: "goto-inventory", route: "inventory" });
+        items.push({ tone: "warning", icon: "▦", title: `Склад: ${r.low_stock_count} позиций ниже минимума`, hint: "Проверьте закупки", action: "open-inventory", route: "inventory" });
     }
     if (state.updateStatus?.ok && state.updateStatus?.release?.is_newer) {
-        items.push({ tone: "info", icon: "⬢", title: "Доступно обновление CRM", hint: state.updateStatus.release?.name || "", action: "goto-updates", route: "updates" });
+        items.push({ tone: "info", icon: "⬢", title: "Доступно обновление CRM", hint: state.updateStatus.release?.name || "", action: "open-updates", route: "updates" });
     }
     return items;
 }
@@ -923,12 +1037,14 @@ function renderBell() {
         list.innerHTML = "";
         if (emptyEl) emptyEl.hidden = false;
         if (count) { count.hidden = true; count.textContent = "0"; }
+        $("#bellBtn")?.setAttribute("aria-label", "Уведомления: новых событий нет");
         return;
     }
     if (emptyEl) emptyEl.hidden = true;
     if (count) { count.hidden = false; count.textContent = String(items.length > 99 ? "99+" : items.length); }
+    $("#bellBtn")?.setAttribute("aria-label", `Уведомления: ${items.length} ${pluralRu(items.length, "событие", "события", "событий")}`);
     list.innerHTML = items.map(item => `
-        <button type="button" role="menuitem" class="bell-item" data-tone="${esc(classToken(item.tone || "info"))}"
+        <button type="button" class="bell-item" data-tone="${esc(classToken(item.tone || "info"))}"
             data-bell-action="${esc(item.action)}"
             data-bell-route="${esc(item.route || "")}"
             data-bell-id="${esc(item.id || "")}">
@@ -1005,12 +1121,14 @@ function setMobileNavOpen(isOpen, options = {}) {
     }
     if (backdrop) backdrop.hidden = !nextOpen;
     if (sidebar) {
-        const hasNativeInert = "inert" in sidebar;
-        if (isMobile && !nextOpen && !hasNativeInert) sidebar.setAttribute("aria-hidden", "true");
+        if (isMobile && !nextOpen) sidebar.setAttribute("aria-hidden", "true");
         else sidebar.removeAttribute("aria-hidden");
         setSidebarInteractive(sidebar, !isMobile || nextOpen);
     }
-    if (main && "inert" in main) main.inert = nextOpen;
+    if (main) {
+        if ("inert" in main) main.inert = nextOpen;
+        main.toggleAttribute("aria-hidden", nextOpen);
+    }
     if (nextOpen && !wasOpen) {
         mobileNavLastFocusedElement = meaningfulActiveElement(button);
         requestAnimationFrame(focusMobileNavStart);
@@ -1058,7 +1176,7 @@ function initMobileNavigation() {
     if (!button || !backdrop || !sidebar || button.dataset.bound) return;
     button.dataset.bound = "1";
     const sync = () => {
-        const mobile = window.matchMedia("(max-width: 1024px)").matches;
+        const mobile = window.matchMedia ? window.matchMedia("(max-width: 1024px)").matches : false;
         if (!mobile) {
             setMobileNavOpen(false, { restoreFocus: false });
             sidebar.removeAttribute("aria-hidden");
@@ -1067,20 +1185,31 @@ function initMobileNavigation() {
             setMobileNavOpen(document.body.classList.contains("mobile-nav-open"), { restoreFocus: false });
         }
     };
-    button.addEventListener("click", () => setMobileNavOpen(!document.body.classList.contains("mobile-nav-open")));
+    button.addEventListener("click", () => {
+        closeTransientPanels();
+        setMobileNavOpen(!document.body.classList.contains("mobile-nav-open"));
+    });
     backdrop.addEventListener("click", () => setMobileNavOpen(false));
     document.addEventListener("keydown", handleMobileNavKeydown);
-    window.addEventListener("resize", sync);
+    window.addEventListener("resize", () => {
+        updateTopbarOffset();
+        sync();
+    });
     if (window.matchMedia) {
         const query = window.matchMedia("(max-width: 1024px)");
-        if (query.addEventListener) query.addEventListener("change", sync);
-        else if (query.addListener) query.addListener(sync);
+        const onMediaChange = () => {
+            updateTopbarOffset();
+            sync();
+        };
+        if (query.addEventListener) query.addEventListener("change", onMediaChange);
+        else if (query.addListener) query.addListener(onMediaChange);
     }
+    updateTopbarOffset();
     sync();
 }
 
 function menuPanelItems(panel) {
-    return panel ? $$('[role="menuitem"]:not([disabled])', panel) : [];
+    return panel ? $$('button:not([disabled]), [role="menuitem"]:not([disabled])', panel) : [];
 }
 
 function focusMenuPanelItem(panel, index = 0) {
@@ -1094,7 +1223,7 @@ function handleMenuPanelKeydown(event, panel, triggerButton, closePanel, onOpenI
     const activeIndex = items.findIndex(item => item === document.activeElement);
     if (event.key === "Escape") {
         event.preventDefault();
-        closePanel({ restoreFocus: true });
+        closePanel(false, { restoreFocus: true });
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         focusMenuPanelItem(panel, activeIndex + (event.key === "ArrowDown" ? 1 : -1));
@@ -1153,8 +1282,10 @@ function initShell() {
             if (typeof actionMap[action] === "function") actionMap[action]();
         };
         const setCtaMenuOpen = (isOpen, { focusFirst = false, restoreFocus = false } = {}) => {
+            if (isOpen) closeTransientPanels("cta");
             ctaMenu.hidden = !isOpen;
             more.setAttribute("aria-expanded", isOpen ? "true" : "false");
+            if (isOpen) updateTopbarOffset();
             if (isOpen && focusFirst) focusMenuPanelItem(ctaMenu, 0);
             if (!isOpen && restoreFocus) more.focus({ preventScroll: true });
         };
@@ -1191,9 +1322,13 @@ function initShell() {
     if (bellBtn && bellPanel && !bellBtn.dataset.bound) {
         bellBtn.dataset.bound = "1";
         const setBellPanelOpen = (isOpen, { focusFirst = false, restoreFocus = false } = {}) => {
+            if (isOpen) closeTransientPanels("bell");
             bellPanel.hidden = !isOpen;
             bellBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
-            if (isOpen) renderBell();
+            if (isOpen) {
+                renderBell();
+                updateTopbarOffset();
+            }
             if (isOpen && focusFirst) focusMenuPanelItem(bellPanel, 0);
             if (!isOpen && restoreFocus) bellBtn.focus({ preventScroll: true });
         };
@@ -1203,7 +1338,7 @@ function initShell() {
             const action = item.dataset.bellAction;
             const id = item.dataset.bellId || "";
             setBellPanelOpen(false);
-            if (action && ["edit-order", "edit-appointment", "edit-vehicle", "edit-inventory"].includes(action)) {
+            if (action && ["edit-order", "edit-appointment", "edit-customer", "edit-vehicle", "edit-inventory"].includes(action)) {
                 openBellTarget(action, id, route).catch(showError);
                 return;
             }
@@ -1224,6 +1359,7 @@ function initShell() {
             setBellPanelOpen(false);
         });
         bellPanel.addEventListener("keydown", event => handleMenuPanelKeydown(event, bellPanel, bellBtn, setBellPanelOpen, activateBellItem));
+        $("#bellClose")?.addEventListener("click", () => setBellPanelOpen(false, { restoreFocus: true }));
         bellPanel.addEventListener("click", event => {
             const item = event.target.closest("[data-bell-route], [data-bell-action]");
             if (!item) return;
@@ -1385,6 +1521,7 @@ function openCommandPalette() {
     const palette = $("#commandPalette");
     if (!palette) return;
     setMobileNavOpen(false, { restoreFocus: false });
+    closeTransientPanels();
     lastFocusedElement = meaningfulActiveElement(null);
     palette.hidden = false;
     $("#commandPalette")?.classList.add("open");
@@ -1481,10 +1618,11 @@ function viewHeading(title, text, meta = [], actions = []) {
         const disabledAttr = action.disabled ? " disabled" : "";
         const titleAttr = action.title ? ` title="${esc(action.title)}"` : "";
         const exportAttr = action.export ? ` data-export="${esc(action.export)}"` : "";
+        const ariaDisabledAttr = action.disabled ? ' aria-disabled="true"' : "";
         if (action.action === "export-csv") {
-            return `<button class="btn ghost" type="button" data-action="export-csv" data-export="${esc(action.export || "")}"${titleAttr}${disabledAttr}>${esc(action.label || "CSV")}</button>`;
+            return `<button class="btn ghost" type="button" data-action="export-csv" data-export="${esc(action.export || "")}"${titleAttr}${disabledAttr}${ariaDisabledAttr}>${esc(action.label || "CSV")}</button>`;
         }
-        return `<button class="btn ${esc(action.className || "")}" type="button" data-action="${esc(action.action || "")}"${exportAttr}${titleAttr}${disabledAttr}>${esc(action.label || "Открыть")}</button>`;
+        return `<button class="btn ${esc(action.className || "")}" type="button" data-action="${esc(action.action || "")}"${exportAttr}${titleAttr}${disabledAttr}${ariaDisabledAttr}>${esc(action.label || "Открыть")}</button>`;
     }).join("")}</div>` : "";
     return `<section class="view-heading"><div><h2>${esc(title)}</h2><p>${esc(text)}</p>${metaHtml}</div>${actionsHtml}</section>`;
 }
@@ -1521,9 +1659,25 @@ function inputField(formScope, name, label, attributes = "", span = "", hint = "
     return labeledField(id, label, `<input id="${id}" name="${esc(name)}" ${attributes}>`, span, hint);
 }
 
+function readonlyValue(value) {
+    return String(value ?? "").trim() ? esc(value) : "—";
+}
+
+function readonlyField(label, value, span = "") {
+    return `<div class="field readonly-field ${esc(span)}"><span class="readonly-label">${esc(label)}</span><strong>${value}</strong></div>`;
+}
+
+function readonlyTextareaValue(value) {
+    return `<span class="readonly-multiline">${readonlyValue(value)}</span>`;
+}
+
 function selectField(formScope, name, label, optionsHtml, attributes = "", span = "", hint = "") {
     const id = fieldId(formScope, name);
     return labeledField(id, label, `<select id="${id}" name="${esc(name)}" ${attributes}>${optionsHtml}</select>`, span, hint);
+}
+
+function hiddenInput(name, value) {
+    return `<input type="hidden" name="${esc(name)}" value="${esc(value)}">`;
 }
 
 function textareaField(formScope, name, label, value = "", attributes = "", span = "", hint = "") {
@@ -1592,7 +1746,7 @@ function renderDashboard() {
                 </section>
                 <details class="panel dashboard-details" open>
                     <summary><span>Последние заказы</span><span class="count-pill">${recent.length}</span></summary>
-                    ${ordersTable(recent, false)}
+                    ${ordersTable(recent, true)}
                 </details>
             </div>
             <aside class="dashboard-rail dashboard-support" aria-label="Краткий контроль смены">
@@ -1635,8 +1789,8 @@ function miniLedger(report) {
     const cells = [
         ["Заказов", report.orders_total || 0],
         ["Закрыто", report.closed_orders_count || 0],
-        ["Клиентов", state.data.lookups.customers.length],
-        ["Авто", state.data.lookups.vehicles.length]
+        ["Клиентов", report.customers_total ?? state.data.lookups.customers.length],
+        ["Авто", report.vehicles_total ?? state.data.lookups.vehicles.length]
     ];
     return `<div class="mini-ledger">${cells.map(([label, value]) => `<div class="mini-ledger-card"><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`).join("")}</div>`;
 }
@@ -1655,10 +1809,10 @@ function riskRadar(report) {
 
 function quickActions() {
     const actions = [
-        ["go-orders", "№", "Заказы", "Открыть воронку и статусы", "orders", "G O"],
-        ["go-appointments", "▤", "Календарь", "Записи и ближайшие визиты", "appointments", "G A"],
-        ["go-inventory", "▦", "Склад", "Остатки и закупка", "inventory", "G S"],
-        ["go-reports", "↗", "Отчёты", "Финансы и загрузка", "reports", "G R"]
+        ["open-orders", "№", "Заказы", "Открыть воронку и статусы", "orders", "G O"],
+        ["open-appointments", "▤", "Календарь", "Записи и ближайшие визиты", "appointments", "G A"],
+        ["open-inventory", "▦", "Склад", "Остатки и закупка", "inventory", "G S"],
+        ["open-reports", "↗", "Отчёты", "Финансы и загрузка", "reports", "G R"]
     ];
     return `<div class="quick-grid">${actions.map(([action, icon, title, hint, target, keys]) => `<button class="quick-tile" type="button" data-action="${esc(action)}" data-route-target="${esc(target)}" data-tooltip="${esc(title)} · ${esc(keys)}"><span class="quick-icon" aria-hidden="true">${esc(icon)}</span><strong>${esc(title)} <kbd>${esc(keys)}</kbd></strong><span>${esc(hint)}</span></button>`).join("")}</div>`;
 }
@@ -1903,7 +2057,7 @@ function renderCustomers() {
         ${viewHeading("Клиенты", "Единая клиентская база с каналами связи, согласием на напоминания, автомобилями и историей заказов.", [
             `${total} найдено`,
             rangeText,
-            `${state.data.lookups.customers.length} всего`,
+            `${state.data.reports.customers_total ?? state.data.lookups.customers.length} всего`,
             `${state.data.reports.vip_customers?.length || 0} VIP`
         ], [
             { label: "CSV", action: "export-csv", export: "customers", className: "ghost" },
@@ -2397,6 +2551,7 @@ function dispatchViewAction(source, event = null) {
         else if (action === "open-appointments") setRoute("appointments");
         else if (action === "open-inventory") setRoute("inventory");
         else if (action === "open-reports") setRoute("reports");
+        else if (action === "open-updates") setRoute("updates");
         else if (action === "open-action-plan") {
             const scrollActionCenter = () => document.querySelector(".action-center")?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
             if (state.route !== "dashboard") {
@@ -2450,7 +2605,7 @@ function bindViewActions(root) {
 }
 
 function findById(list, id) {
-    return list.find(item => Number(item.id) === Number(id));
+    return Array.isArray(list) ? list.find(item => Number(item.id) === Number(id)) : null;
 }
 
 function findCustomerById(id) {
@@ -2490,6 +2645,7 @@ function orderDuplicateDraft(order = {}) {
 
 let lastFocusedElement = null;
 let appTabbableSnapshot = [];
+let appInertDepth = 0;
 
 function modalFocusableElements() {
     const modal = $("#modal");
@@ -2532,6 +2688,8 @@ function setAppInert(isInert) {
     const app = $(".app");
     if (!app) return;
     if (isInert) {
+        appInertDepth += 1;
+        if (appInertDepth > 1) return;
         if ("inert" in app) {
             app.removeAttribute("aria-hidden");
             app.inert = true;
@@ -2544,6 +2702,8 @@ function setAppInert(isInert) {
         }));
         appTabbableSnapshot.forEach(({ element }) => element.setAttribute("tabindex", "-1"));
     } else {
+        appInertDepth = Math.max(0, appInertDepth - 1);
+        if (appInertDepth > 0) return;
         app.removeAttribute("aria-hidden");
         if ("inert" in app) app.inert = false;
         appTabbableSnapshot.forEach(({ element, tabindex }) => {
@@ -2556,14 +2716,16 @@ function setAppInert(isInert) {
 }
 
 function openModal(title, body, foot, size = "") {
-    setMobileNavOpen(false, { restoreFocus: false });
-    lastFocusedElement = meaningfulActiveElement(null);
     const allowedSizes = new Set(["", "small", "wide"]);
     const modalSize = allowedSizes.has(size) ? size : "";
     const backdrop = $("#modalBackdrop");
     if (!backdrop) return;
     assertSafeModalMarkup(body);
     assertSafeModalMarkup(foot);
+    if (backdrop.classList.contains("open")) closeModal(true, { restoreFocus: false });
+    setMobileNavOpen(false, { restoreFocus: false });
+    closeTransientPanels();
+    lastFocusedElement = meaningfulActiveElement(null);
     $("#modalTitle").textContent = title;
     $("#modalBody").innerHTML = body;
     $("#modalFoot").innerHTML = foot;
@@ -2578,18 +2740,19 @@ function openModal(title, body, foot, size = "") {
     requestAnimationFrame(focusModalStart);
 }
 
-function closeModal(force = false) {
+function closeModal(force = false, options = {}) {
     if (state.saving && !force) return false;
     if (!force && state.modalDirty && !confirm("Закрыть окно без сохранения изменений?")) return false;
     const backdrop = $("#modalBackdrop");
+    const wasOpen = backdrop?.classList.contains("open");
     backdrop?.classList.remove("open");
     if (backdrop) {
         backdrop.hidden = true;
     }
-    setAppInert(false);
+    if (wasOpen) setAppInert(false);
     $("#modalBody").innerHTML = "";
     $("#modalFoot").innerHTML = "";
-    if (lastFocusedElement && document.contains(lastFocusedElement)) {
+    if (options.restoreFocus !== false && lastFocusedElement && document.contains(lastFocusedElement)) {
         lastFocusedElement.focus({ preventScroll: true });
     }
     lastFocusedElement = null;
@@ -2693,8 +2856,18 @@ function bindModalSubmitHandlers() {
 
 async function openPrintOrder(id) {
     if (!requiresFreshCsrf("печать заказ-наряда")) return;
+    const printButton = $(`#modalFoot [data-save="print-order"][data-id="${Number(id || 0)}"]`);
+    const previousDisabled = printButton?.disabled || false;
+    if (printButton) {
+        printButton.disabled = true;
+        printButton.setAttribute("aria-busy", "true");
+    }
     const printWindow = window.open("about:blank", "_blank");
     if (!printWindow) {
+        if (printButton) {
+            printButton.disabled = previousDisabled;
+            printButton.setAttribute("aria-busy", "false");
+        }
         toast("Разрешите всплывающие окна, чтобы открыть печатную форму.", "error");
         return;
     }
@@ -2723,6 +2896,11 @@ async function openPrintOrder(id) {
     } catch (error) {
         printWindow.close();
         throw error;
+    } finally {
+        if (printButton && document.contains(printButton)) {
+            printButton.disabled = previousDisabled;
+            printButton.setAttribute("aria-busy", "false");
+        }
     }
 }
 
@@ -2733,23 +2911,68 @@ function markModalDirty() {
 function setSaveButtonsBusy(isBusy) {
     state.saving = isBusy;
     $("#modalBackdrop")?.classList.toggle("saving", isBusy);
-    $$("[data-save]").forEach(button => {
-        button.disabled = isBusy;
-        button.setAttribute("aria-busy", String(isBusy));
+    $$("#modalFoot [data-save], #modalClose").forEach(button => {
+        if (isBusy) {
+            button.dataset.wasDisabled = button.disabled ? "1" : "0";
+            button.disabled = true;
+            button.setAttribute("aria-busy", "true");
+            return;
+        }
+        button.disabled = button.dataset.wasDisabled === "1";
+        delete button.dataset.wasDisabled;
+        button.setAttribute("aria-busy", "false");
     });
-    $("#modalClose")?.toggleAttribute("disabled", isBusy);
 }
 
 function collectForm(form) {
     const data = Object.fromEntries(new FormData(form).entries());
+    $$('input[type="number"][name]', form).forEach(input => {
+        if (data[input.name] !== undefined) data[input.name] = String(data[input.name]).replace(/\s+/g, "").replace(/,/g, ".");
+    });
     $$('input[type="checkbox"][name]', form).forEach(input => {
         data[input.name] = input.checked ? (input.value || "1") : "0";
     });
     return data;
 }
 
+function reportFormValidity(form, excludeSelector = "") {
+    if (!form) return true;
+    if (!excludeSelector) return form.reportValidity();
+    const controls = $$("input, select, textarea", form).filter(control => !control.matches(excludeSelector));
+    for (const control of controls) {
+        if (typeof control.reportValidity === "function" && !control.reportValidity()) return false;
+    }
+    return true;
+}
+
+function numericInputError(input, label) {
+    if (input.validity?.badInput) return `${label}: введите число.`;
+    const parsed = parseNumericInput(input.value, 0);
+    if (!parsed.valid) return `${label}: введите число.`;
+    const min = input.getAttribute("min");
+    const max = input.getAttribute("max");
+    if (min !== null && parsed.value < Number(min)) return `${label}: значение не может быть меньше ${min}.`;
+    if (max !== null && parsed.value > Number(max)) return `${label}: значение не может быть больше ${max}.`;
+    return "";
+}
+
+function validateLocalizedNumberInputs(form, { showError = true, excludeSelector = "" } = {}) {
+    if (!form) return true;
+    const inputs = $$('input[type="number"]', form).filter(input => !excludeSelector || !input.matches(excludeSelector));
+    for (const input of inputs) {
+        const label = input.closest(".field")?.querySelector("label")?.textContent?.trim() || input.getAttribute("aria-label") || input.name || "Поле";
+        const message = numericInputError(input, label);
+        input.setCustomValidity(message);
+        if (message) {
+            if (showError) applyFormError(new Error(message));
+            return false;
+        }
+    }
+    return true;
+}
+
 function customerOptions(selected = "") {
-    const customers = state.data.lookups?.customers || state.data.customers || [];
+    const customers = state.data?.lookups?.customers || state.data?.customers || [];
     const placeholderText = customers.length ? "Выберите клиента" : "Нет клиентов";
     return `<option value="">${placeholderText}</option>` + customers.map(c => `<option value="${esc(c.id)}" ${Number(selected) === Number(c.id) ? "selected" : ""}>${esc(c.name)} · ${esc(c.phone)}</option>`).join("");
 }
@@ -2757,7 +2980,7 @@ function customerOptions(selected = "") {
 function vehicleOptions(customerId, selected, extraVehicles = []) {
     const normalizedCustomerId = Number(customerId || 0);
     const normalizedSelected = Number(selected || 0);
-    const allVehicles = [...(state.data.lookups?.vehicles || state.data.vehicles || []), ...(extraVehicles || [])];
+    const allVehicles = [...(state.data?.lookups?.vehicles || state.data?.vehicles || []), ...(extraVehicles || [])];
     const seen = new Set();
     const vehicles = allVehicles.filter(vehicle => {
         const vehicleId = Number(vehicle?.id || 0);
@@ -2798,25 +3021,58 @@ function datalistOptions(values, selected = "") {
     return unique.map(value => `<option value="${esc(value)}"></option>`).join("");
 }
 
-function partAvailability(partId) {
-    const inventory = state.data.lookups?.inventory || state.data.inventory;
-    const part = findById(inventory, Number(partId));
-    return part ? `${qty(part.quantity)} ${esc(part.unit)}` : "неизвестно";
+function inventoryLookupList() {
+    return state.data?.lookups?.inventory || state.data?.inventory || [];
+}
+
+function inventoryOptionLabel(part, { fallbackName = "", archived = false } = {}) {
+    const name = part?.name || part?.inventory_name || fallbackName || `ID ${part?.id || part?.inventory_id || ""}`.trim();
+    const unit = part?.unit || "шт";
+    const hasQuantity = part?.quantity !== undefined && part?.quantity !== null && part?.quantity !== "";
+    const hasPrice = part?.price !== undefined && part?.price !== null && part?.price !== "";
+    const suffix = archived || part?.deleted_at || part?.inventory_deleted_at ? " · архивная/удалена" : "";
+    const meta = hasQuantity || hasPrice
+        ? ` · ${hasQuantity ? `${qty(part.quantity)} ${unit}` : "остаток неизвестен"}${hasPrice ? ` · ${money(part.price)}` : ""}`
+        : " · нет в активном справочнике";
+    return `${name}${meta}${suffix}`;
+}
+
+function currentOrderInventoryOption(item = {}, inventory = inventoryLookupList()) {
+    const selected = Number(item.inventory_id || 0);
+    if (!selected || findById(inventory, selected)) return null;
+    return {
+        id: selected,
+        name: item.inventory_name || item.title || `ID ${selected}`,
+        inventory_name: item.inventory_name,
+        inventory_deleted_at: item.inventory_deleted_at || "missing",
+        unit: item.unit || "шт"
+    };
+}
+
+function partAvailability(partId, item = {}) {
+    const part = findById(inventoryLookupList(), Number(partId));
+    if (part) return `${qty(part.quantity)} ${esc(part.unit)}`;
+    if (Number(item.inventory_id || 0) === Number(partId)) return "архивная позиция, остаток неизвестен";
+    return "неизвестно";
 }
 
 function partSourceOptions(item = {}) {
-    const inventory = state.data.lookups?.inventory || state.data.inventory;
+    const inventory = inventoryLookupList();
     const selected = Number(item.inventory_id || 0);
     const outsideSelected = item.kind === "part" && !selected;
-    return `<option value="" ${outsideSelected ? "selected" : ""}>Вне склада / заказная</option>` + inventory.map(part => {
+    const extraOption = currentOrderInventoryOption(item, inventory);
+    const allInventory = extraOption ? [...inventory, extraOption] : inventory;
+    return `<option value="" ${outsideSelected ? "selected" : ""}>Вне склада / заказная</option>` + allInventory.map(part => {
         const selectedAttr = selected === Number(part.id) ? "selected" : "";
-        return `<option value="${esc(part.id)}" ${selectedAttr}>${esc(part.name)} · ${qty(part.quantity)} ${esc(part.unit)} · ${money(part.price)}</option>`;
+        const archived = Boolean(part.inventory_deleted_at || part.deleted_at || (extraOption && Number(part.id) === Number(extraOption.id)));
+        const disabledAttr = archived && !selectedAttr ? "disabled" : "";
+        return `<option value="${esc(part.id)}" ${selectedAttr} ${disabledAttr}>${esc(inventoryOptionLabel(part, { fallbackName: item.title, archived }))}</option>`;
     }).join("");
 }
 
 function partSourceHint(item = {}) {
     if (item.kind !== "part") return "";
-    if (item.inventory_id) return `<div class="source-note">Складская: спишется при закрытии. Доступно: ${partAvailability(item.inventory_id)}</div>`;
+    if (item.inventory_id) return `<div class="source-note">Складская: спишется при закрытии. Доступно: ${partAvailability(item.inventory_id, item)}</div>`;
     return `<div class="source-note">Вне склада: не влияет на остатки, но попадает в сумму, печать и отчеты.</div>`;
 }
 
@@ -2843,9 +3099,62 @@ function itemApprovalOptions(selected = "approved") {
         .join("");
 }
 
+function orderStatusOptions(order = {}) {
+    const statuses = state.data?.statuses || {};
+    const current = order.status || "new";
+    const allowed = new Set([current, ...(orderStatusTransitions[current] || [])]);
+    return Object.entries(statuses)
+        .filter(([key]) => !order.id || allowed.has(key))
+        .map(([key, label]) => `<option value="${esc(key)}" ${current === key ? "selected" : ""}>${esc(label)}</option>`)
+        .join("");
+}
+
+function isHistoricalOrder(order = {}) {
+    return Boolean(order.id && (order.status === "cancelled" || order.closed_at));
+}
+
+function isClosedFinancialOrder(order = {}) {
+    return Boolean(order.id && (order.status === "closed" || order.closed_at));
+}
+
+function appointmentConflictWarning(appointment = {}) {
+    const activeStatuses = new Set(["scheduled", "confirmed", "arrived"]);
+    const status = appointment.status || "scheduled";
+    if (!activeStatuses.has(status)) return null;
+    const scheduledAt = String(appointment.scheduled_at || "").trim();
+    const start = new Date(scheduledAt.replace(" ", "T"));
+    if (!scheduledAt || Number.isNaN(start.getTime())) return null;
+    const duration = Math.max(15, num(appointment.duration_minutes, 60));
+    const end = new Date(start.getTime() + duration * 60 * 1000);
+    const conflict = (state.data?.lookups?.appointments || state.data?.appointments || []).find(existing => {
+        if (Number(existing.id || 0) === Number(appointment.id || 0)) return false;
+        if (!activeStatuses.has(existing.status || "scheduled")) return false;
+        const existingStart = new Date(String(existing.scheduled_at || "").replace(" ", "T"));
+        if (Number.isNaN(existingStart.getTime())) return false;
+        const existingEnd = new Date(existingStart.getTime() + Math.max(15, num(existing.duration_minutes, 60)) * 60 * 1000);
+        return existingStart < end && existingEnd > start;
+    });
+    if (!conflict) return null;
+    return `В это время уже есть запись: ${conflict.customer_name || "клиент"} · ${dateShort(conflict.scheduled_at)}.`;
+}
+
+function updateAppointmentConflictNotice(showToast = false) {
+    const form = $("#entityForm");
+    const notice = $("#appointmentConflictNotice");
+    if (!form || !notice) return true;
+    const data = collectForm(form);
+    data.id = form.dataset.recordId || data.id;
+    const message = appointmentConflictWarning(data);
+    notice.hidden = !message;
+    notice.textContent = message || "";
+    if (message && showToast) toast(message, "error");
+    return !message;
+}
+
 
 function openAppointmentModal(appointment = {}) {
-    const lookupCustomers = state.data.lookups?.customers || state.data.customers;
+    if (!ensureBootstrapReady("создание записи")) return;
+    const lookupCustomers = state.data?.lookups?.customers || state.data?.customers || [];
     if (!lookupCustomers.length) {
         openModal(
             "Новая запись",
@@ -2858,7 +3167,7 @@ function openAppointmentModal(appointment = {}) {
     const selectedCustomer = appointment.customer_id || "";
     openModal(
         appointment.id ? "Запись клиента" : "Новая запись",
-        `<form id="entityForm" class="stack">
+        `<form id="entityForm" class="stack" data-record-id="${safeRecordId(appointment.id)}">
             <fieldset class="form-fieldset"><legend>Клиент и авто</legend>
                 <div class="form-grid">
                     ${selectField("appointment", "customer_id", "Клиент", customerOptions(selectedCustomer), "required", "span-2")}
@@ -2868,10 +3177,11 @@ function openAppointmentModal(appointment = {}) {
             <fieldset class="form-fieldset"><legend>Время и статус</legend>
                 <div class="form-grid">
                     ${inputField("appointment", "scheduled_at", "Дата и время", `type="datetime-local" value="${inputDateValue(appointment.scheduled_at)}" required`)}
-                    ${inputField("appointment", "duration_minutes", "Длительность, мин", `type="number" min="15" step="15" value="${esc(appointment.duration_minutes || 60)}"`)}
+                    ${inputField("appointment", "duration_minutes", "Длительность, мин", `type="number" min="15" max="480" value="${esc(appointment.duration_minutes || 60)}"`)}
                     ${selectField("appointment", "status", "Статус", appointmentStatusOptions(appointment.status))}
                     ${inputField("appointment", "advisor", "Мастер-приемщик", `value="${esc(appointment.advisor || "Администратор")}"`)}
                 </div>
+                <div class="notice warning" id="appointmentConflictNotice" role="alert" hidden></div>
             </fieldset>
             <fieldset class="form-fieldset"><legend>Подробности</legend>
                 <div class="form-grid">
@@ -2891,10 +3201,19 @@ function openAppointmentModal(appointment = {}) {
         vehicle.value = "";
         vehicle.dispatchEvent(new Event("change", { bubbles: true }));
     });
+    ["scheduled_at", "duration_minutes", "status"].forEach(name => {
+        const input = $(`#entityForm [name="${name}"]`);
+        if (input) {
+            input.addEventListener("input", () => updateAppointmentConflictNotice(false));
+            input.addEventListener("change", () => updateAppointmentConflictNotice(false));
+        }
+    });
+    updateAppointmentConflictNotice(false);
 }
 
 
 function openCustomerModal(customer = {}) {
+    if (!ensureBootstrapReady("создание клиента")) return;
     openModal(
         customer.id ? "Клиент" : "Новый клиент",
         `<form id="entityForm" class="stack">
@@ -2926,8 +3245,9 @@ function openCustomerModal(customer = {}) {
 }
 
 function openVehicleModal(vehicle = {}) {
+    if (!ensureBootstrapReady("создание автомобиля")) return;
     const makes = state.data?.car_catalog?.makes || [];
-    const customers = state.data.lookups?.customers || state.data.customers || [];
+    const customers = state.data?.lookups?.customers || state.data?.customers || [];
     const hasCustomers = customers.length > 0;
     const selectedCustomer = vehicle.customer_id || "";
     openModal(
@@ -2985,6 +3305,7 @@ function bindVehicleCatalog() {
 }
 
 function openInventoryModal(part = {}) {
+    if (!ensureBootstrapReady("создание складской позиции")) return;
     openModal(
         part.id ? "Складская позиция" : "Новая складская позиция",
         `<form id="entityForm" class="stack">
@@ -3023,13 +3344,17 @@ function openInventoryModal(part = {}) {
 }
 
 function openOrderModal(order = {}) {
+    if (!ensureBootstrapReady("создание заказ-наряда")) return;
     if (!order) {
         toast("Заказ не найден в текущей выборке. Очистите поиск или обновите данные.", "error");
         return;
     }
+    const historicalOrder = isHistoricalOrder(order);
+    const closedFinancialOrder = isClosedFinancialOrder(order);
+    state.orderDraftReadOnly = historicalOrder;
     state.orderDraftItems = (order.items || [{ kind: "service", title: "", approval_status: "approved", quantity: 1, unit_price: 0, unit_cost: 0 }])
         .map(item => ({ approval_status: "approved", inventory_id: "", ...item }));
-    const lookupCustomers = state.data.lookups?.customers || state.data.customers;
+    const lookupCustomers = state.data?.lookups?.customers || state.data?.customers || [];
     if (!lookupCustomers.length) {
         openModal(
             "Новый заказ-наряд",
@@ -3060,49 +3385,58 @@ function openOrderModal(order = {}) {
     openModal(
         order.id ? `Заказ-наряд ${order.number}` : "Новый заказ-наряд",
         `<form id="orderForm" class="stack">
+            ${closedFinancialOrder ? `<div class="notice warning"><strong>Финансовая история закрыта.</strong><p>Поля и позиции доступны только для просмотра. Закрытый заказ можно оставить закрытым или отменить без изменения суммы, списаний и позиций.</p></div>` : ""}
+            ${order.status === "cancelled" && !closedFinancialOrder ? `<div class="notice warning"><strong>Заказ отменен.</strong><p>Отмененный заказ нельзя повторно открыть или изменить — создайте новый заказ-наряд.</p></div>` : ""}
             <fieldset class="form-fieldset"><legend>Клиент и авто</legend>
                 <div class="form-grid three">
-                    ${selectField("order", "customer_id", "Клиент", customerOptions(selectedCustomer), "required")}
-                    ${selectField("order", "vehicle_id", "Автомобиль", currentVehicleOptions())}
-                    ${selectField("order", "status", "Статус", Object.entries(state.data.statuses).map(([key, label]) => `<option value="${esc(key)}" ${order.status === key ? "selected" : ""}>${esc(label)}</option>`).join(""))}
-                    ${selectField("order", "priority", "Приоритет", Object.entries(state.data.priorities || priorityLabels).map(([key, label]) => `<option value="${esc(key)}" ${(order.priority || "normal") === key ? "selected" : ""}>${esc(label)}</option>`).join(""))}
+                    ${selectField("order", "customer_id", "Клиент", customerOptions(selectedCustomer), `required ${historicalOrder ? "disabled" : ""}`)}
+                    ${selectField("order", "vehicle_id", "Автомобиль", currentVehicleOptions(), historicalOrder ? "disabled" : "")}
+                    ${selectField("order", "status", "Статус", orderStatusOptions(order), order.status === "cancelled" ? "disabled" : "")}
+                    ${selectField("order", "priority", "Приоритет", Object.entries(state.data.priorities || priorityLabels).map(([key, label]) => `<option value="${esc(key)}" ${(order.priority || "normal") === key ? "selected" : ""}>${esc(label)}</option>`).join(""), historicalOrder ? "disabled" : "")}
+                    ${historicalOrder ? `${hiddenInput("customer_id", selectedCustomer)}${hiddenInput("vehicle_id", order.vehicle_id || "")}${hiddenInput("priority", order.priority || "normal")}` : ""}
+                    ${order.status === "cancelled" ? hiddenInput("status", order.status) : ""}
                 </div>
             </fieldset>
             <fieldset class="form-fieldset"><legend>Приём и сроки</legend>
                 <div class="form-grid three">
-                    ${inputField("order", "advisor", "Мастер-приемщик", `value="${esc(order.advisor || "Администратор")}"`)}
-                    ${inputField("order", "mechanic", "Механик", `value="${esc(order.mechanic)}"`)}
-                    ${inputField("order", "promised_at", "Срок", `type="datetime-local" value="${inputDateValue(order.promised_at)}"`)}
-                    ${inputField("order", "odometer", "Пробег", `type="number" inputmode="numeric" step="1" min="0" value="${esc(order.odometer || "")}"`)}
+                    ${historicalOrder ? readonlyField("Мастер-приемщик", readonlyValue(order.advisor || "Администратор")) : inputField("order", "advisor", "Мастер-приемщик", `value="${esc(order.advisor || "Администратор")}"`)}
+                    ${historicalOrder ? readonlyField("Механик", readonlyValue(order.mechanic)) : inputField("order", "mechanic", "Механик", `value="${esc(order.mechanic)}"`)}
+                    ${historicalOrder ? readonlyField("Срок", readonlyValue(inputDateValue(order.promised_at))) : inputField("order", "promised_at", "Срок", `type="datetime-local" value="${inputDateValue(order.promised_at)}"`)}
+                    ${historicalOrder ? readonlyField("Пробег", readonlyValue(order.odometer || "")) : inputField("order", "odometer", "Пробег", `type="number" inputmode="numeric" step="1" min="0" value="${esc(order.odometer || "")}"`)}
+                    ${historicalOrder ? `${hiddenInput("advisor", order.advisor || "Администратор")}${hiddenInput("mechanic", order.mechanic || "")}${hiddenInput("promised_at", inputDateValue(order.promised_at))}${hiddenInput("odometer", order.odometer || "")}` : ""}
                 </div>
             </fieldset>
             <fieldset class="form-fieldset"><legend>Финансы</legend>
                 <div class="form-grid three">
-                    ${inputField("order", "paid", "Оплачено", `type="number" inputmode="decimal" step="0.01" min="0" value="${esc(order.paid || 0)}"`)}
-                    ${inputField("order", "discount", "Скидка", `type="number" inputmode="decimal" step="0.01" min="0" value="${esc(order.discount || 0)}"`)}
-                    ${inputField("order", "tax_rate", "Налог, %", `type="number" inputmode="decimal" step="0.01" min="0" max="100" value="${esc(order.tax_rate || 0)}"`)}
-                    ${inputField("order", "payment_method", "Оплата", `value="${esc(order.payment_method)}"`)}
+                    ${historicalOrder ? readonlyField("Оплачено", readonlyValue(money(order.paid || 0))) : inputField("order", "paid", "Оплачено", `type="number" inputmode="decimal" step="0.01" min="0" value="${esc(order.paid || 0)}"`)}
+                    ${historicalOrder ? readonlyField("Скидка", readonlyValue(money(order.discount || 0))) : inputField("order", "discount", "Скидка", `type="number" inputmode="decimal" step="0.01" min="0" value="${esc(order.discount || 0)}"`)}
+                    ${historicalOrder ? readonlyField("Налог, %", readonlyValue(order.tax_rate || 0)) : inputField("order", "tax_rate", "Налог, %", `type="number" inputmode="decimal" step="0.01" min="0" max="100" value="${esc(order.tax_rate || 0)}"`)}
+                    ${historicalOrder ? readonlyField("Оплата", readonlyValue(order.payment_method)) : inputField("order", "payment_method", "Оплата", `value="${esc(order.payment_method)}"`)}
+                    ${historicalOrder ? `${hiddenInput("paid", order.paid || 0)}${hiddenInput("discount", order.discount || 0)}${hiddenInput("tax_rate", order.tax_rate || 0)}${hiddenInput("payment_method", order.payment_method || "")}` : ""}
                 </div>
             </fieldset>
             <fieldset class="form-fieldset"><legend>Согласование и контакт</legend>
                 <div class="form-grid three">
-                    ${inputField("order", "authorized_by", "Согласовал", `value="${esc(order.authorized_by)}"`)}
-                    ${inputField("order", "authorized_at", "Дата согласования", `type="datetime-local" value="${inputDateValue(order.authorized_at)}"`)}
-                    ${inputField("order", "follow_up_at", "Follow-up", `type="datetime-local" value="${inputDateValue(order.follow_up_at)}"`)}
+                    ${historicalOrder ? readonlyField("Согласовал", readonlyValue(order.authorized_by)) : inputField("order", "authorized_by", "Согласовал", `value="${esc(order.authorized_by)}"`)}
+                    ${historicalOrder ? readonlyField("Дата согласования", readonlyValue(inputDateValue(order.authorized_at))) : inputField("order", "authorized_at", "Дата согласования", `type="datetime-local" value="${inputDateValue(order.authorized_at)}"`)}
+                    ${historicalOrder ? readonlyField("Follow-up", readonlyValue(inputDateValue(order.follow_up_at))) : inputField("order", "follow_up_at", "Follow-up", `type="datetime-local" value="${inputDateValue(order.follow_up_at)}"`)}
+                    ${historicalOrder ? `${hiddenInput("authorized_by", order.authorized_by || "")}${hiddenInput("authorized_at", inputDateValue(order.authorized_at))}` : ""}
+                    ${historicalOrder ? hiddenInput("follow_up_at", inputDateValue(order.follow_up_at)) : ""}
                 </div>
             </fieldset>
             <fieldset class="form-fieldset"><legend>Обращение и рекомендации</legend>
                 <div class="form-grid three">
-                    ${textareaField("order", "complaint", "Жалоба клиента", order.complaint, "", "span-3")}
-                    ${textareaField("order", "diagnosis", "Диагностика", order.diagnosis, "", "span-3")}
-                    ${textareaField("order", "recommendations", "Рекомендации", order.recommendations, "", "span-3")}
+                    ${historicalOrder ? readonlyField("Жалоба клиента", readonlyTextareaValue(order.complaint), "span-3") : textareaField("order", "complaint", "Жалоба клиента", order.complaint, "", "span-3")}
+                    ${historicalOrder ? readonlyField("Диагностика", readonlyTextareaValue(order.diagnosis), "span-3") : textareaField("order", "diagnosis", "Диагностика", order.diagnosis, "", "span-3")}
+                    ${historicalOrder ? readonlyField("Рекомендации", readonlyTextareaValue(order.recommendations), "span-3") : textareaField("order", "recommendations", "Рекомендации", order.recommendations, "", "span-3")}
+                    ${historicalOrder ? `${hiddenInput("complaint", order.complaint || "")}${hiddenInput("diagnosis", order.diagnosis || "")}${hiddenInput("recommendations", order.recommendations || "")}` : ""}
                 </div>
             </fieldset>
             <div class="toolbar">
                 <div class="toolbar-left"><strong>Работы и запчасти</strong></div>
                 <div class="toolbar-right">
-                    <button class="btn" type="button" id="addService">+ Работа</button>
-                    <button class="btn" type="button" id="addPart">+ Запчасть</button>
+                    <button class="btn" type="button" id="addService" ${historicalOrder ? "disabled" : ""}>+ Работа</button>
+                    <button class="btn" type="button" id="addPart" ${historicalOrder ? "disabled" : ""}>+ Запчасть</button>
                 </div>
             </div>
             <div class="business-hints" aria-label="Подсказки заказ-наряда">
@@ -3114,24 +3448,27 @@ function openOrderModal(order = {}) {
             <div class="notice">Запчасть можно выбрать со склада или указать вручную как «вне склада» — такие позиции не списывают остатки, но учитываются в сумме заказ-наряда.</div>
             <div id="itemsHost"></div>
         </form>`,
-        `${order.id ? `<button class="btn danger" type="button" data-save="delete-order" data-id="${safeRecordId(order.id)}">Удалить</button>` : ""}
+        `${order.id && !closedFinancialOrder ? `<button class="btn danger" type="button" data-save="delete-order" data-id="${safeRecordId(order.id)}">Удалить</button>` : ""}
          ${order.id ? `<button class="btn ghost" type="button" data-save="print-order" data-id="${safeRecordId(order.id)}">Печать</button>` : ""}
          <button class="btn" type="button" data-save="cancel">Отмена</button>
-         <button class="btn primary" type="button" data-save="order" data-id="${safeRecordId(order.id)}">Сохранить</button>`
+         <button class="btn primary" type="button" data-save="order" data-id="${safeRecordId(order.id)}" ${order.status === "cancelled" ? "disabled" : ""}>Сохранить</button>`
     );
     renderOrderItems();
     $("#order_customer_id").addEventListener("change", event => {
+        if (state.orderDraftReadOnly) return;
         const vehicle = $("#order_vehicle_id");
         vehicle.innerHTML = vehicleOptions(event.target.value, "");
         vehicle.value = "";
         vehicle.dispatchEvent(new Event("change", { bubbles: true }));
     });
     $("#addService").addEventListener("click", () => {
+        if (state.orderDraftReadOnly) return;
         markModalDirty();
         state.orderDraftItems.push({ kind: "service", title: "", approval_status: "approved", quantity: 1, unit_price: 0, unit_cost: 0 });
         renderOrderItems();
     });
     $("#addPart").addEventListener("click", () => {
+        if (state.orderDraftReadOnly) return;
         markModalDirty();
         state.orderDraftItems.push({ kind: "part", inventory_id: "", title: "", approval_status: "approved", quantity: 1, unit_price: 0, unit_cost: 0 });
         renderOrderItems();
@@ -3153,18 +3490,18 @@ function renderOrderItems() {
             <tbody>
                 ${state.orderDraftItems.map((item, index) => `
                     <tr data-index="${index}">
-                        <td data-label="Тип"><select data-item="kind" aria-label="Тип позиции">
+                        <td data-label="Тип"><select data-item="kind" aria-label="Тип позиции" ${state.orderDraftReadOnly ? "disabled" : ""}>
                             <option value="service" ${item.kind === "service" ? "selected" : ""}>Работа</option>
                             <option value="part" ${item.kind === "part" ? "selected" : ""}>Запчасть</option>
                         </select></td>
-                        <td data-label="Источник"><select class="source-select" data-item="inventory_id" aria-label="Источник запчасти" ${item.kind !== "part" ? "disabled" : ""}>${partSourceOptions(item)}</select>${partSourceHint(item)}</td>
-                        <td data-label="Наименование"><input data-item="title" aria-label="Наименование позиции" value="${esc(item.title)}" required></td>
-                        <td data-label="Согласование"><select data-item="approval_status" aria-label="Статус согласования позиции">${itemApprovalOptions(item.approval_status)}</select><div class="cell-note">Согласовано — в сумму; отложено/отказ — без списания и оплаты.</div></td>
-                        <td data-label="Кол-во"><input data-item="quantity" aria-label="Количество" type="number" inputmode="decimal" step="0.01" min="0.01" required value="${esc(item.quantity || 1)}"></td>
-                        <td data-label="Цена"><input data-item="unit_price" aria-label="Цена" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(item.unit_price || 0)}"></td>
-                        <td data-label="Себест."><input data-item="unit_cost" aria-label="Себестоимость" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(item.unit_cost || 0)}"></td>
+                        <td data-label="Источник"><select class="source-select" data-item="inventory_id" aria-label="Источник запчасти" ${item.kind !== "part" || state.orderDraftReadOnly ? "disabled" : ""}>${partSourceOptions(item)}</select>${partSourceHint(item)}</td>
+                        <td data-label="Наименование"><input data-item="title" aria-label="Наименование позиции" value="${esc(item.title)}" required ${state.orderDraftReadOnly ? "disabled" : ""}></td>
+                        <td data-label="Согласование"><select data-item="approval_status" aria-label="Статус согласования позиции" ${state.orderDraftReadOnly ? "disabled" : ""}>${itemApprovalOptions(item.approval_status)}</select><div class="cell-note">Согласовано — в сумму; отложено/отказ — без списания и оплаты.</div></td>
+                        <td data-label="Кол-во"><input data-item="quantity" aria-label="Количество" type="number" inputmode="decimal" step="0.01" min="0.01" required value="${esc(item.quantity || 1)}" ${state.orderDraftReadOnly ? "disabled" : ""}></td>
+                        <td data-label="Цена"><input data-item="unit_price" aria-label="Цена" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(item.unit_price || 0)}" ${state.orderDraftReadOnly ? "disabled" : ""}></td>
+                        <td data-label="Себест."><input data-item="unit_cost" aria-label="Себестоимость" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(item.unit_cost || 0)}" ${state.orderDraftReadOnly ? "disabled" : ""}></td>
                         <td data-label="Сумма" class="money" data-row-total>${money((item.approval_status || "approved") === "approved" ? num(item.quantity) * num(item.unit_price) : 0)}</td>
-                        <td data-label="Действия"><button class="btn icon" type="button" data-remove-item="${index}" title="Удалить" aria-label="Удалить позицию заказ-наряда">×</button></td>
+                        <td data-label="Действия"><button class="btn icon" type="button" data-remove-item="${index}" title="Удалить" aria-label="Удалить позицию заказ-наряда" ${state.orderDraftReadOnly ? "disabled" : ""}>×</button></td>
                     </tr>`).join("")}
             </tbody>
         </table>
@@ -3185,6 +3522,7 @@ function renderOrderItems() {
 }
 
 function syncOrderItemsFromDom(event) {
+    if (state.orderDraftReadOnly) return;
     const row = event.target.closest("tr[data-index]");
     if (!row) return;
     const index = Number(row.dataset.index);
@@ -3192,6 +3530,9 @@ function syncOrderItemsFromDom(event) {
     $$("[data-item]", row).forEach(input => {
         item[input.dataset.item] = input.value;
     });
+    clearFormError(event.target);
+    const pairedInvalidField = event.target.dataset.item === "title" ? row.querySelector('[data-item="quantity"]') : row.querySelector('[data-item="title"]');
+    if (pairedInvalidField) clearFormError(pairedInvalidField);
     if (event.target.dataset.item === "kind") {
         if (item.kind === "service") item.inventory_id = "";
         if (item.kind === "part") item.inventory_id = item.inventory_id || "";
@@ -3256,7 +3597,9 @@ async function refreshAfterMutation(successMessage) {
 async function saveEntity(kind, id) {
     const form = $("#entityForm");
     if (!form) return;
-    if (!form.reportValidity()) return;
+    if (!validateLocalizedNumberInputs(form)) return;
+    if (!reportFormValidity(form)) return;
+    if (kind === "appointments" && !updateAppointmentConflictNotice(true)) return;
     const data = collectForm(form);
     const path = id ? `/api/${kind}/${id}` : `/api/${kind}`;
     const method = id ? "PUT" : "POST";
@@ -3274,7 +3617,9 @@ async function saveEntity(kind, id) {
 
 async function saveOrder(id) {
     const form = $("#orderForm");
-    if (form && !form.reportValidity()) return;
+    if (!validateLocalizedNumberInputs(form, { excludeSelector: "[data-item]" })) return;
+    if (!validateOrderItemNumberInputs()) return;
+    if (form && !reportFormValidity(form, "[data-item]")) return;
     const data = collectForm(form);
     syncAllOrderItems();
     const invalidItems = state.orderDraftItems.filter(item => !String(item.title || "").trim() || num(item.quantity, 0) <= 0);
@@ -3296,6 +3641,11 @@ async function saveOrder(id) {
         unit_price: num(item.unit_price, 0),
         unit_cost: num(item.unit_cost, 0)
     }));
+    const stockMessage = insufficientStockMessage(data.status);
+    if (stockMessage) {
+        markFirstInvalidOrderItem("quantity", stockMessage);
+        return;
+    }
     const path = id ? `/api/orders/${id}` : "/api/orders";
     const method = id ? "PUT" : "POST";
     setSaveButtonsBusy(true);
@@ -3312,6 +3662,7 @@ async function saveOrder(id) {
 
 
 function syncAllOrderItems() {
+    if (state.orderDraftReadOnly) return;
     $$("#itemsHost tr[data-index]").forEach(row => {
         const index = Number(row.dataset.index);
         const item = state.orderDraftItems[index];
@@ -3321,8 +3672,43 @@ function syncAllOrderItems() {
     });
 }
 
+function insufficientStockMessage(status) {
+    if (status !== "closed") return "";
+    const stock = new Map(inventoryLookupList().map(part => [Number(part.id), part]));
+    const required = new Map();
+    state.orderDraftItems.forEach(item => {
+        if (item.kind !== "part" || (item.approval_status || "approved") !== "approved") return;
+        const id = Number(item.inventory_id || 0);
+        if (!id) return;
+        required.set(id, (required.get(id) || 0) + num(item.quantity, 0));
+    });
+    const shortages = [];
+    required.forEach((need, id) => {
+        const part = stock.get(id);
+        if (!part) return;
+        const available = num(part.quantity, 0);
+        if (available + 0.000001 < need) shortages.push(`${part.name}: доступно ${qty(available)}, требуется ${qty(need)}`);
+    });
+    return shortages.length ? `Недостаточно на складе для закрытия заказа: ${shortages.join("; ")}.` : "";
+}
+
+function validateOrderItemNumberInputs() {
+    const form = $("#orderForm");
+    if (!form) return true;
+    for (const input of $$('#itemsHost input[type="number"][data-item]', form)) {
+        const message = numericInputError(input, input.getAttribute("aria-label") || "Поле позиции");
+        input.setCustomValidity(message);
+        if (message) {
+            markFirstInvalidOrderItem(input.dataset.item === "quantity" ? "quantity" : input.dataset.item, message);
+            return false;
+        }
+    }
+    return true;
+}
+
 
 function syncOrderItemStateOnly(event) {
+    if (state.orderDraftReadOnly) return;
     const row = event.target.closest("tr[data-index]");
     if (!row) return;
     const index = Number(row.dataset.index);
@@ -3330,6 +3716,7 @@ function syncOrderItemStateOnly(event) {
     $$("[data-item]", row).forEach(input => {
         item[input.dataset.item] = input.value;
     });
+    clearFormError(event.target);
     const totalCell = $("[data-row-total]", row);
     if (totalCell) totalCell.textContent = money((item.approval_status || "approved") === "approved" ? num(item.quantity) * num(item.unit_price) : 0);
     const totals = $("#orderTotals");
@@ -3412,7 +3799,10 @@ function showError(error) {
 
 document.addEventListener("click", event => {
     const navButton = event.target.closest("#nav button[data-route]");
-    if (navButton) setRoute(navButton.dataset.route);
+    if (navButton) {
+        setRoute(navButton.dataset.route);
+        setMobileNavOpen(false, { restoreFocus: false });
+    }
 
     const saveButton = event.target.closest("[data-save]");
     if (!saveButton) return;
@@ -3458,7 +3848,6 @@ window.addEventListener("offline", () => {
     announce("Браузер сообщает, что сеть недоступна. Работаем с последними загруженными данными.", true);
 });
 window.addEventListener("online", () => {
-    setOnlineState(true);
     loadData().then(() => toast("Соединение восстановлено")).catch(showError);
 });
 $("#refreshBtn")?.addEventListener("click", () => loadData().then(() => toast("Обновлено")).catch(showError));
@@ -3510,10 +3899,12 @@ function setSystemMenuOpen(isOpen, { focusFirst = false, restoreFocus = false } 
     const menu = $("#systemMenu");
     const button = $("#systemMenuBtn");
     if (!menu || !button) return;
+    if (isOpen) closeTransientPanels("system");
     menu.hidden = !isOpen;
     button.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    if (isOpen) updateTopbarOffset();
     if (isOpen && focusFirst) focusSystemMenuItem(0);
-    if (!isOpen && restoreFocus) button.focus();
+    if (!isOpen && restoreFocus) button.focus({ preventScroll: true });
 }
 
 function closeSystemMenu(options = {}) {

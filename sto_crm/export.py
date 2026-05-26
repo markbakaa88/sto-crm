@@ -35,6 +35,7 @@ from .runtime import (
     is_frozen,
     normalize_github_repository,
 )
+from .updates import latest_backup_info
 
 
 def bootstrap_payload(q: str = "", status: str = "all") -> dict[str, Any]:
@@ -59,6 +60,7 @@ def bootstrap_payload(q: str = "", status: str = "all") -> dict[str, Any]:
     reports = build_reports(
         all_orders, all_inventory, all_vehicles, all_appointments, all_customers
     )
+    last_backup = latest_backup_info()
     return {
         "app": {
             "name": APP_NAME,
@@ -70,6 +72,8 @@ def bootstrap_payload(q: str = "", status: str = "all") -> dict[str, Any]:
             "repository_url": github_repository_url(),
             "releases_url": github_latest_release_url(),
             "can_install_update": is_frozen(),
+            "last_backup_at": last_backup["created_at"] if last_backup else "",
+            "last_backup": last_backup,
         },
         "statuses": ORDER_STATUSES,
         "appointment_statuses": APPOINTMENT_STATUSES,
