@@ -68,7 +68,7 @@ ORDER_STATUSES = {
     "in_progress": "В работе",
     "done": "Готов",
     "closed": "Закрыт",
-    "cancelled": "Отменен",
+    "cancelled": "Отменён",
 }
 CONSUMING_STATUSES = {"closed"}
 ORDER_STATUS_TRANSITIONS = {

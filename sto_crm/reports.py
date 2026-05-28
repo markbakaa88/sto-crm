@@ -615,7 +615,7 @@ def build_reports(
         )
         add_action(
             "appointment_today",
-            f"Приемка сегодня: {appointment.get('customer_name') or 'клиент'}",
+            f"Приёмка сегодня: {appointment.get('customer_name') or 'клиент'}",
             f"{APPOINTMENT_STATUSES.get(status, status)} · {appointment.get('reason') or 'причина не указана'}.",
             58 if status in {"scheduled", "confirmed"} else 50,
             "success" if status == "arrived" else "info",

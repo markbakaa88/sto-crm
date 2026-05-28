@@ -19,7 +19,9 @@ const state = {
     loading: false,
     lastLoadedAt: "",
     offlineMode: false,
-    compactMode: true,
+    compactMode: false,
+    searchTimer: null,
+    lastBackupAt: "",
     customerPage: 1,
     customerPageSize: 50,
     catalogLimit: 60
@@ -28,6 +30,15 @@ const state = {
 const BOOTSTRAP_CACHE_KEY = "sto-crm-bootstrap";
 const BOOTSTRAP_CACHE_SCHEMA_VERSION = 2;
 const BOOTSTRAP_CACHE_TTL_MS = 30 * 60 * 1000;
+const EXPORT_ENTITIES = new Set(["appointments", "orders", "customers", "vehicles", "inventory", "catalog"]);
+const ENTITY_COLLECTION_PATHS = Object.freeze({
+    appointments: "/api/appointments",
+    customers: "/api/customers",
+    vehicles: "/api/vehicles",
+    inventory: "/api/inventory",
+    orders: "/api/orders"
+});
+const BUTTON_STYLE_CLASSES = new Set(["primary", "ghost", "danger"]);
 
 const routes = {
     dashboard: "Панель",
@@ -37,13 +48,13 @@ const routes = {
     vehicles: "Автомобили",
     catalog: "Каталог авто",
     inventory: "Склад",
-    reports: "Отчеты",
+    reports: "Отчёты",
     updates: "Обновления"
 };
 
 const routeSubtitles = {
     dashboard: "Сводка смены",
-    appointments: "Визиты и приемка",
+    appointments: "Визиты и приёмка",
     orders: "Заказы, сроки и оплаты",
     customers: "Контакты и история",
     vehicles: "Авто, VIN и сервисный план",
@@ -85,6 +96,13 @@ function esc(value) {
     }[ch]));
 }
 
+function buttonClassName(value) {
+    return String(value || "")
+        .split(/\s+/)
+        .filter(token => BUTTON_STYLE_CLASSES.has(token))
+        .join(" ");
+}
+
 function safeExternalUrl(value, fallback = "#") {
     const normalize = candidate => {
         try {
@@ -95,6 +113,19 @@ function safeExternalUrl(value, fallback = "#") {
         }
     };
     return normalize(value) || normalize(fallback) || "#";
+}
+
+function safeInlinePrintScript(htmlText) {
+    const source = String(htmlText || "");
+    const printScript = 'document.getElementById("printButton").addEventListener("click", () => window.print());';
+    const openingTag = "<" + 'script nonce="__STO_CRM_CSP_NONCE__">';
+    const closingTag = "<" + "/script>";
+    return source.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gi, (_match, body) => {
+        const normalizedBody = String(body || "").replace(/\s+/g, " ").trim();
+        return normalizedBody === printScript
+            ? `${openingTag}${printScript}${closingTag}`
+            : "";
+    });
 }
 
 function safeRecordId(value) {
@@ -174,11 +205,39 @@ function bytesText(value) {
 }
 
 function exportUrl(entity) {
-    return `/api/export/${encodeURIComponent(entity)}.csv`;
+    const safeEntity = String(entity || "").trim();
+    if (!EXPORT_ENTITIES.has(safeEntity)) {
+        throw new Error("Недопустимый тип CSV-экспорта.");
+    }
+    return `/api/export/${safeEntity}.csv`;
+}
+
+function safeDownloadFilename(value, fallback = "export.csv") {
+    const filename = String(value || "")
+        .split(/[\\/]/)
+        .pop()
+        .replace(/[\u0000-\u001f\u007f]/g, "")
+        .trim();
+    return filename && !/[<>:"|?*]/.test(filename) ? filename : fallback;
+}
+
+function entityCollectionPath(kind) {
+    const path = ENTITY_COLLECTION_PATHS[String(kind || "")];
+    if (!path) throw new Error("Недопустимый раздел CRM.");
+    return path;
+}
+
+function entityRecordPath(kind, id) {
+    const recordId = Number(id || 0);
+    if (!Number.isSafeInteger(recordId) || recordId <= 0) {
+        throw new Error("Недопустимый идентификатор записи.");
+    }
+    return `${entityCollectionPath(kind)}/${encodeURIComponent(String(recordId))}`;
 }
 
 async function downloadCsv(entity) {
     if (!requiresFreshCsrf("экспорт CSV")) return;
+    const safeEntity = String(entity || "").trim();
     const response = await fetch(exportUrl(entity), {
         headers: state.data?.app?.csrf_token ? { "X-CSRF-Token": state.data.app.csrf_token } : {},
         cache: "no-store"
@@ -193,7 +252,7 @@ async function downloadCsv(entity) {
     const blob = await response.blob();
     const disposition = response.headers.get("Content-Disposition") || "";
     const match = disposition.match(/filename="?([^";]+)"?/i);
-    const filename = match ? match[1] : `${entity}.csv`;
+    const filename = safeDownloadFilename(match ? match[1] : "", `${safeEntity}.csv`);
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -264,7 +323,7 @@ function classToken(value) {
 }
 
 function helpTip(text, label = "?") {
-    return `<span class="help-tip" role="note" tabindex="0" aria-label="${esc(text)}" title="${esc(text)}"><span aria-hidden="true">${esc(label)}</span></span>`;
+    return `<button type="button" class="help-tip" aria-label="${esc(text)}" title="${esc(text)}"><span aria-hidden="true">${esc(label)}</span></button>`;
 }
 
 function textOrDash(value, fallback = "—") {
@@ -284,7 +343,7 @@ function paginationControls(kind, page, maxPage, total, pageSize, noun = "зап
         <span>${start}–${end} из ${total} ${esc(noun)}</span>
         <button class="btn" type="button" data-action="page-${esc(kind)}" data-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>Назад</button>
         <span class="count-pill">${page}/${maxPage}</span>
-        <button class="btn" type="button" data-action="page-${esc(kind)}" data-page="${page + 1}" ${page >= maxPage ? "disabled" : ""}>Вперед</button>
+        <button class="btn" type="button" data-action="page-${esc(kind)}" data-page="${page + 1}" ${page >= maxPage ? "disabled" : ""}>Вперёд</button>
     </nav>`;
 }
 
@@ -497,7 +556,16 @@ async function api(path, options = {}, retries = null) {
                 headers
             });
             const contentType = response.headers.get("Content-Type") || "";
-            const data = contentType.includes("application/json") ? await response.json() : await response.text();
+            let data;
+            try {
+                data = contentType.includes("application/json") ? await response.json() : await response.text();
+            } catch (parseError) {
+                const error = new Error("Сервер вернул некорректный ответ. Обновите данные и повторите действие.");
+                error.status = response.status;
+                error.retryable = response.status >= 500;
+                error.cause = parseError;
+                throw error;
+            }
             if (!response.ok) {
                 const message = (data && typeof data === "object" ? data.error : data) || `Ошибка запроса (HTTP ${response.status})`;
                 const error = new Error(message);
@@ -509,6 +577,7 @@ async function api(path, options = {}, retries = null) {
         } catch (error) {
             if (error?.name === "AbortError") throw error;
             if (options?.signal?.aborted) throw error;
+            if (!Number(error?.status || 0) && error instanceof TypeError) error.networkError = true;
             const retryable = error?.retryable === true || !Number(error?.status || 0);
             if (attempt === maxRetries || !retryable) throw error;
             await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
@@ -597,7 +666,7 @@ function restoreCachedBootstrap() {
         render();
         updateSearchClear();
         const loadedText = state.lastLoadedAt ? ` от ${new Date(state.lastLoadedAt).toLocaleString("ru-RU")}` : "";
-        announce(`Показаны сохраненные данные${loadedText}. Сервер CRM недоступен.`, true);
+        announce(`Показаны сохранённые данные${loadedText}. Сервер CRM недоступен.`, true);
         return true;
     } catch {
         return false;
@@ -612,7 +681,7 @@ function setLoadingState(isLoading) {
     const progress = $("#appProgress");
     if (progress) {
         progress.classList.toggle("is-active", Boolean(isLoading));
-        progress.setAttribute("aria-hidden", isLoading ? "false" : "true");
+        progress.setAttribute("aria-hidden", "true");
     }
     const syncChip = $("#syncChip");
     if (syncChip && isLoading) syncChip.dataset.state = "syncing";
@@ -758,7 +827,7 @@ function render() {
     } catch (error) {
         console.error(error);
         state.lastError = error?.message || String(error);
-        viewHtml = `<div class="notice" role="alert"><strong>Не удалось отрисовать раздел.</strong><p>${esc(state.lastError)}</p><button class="btn primary" type="button" data-action="retry-load">Обновить данные</button></div>`;
+        viewHtml = noticeHtml("error", "Не удалось отрисовать раздел.", state.lastError, `<button class="btn primary" type="button" data-action="retry-load">Обновить данные</button>`);
     }
     content.innerHTML = `${offlineBannerHtml()}${errorBannerHtml()}${contextStripHtml()}${viewHtml}`;
     content.setAttribute("aria-busy", busy);
@@ -813,9 +882,11 @@ function bindWorkspaceToolbar(root) {
 
 function updateScrollHints(root = document) {
     const refresh = () => {
-        $$(".table-wrap, .items-table", root).forEach(container => {
-            if (!container.querySelector(":scope > .scroll-hint")) {
-                const hint = document.createElement("div");
+        $$(".table-wrap, .items-table, .timeline", root).forEach(container => {
+            const isNativeScrollRegion = container.classList.contains("timeline");
+            let hint = container.querySelector(":scope > .scroll-hint");
+            if (!hint && !isNativeScrollRegion) {
+                hint = document.createElement("div");
                 hint.className = "scroll-hint";
                 hint.setAttribute("aria-hidden", "true");
                 hint.textContent = "Прокрутите вправо →";
@@ -826,10 +897,15 @@ function updateScrollHints(root = document) {
                 srHint = document.createElement("div");
                 srHint.className = "sr-only scroll-hint-sr";
                 srHint.id = `scrollHint${Math.random().toString(36).slice(2)}`;
-                srHint.textContent = "Таблица прокручивается горизонтально. Используйте Shift и колесо мыши, тач-жест или горизонтальную прокрутку клавиатурой.";
+                srHint.textContent = `${isNativeScrollRegion ? "Область" : "Таблица"} прокручивается горизонтально. Используйте Shift и колесо мыши, тач-жест или горизонтальную прокрутку клавиатурой.`;
                 container.append(srHint);
             }
-            const hasOverflow = container.scrollWidth > container.clientWidth + 1;
+            const contentWidth = isNativeScrollRegion
+                ? container.scrollWidth
+                : Array.from(container.children)
+                    .filter(child => child !== hint && child !== srHint)
+                    .reduce((maxWidth, child) => Math.max(maxWidth, child.scrollWidth || child.getBoundingClientRect().width || 0), 0);
+            const hasOverflow = contentWidth > container.clientWidth + 1;
             container.classList.toggle("has-horizontal-overflow", hasOverflow);
             if (hasOverflow) {
                 container.setAttribute("tabindex", container.getAttribute("tabindex") || "0");
@@ -859,11 +935,12 @@ function errorBannerHtml() {
     return `<div class="error-banner" role="alert"><strong>Последнее действие не выполнено.</strong><span>${esc(state.lastError)}</span><button class="btn ghost" type="button" data-action="dismiss-error">Скрыть</button></div>`;
 }
 
-function setOnlineState(isOnline) {
+function setOnlineState(isOnline, { rerenderContent = false } = {}) {
     state.offlineMode = !isOnline;
     const app = $(".app");
     if (app) app.classList.toggle("offline", !isOnline);
     renderShell();
+    if (rerenderContent && state.data) render();
 }
 
 function updateNavigationBadges() {
@@ -899,7 +976,7 @@ const BREADCRUMB_MAP = {
     vehicles:     [{ label: "Справочники", route: null },  { label: "Автомобили",    route: null }],
     catalog:      [{ label: "Справочники", route: null },  { label: "Каталог авто",  route: null }],
     inventory:    [{ label: "Справочники", route: null },  { label: "Склад",         route: null }],
-    reports:      [{ label: "Аналитика",   route: null },  { label: "Отчеты",        route: null }],
+    reports:      [{ label: "Аналитика",   route: null },  { label: "Отчёты",        route: null }],
     updates:      [{ label: "Аналитика",   route: null },  { label: "Обновления",    route: null }]
 };
 
@@ -1483,12 +1560,12 @@ function clearGlobalSearch() {
 function commandItems() {
     return [
         { icon: "П", title: "Панель", hint: "Сводка смены", keys: "G D", run: () => setRoute("dashboard") },
-        { icon: "З", title: "Новая запись", hint: "Календарь приемки", keys: "N A", run: () => openAppointmentModal() },
+        { icon: "З", title: "Новая запись", hint: "Календарь приёмки", keys: "N A", run: () => openAppointmentModal() },
         { icon: "№", title: "Новый заказ", hint: "Работы и оплаты", keys: "N O", run: () => openOrderModal() },
         { icon: "К", title: "Новый клиент", hint: "Контакт CRM", keys: "N C", run: () => openCustomerModal() },
         { icon: "А", title: "Новый автомобиль", hint: "Карточка авто", keys: "N V", run: () => openVehicleModal() },
-        { icon: "С", title: "Новая позиция", hint: "Складской учет", keys: "N S", run: () => openInventoryModal() },
-        { icon: "О", title: "Отчеты", hint: "Финансы и риски", keys: "G R", run: () => setRoute("reports") },
+        { icon: "С", title: "Новая позиция", hint: "Складской учёт", keys: "N S", run: () => openInventoryModal() },
+        { icon: "О", title: "Отчёты", hint: "Финансы и риски", keys: "G R", run: () => setRoute("reports") },
         { icon: "М", title: "Каталог авто", hint: "Марки и модели", keys: "G K", run: () => setRoute("catalog") },
         { icon: "↻", title: "Обновить", hint: "Перезагрузить данные", keys: "R", run: () => loadData().then(() => toast("Обновлено")).catch(showError) },
         { icon: "↕", title: "Плотность", hint: "Компактно / обычно", keys: "Ctrl+K → Плотность", run: () => toggleDensity() },
@@ -1603,7 +1680,7 @@ function sectionIntro(title, text, options = {}) {
     const actions = (options.actions || []).length
         ? `<div class="hero-actions">${options.actions.map(action => action.action === "export-csv"
             ? `<button class="btn ghost" type="button" data-action="export-csv" data-export="${esc(action.export || "")}">${esc(action.label || "CSV")}</button>`
-            : `<button class="btn ${esc(action.className || "")}" type="button" data-action="${esc(action.action || "")}">${esc(action.label || "Открыть")}</button>`).join("")}</div>`
+            : `<button class="btn ${buttonClassName(action.className)}" type="button" data-action="${esc(action.action || "")}">${esc(action.label || "Открыть")}</button>`).join("")}</div>`
         : "";
     const stats = (options.stats || []).length
         ? `<div class="hero-stat-stack">${options.stats.map(item => `<div class="hero-stat"><strong>${esc(item.value)}</strong><small>${esc(item.label)}</small></div>`).join("")}</div>`
@@ -1616,6 +1693,13 @@ function sectionIntro(title, text, options = {}) {
 
 function emptyState(title, text, action = "") {
     return `<div class="empty"><strong>${esc(title)}</strong><span>${esc(text)}</span>${action}</div>`;
+}
+
+function noticeHtml(tone = "info", title = "", text = "", action = "") {
+    const safeTone = new Set(["info", "warning", "error"]).has(tone) ? tone : "info";
+    const toneClass = safeTone === "info" ? "notice" : `notice ${safeTone}`;
+    const role = safeTone === "error" || safeTone === "warning" ? "alert" : "status";
+    return `<div class="${toneClass}" role="${role}">${title ? `<strong>${esc(title)}</strong>` : ""}${text ? `<p>${esc(text)}</p>` : ""}${action}</div>`;
 }
 
 function insightCard(label, value, hint, options = {}) {
@@ -1634,7 +1718,7 @@ function viewHeading(title, text, meta = [], actions = []) {
         if (action.action === "export-csv") {
             return `<button class="btn ghost" type="button" data-action="export-csv" data-export="${esc(action.export || "")}"${titleAttr}${disabledAttr}${ariaDisabledAttr}>${esc(action.label || "CSV")}</button>`;
         }
-        return `<button class="btn ${esc(action.className || "")}" type="button" data-action="${esc(action.action || "")}"${exportAttr}${titleAttr}${disabledAttr}${ariaDisabledAttr}>${esc(action.label || "Открыть")}</button>`;
+        return `<button class="btn ${buttonClassName(action.className)}" type="button" data-action="${esc(action.action || "")}"${exportAttr}${titleAttr}${disabledAttr}${ariaDisabledAttr}>${esc(action.label || "Открыть")}</button>`;
     }).join("")}</div>` : "";
     return `<section class="view-heading"><div><h2>${esc(title)}</h2><p>${esc(text)}</p>${metaHtml}</div>${actionsHtml}</section>`;
 }
@@ -1675,12 +1759,19 @@ function readonlyValue(value) {
     return String(value ?? "").trim() ? esc(value) : "—";
 }
 
+function trustedHtml(value) {
+    return { __trustedHtml: String(value ?? "") };
+}
+
 function readonlyField(label, value, span = "") {
-    return `<div class="field readonly-field ${esc(span)}"><span class="readonly-label">${esc(label)}</span><strong>${value}</strong></div>`;
+    const content = value?.__trustedHtml !== undefined
+        ? value.__trustedHtml
+        : readonlyValue(value);
+    return `<div class="field readonly-field ${esc(span)}"><span class="readonly-label">${esc(label)}</span><strong>${content}</strong></div>`;
 }
 
 function readonlyTextareaValue(value) {
-    return `<span class="readonly-multiline">${readonlyValue(value)}</span>`;
+    return trustedHtml(`<span class="readonly-multiline">${readonlyValue(value)}</span>`);
 }
 
 function selectField(formScope, name, label, optionsHtml, attributes = "", span = "", hint = "") {
@@ -1896,7 +1987,7 @@ function actionPlanList(items = []) {
     }
     const visible = items.slice(0, 8);
     const hiddenCount = Math.max(0, items.length - visible.length);
-    const hiddenNote = hiddenCount ? `<div class="action-more muted">Еще ${hiddenCount} ${pluralRu(hiddenCount, "задача", "задачи", "задач")} — откройте профильный раздел.</div>` : "";
+    const hiddenNote = hiddenCount ? `<div class="action-more muted">Ещё ${hiddenCount} ${pluralRu(hiddenCount, "задача", "задачи", "задач")} — откройте профильный раздел.</div>` : "";
     return `<div class="action-stream">${visible.map(item => {
         const meta = [
             item.customer_name,
@@ -1935,7 +2026,7 @@ function renderAppointments() {
                             <td data-label="Действия"><div class="row-actions"><button class="btn" type="button" data-action="edit-appointment" data-id="${safeRecordId(appointment.id)}" aria-label="Открыть запись ${esc(appointment.customer_name || appointment.id)} на ${esc(dateShort(appointment.scheduled_at))}">Открыть</button></div></td>
                         </tr>`).join("");
     return `
-        ${viewHeading("Календарь приемки", "Планируйте визиты, подтверждения, прибытия и неявки в одном аккуратном рабочем списке.", [
+        ${viewHeading("Календарь приёмки", "Планируйте визиты, подтверждения, прибытия и неявки в одном аккуратном рабочем списке.", [
             `${rows.length} записей`,
             `${upcoming.length} ближайших`,
             `${state.data.reports.appointments_today_count || 0} сегодня`
@@ -1944,7 +2035,7 @@ function renderAppointments() {
             { label: "Новая запись", action: "new-appointment", className: "primary" }
         ])}
         <section class="kpi-grid">
-            ${metric("Записей сегодня", state.data.reports.appointments_today_count || 0, "Подтверждения, приемка и прибытия")}
+            ${metric("Записей сегодня", state.data.reports.appointments_today_count || 0, "Подтверждения, приёмка и прибытия")}
             ${metric("Ближайшие записи", upcoming.length, "Активные записи в календаре")}
             ${metric("Клиентов в базе", state.data.lookups.customers.length, "Можно быстро поставить в календарь")}
             ${metric("CRM задачи", state.data.reports.crm_tasks_count, "Напоминания, follow-up и отложенные работы")}
@@ -2296,7 +2387,7 @@ function renderReports() {
     const maxStatus = Math.max(...Object.values(statusCounts), 1);
     const maxService = Math.max(...topServices.map(x => Number(x.total || 0)), 1);
     return `
-        ${viewHeading("Отчеты и аналитика", "Финансы, маржа, загрузка, закупки и удержание клиентов для управленческих решений.", [
+        ${viewHeading("Отчёты и аналитика", "Финансы, маржа, загрузка, закупки и удержание клиентов для управленческих решений.", [
             `${money(r.revenue_month)} выручка`,
             `${num(r.margin_percent_month).toFixed(1)}% маржа`,
             `${r.low_stock_count || 0} складских рисков`
@@ -2362,17 +2453,21 @@ function renderReports() {
     `;
 }
 
+function toneStatusBadge(label, tone = "info") {
+    return `<span class="status" data-tone="${esc(classToken(tone))}">${esc(label)}</span>`;
+}
+
 function updateStatusBadge(status) {
-    if (!status) return `<span class="status s-new">Не проверено</span>`;
-    if (!status.ok) return `<span class="status s-cancelled">Ошибка проверки</span>`;
-    if (status.release?.is_newer) return `<span class="status s-approved">Доступна версия ${esc(status.release.version || status.release.tag)}</span>`;
-    return `<span class="status s-closed">Актуальная версия</span>`;
+    if (!status) return toneStatusBadge("Не проверено", "info");
+    if (!status.ok) return toneStatusBadge("Ошибка проверки", "danger");
+    if (status.release?.is_newer) return toneStatusBadge(`Доступна версия ${status.release.version || status.release.tag}`, "success");
+    return toneStatusBadge("Актуальная версия", "neutral");
 }
 
 function updateReleaseHtml(status) {
     if (!status) return `<div class="notice">Нажмите «Проверить обновления», чтобы получить последний релиз GitHub.</div>`;
     if (!status.ok) {
-        return `<div class="notice" role="alert"><strong>Не удалось проверить обновления.</strong><p>${esc(status.error || "Проверьте интернет или доступ к GitHub.")}</p></div>`;
+        return noticeHtml("error", "Не удалось проверить обновления.", status.error || "Проверьте интернет или доступ к GitHub.");
     }
     const release = status.release || {};
     const asset = release.asset || {};
@@ -2380,8 +2475,8 @@ function updateReleaseHtml(status) {
         <div class="update-release">
             <h4>${release.is_newer ? "Новый релиз найден" : "Последний релиз GitHub"}</h4>
             <div class="update-meta">
-                <span class="status ${release.is_newer ? "s-approved" : "s-closed"}">${esc(release.tag || release.version || "без тега")}</span>
-                ${release.prerelease ? `<span class="status s-estimate">pre-release</span>` : ""}
+                ${toneStatusBadge(release.tag || release.version || "без тега", release.is_newer ? "success" : "neutral")}
+                ${release.prerelease ? toneStatusBadge("pre-release", "warning") : ""}
                 <span class="count-pill">${asset.name ? esc(asset.name) : "нет .exe в релизе"}</span>
                 <span class="count-pill">${bytesText(asset.size)}</span>
             </div>
@@ -2411,9 +2506,6 @@ function renderUpdates() {
         ${viewHeading("Обновления", "Проверка и установка новых релизов CRM из GitHub Releases.", [
             `Версия ${esc(app.version)}`,
             status?.release?.is_newer ? `Есть ${esc(status.release.version || status.release.tag || "")}` : "Актуальная версия"
-        ], [
-            { label: state.updateLoading ? "Проверяем…" : "Проверить", action: "check-update", className: "ghost", disabled: state.updateLoading },
-            { label: state.updateInstalling ? "Устанавливаем…" : "Установить", action: "install-update", className: "primary", disabled: installDisabled, title: installTitle }
         ])}
         <section class="update-card">
             <div class="toolbar">
@@ -2422,12 +2514,12 @@ function renderUpdates() {
                     ${updateStatusBadge(status)}
                 </div>
                 <div class="toolbar-right">
-                    <button class="btn ghost" type="button" data-action="check-update" ${state.updateLoading ? "disabled" : ""}>${state.updateLoading ? "Проверяем..." : "Проверить обновления"}</button>
-                    <button class="btn primary" type="button" data-action="install-update" title="${esc(installTitle)}" aria-describedby="updateInstallHint" ${installDisabled ? "disabled" : ""}>${state.updateInstalling ? "Устанавливаем..." : "Установить"}</button>
+                    <button class="btn ghost" type="button" data-action="check-update" ${state.updateLoading ? "disabled" : ""}>${state.updateLoading ? "Проверяем…" : "Проверить обновления"}</button>
+                    <button class="btn primary" type="button" data-action="install-update" title="${esc(installTitle)}" aria-describedby="updateInstallHint" ${installDisabled ? "disabled" : ""}>${state.updateInstalling ? "Устанавливаем…" : "Установить"}</button>
                 </div>
             </div>
             <p id="updateInstallHint" class="muted">${esc(installTitle)}</p>
-            <p>CRM проверяет GitHub Releases выбранного публичного репозитория, читает manifest <strong>latest.json</strong> и скачивает только готовый <strong>STO_CRM.exe</strong>. Перед установкой создается резервная копия SQLite-базы, затем обновление скачивается с контролем размера и SHA-256, делает резерв текущего exe и перезапускает приложение.</p>
+            <p>CRM проверяет GitHub Releases выбранного публичного репозитория, читает manifest <strong>latest.json</strong> и скачивает только готовый <strong>STO_CRM.exe</strong>. Перед установкой создаётся резервная копия SQLite-базы, затем обновление скачивается с контролем размера и SHA-256, делает резерв текущего exe и перезапускает приложение.</p>
             <div class="update-meta">
                 <span class="count-pill">Текущая версия: ${esc(app.version)}</span>
                 <a class="count-pill" href="${esc(safeExternalUrl(app.repository_url))}" target="_blank" rel="noopener noreferrer">${esc(app.repository)}</a>
@@ -2675,16 +2767,11 @@ function shouldKeepModalForEscape(event) {
     return false;
 }
 
-function currentDocumentNonce() {
-    const node = document.querySelector("script[nonce], style[nonce]");
-    return node?.nonce || node?.getAttribute("nonce") || "";
-}
-
 function alignPrintHtmlNonce(htmlText) {
-    const nonce = currentDocumentNonce();
+    const nonce = window.crypto?.randomUUID?.() || `${Date.now()}${Math.random().toString(36).slice(2)}`;
     if (!nonce) return htmlText;
     const safeNonce = esc(nonce);
-    return String(htmlText)
+    return safeInlinePrintScript(htmlText)
         .replace(/\bnonce="[^"]*"/g, `nonce="${safeNonce}"`)
         .replace(/'nonce-[^']*'/g, `'nonce-${safeNonce}'`);
 }
@@ -2868,7 +2955,12 @@ function bindModalSubmitHandlers() {
 
 async function openPrintOrder(id) {
     if (!requiresFreshCsrf("печать заказ-наряда")) return;
-    const printButton = $(`#modalFoot [data-save="print-order"][data-id="${Number(id || 0)}"]`);
+    const safeId = safeRecordId(id);
+    if (!safeId) {
+        toast("Некорректный номер заказ-наряда.", "error");
+        return;
+    }
+    const printButton = $(`#modalFoot [data-save="print-order"][data-id="${Number(safeId)}"]`);
     const previousDisabled = printButton?.disabled || false;
     if (printButton) {
         printButton.disabled = true;
@@ -2884,9 +2976,9 @@ async function openPrintOrder(id) {
         return;
     }
     try { printWindow.opener = null; } catch { /* Some embedded browsers expose opener as readonly. */ }
-    printWindow.document.write("<p>Загрузка печатной формы...</p>");
+    printWindow.document.write("<p>Загрузка печатной формы…</p>");
     try {
-        const response = await fetch(`/print/order/${encodeURIComponent(id)}`, {
+        const response = await fetch(`/print/order/${encodeURIComponent(safeId)}`, {
             headers: { "X-CSRF-Token": state.data.app.csrf_token },
             cache: "no-store"
         });
@@ -3085,7 +3177,7 @@ function partSourceOptions(item = {}) {
 function partSourceHint(item = {}) {
     if (item.kind !== "part") return "";
     if (item.inventory_id) return `<div class="source-note">Складская: спишется при закрытии. Доступно: ${partAvailability(item.inventory_id, item)}</div>`;
-    return `<div class="source-note">Вне склада: не влияет на остатки, но попадает в сумму, печать и отчеты.</div>`;
+    return `<div class="source-note">Вне склада: не влияет на остатки, но попадает в сумму, печать и отчёты.</div>`;
 }
 
 function channelOptions(selected = "phone") {
@@ -3191,14 +3283,14 @@ function openAppointmentModal(appointment = {}) {
                     ${inputField("appointment", "scheduled_at", "Дата и время", `type="datetime-local" value="${inputDateValue(appointment.scheduled_at)}" required`)}
                     ${inputField("appointment", "duration_minutes", "Длительность, мин", `type="number" min="15" max="480" value="${esc(appointment.duration_minutes || 60)}"`)}
                     ${selectField("appointment", "status", "Статус", appointmentStatusOptions(appointment.status))}
-                    ${inputField("appointment", "advisor", "Мастер-приемщик", `value="${esc(appointment.advisor || "Администратор")}"`)}
+                    ${inputField("appointment", "advisor", "Мастер-приёмщик", `value="${esc(appointment.advisor || "Администратор")}"`)}
                 </div>
                 <div class="notice warning" id="appointmentConflictNotice" role="alert" hidden></div>
             </fieldset>
             <fieldset class="form-fieldset"><legend>Подробности</legend>
                 <div class="form-grid">
                     ${inputField("appointment", "reason", "Причина визита", `value="${esc(appointment.reason)}" placeholder="ТО, диагностика, замена шин"`, "span-2", "Коротко сформулируйте цель визита — текст увидит администратор в календаре.")}
-                    ${textareaField("appointment", "notes", "Заметки", appointment.notes, `placeholder="Что уточнить при приемке"`, "span-2", "Внутренние детали: ожидания клиента, симптомы, важные договоренности.")}
+                    ${textareaField("appointment", "notes", "Заметки", appointment.notes, `placeholder="Что уточнить при приёмке"`, "span-2", "Внутренние детали: ожидания клиента, симптомы, важные договоренности.")}
                 </div>
             </fieldset>
         </form>`,
@@ -3398,7 +3490,7 @@ function openOrderModal(order = {}) {
         order.id ? `Заказ-наряд ${order.number}` : "Новый заказ-наряд",
         `<form id="orderForm" class="stack">
             ${closedFinancialOrder ? `<div class="notice warning"><strong>Финансовая история закрыта.</strong><p>Поля и позиции доступны только для просмотра. Закрытый заказ можно оставить закрытым или отменить без изменения суммы, списаний и позиций.</p></div>` : ""}
-            ${order.status === "cancelled" && !closedFinancialOrder ? `<div class="notice warning"><strong>Заказ отменен.</strong><p>Отмененный заказ нельзя повторно открыть или изменить — создайте новый заказ-наряд.</p></div>` : ""}
+            ${order.status === "cancelled" && !closedFinancialOrder ? `<div class="notice warning"><strong>Заказ отменён.</strong><p>Отменённый заказ нельзя повторно открыть или изменить — создайте новый заказ-наряд.</p></div>` : ""}
             <fieldset class="form-fieldset"><legend>Клиент и авто</legend>
                 <div class="form-grid three">
                     ${selectField("order", "customer_id", "Клиент", customerOptions(selectedCustomer), `required ${historicalOrder ? "disabled" : ""}`)}
@@ -3411,7 +3503,7 @@ function openOrderModal(order = {}) {
             </fieldset>
             <fieldset class="form-fieldset"><legend>Приём и сроки</legend>
                 <div class="form-grid three">
-                    ${historicalOrder ? readonlyField("Мастер-приемщик", readonlyValue(order.advisor || "Администратор")) : inputField("order", "advisor", "Мастер-приемщик", `value="${esc(order.advisor || "Администратор")}"`)}
+                    ${historicalOrder ? readonlyField("Мастер-приёмщик", readonlyValue(order.advisor || "Администратор")) : inputField("order", "advisor", "Мастер-приёмщик", `value="${esc(order.advisor || "Администратор")}"`)}
                     ${historicalOrder ? readonlyField("Механик", readonlyValue(order.mechanic)) : inputField("order", "mechanic", "Механик", `value="${esc(order.mechanic)}"`)}
                     ${historicalOrder ? readonlyField("Срок", readonlyValue(inputDateValue(order.promised_at))) : inputField("order", "promised_at", "Срок", `type="datetime-local" value="${inputDateValue(order.promised_at)}"`)}
                     ${historicalOrder ? readonlyField("Пробег", readonlyValue(order.odometer || "")) : inputField("order", "odometer", "Пробег", `type="number" inputmode="numeric" step="1" min="0" value="${esc(order.odometer || "")}"`)}
@@ -3614,7 +3706,7 @@ async function saveEntity(kind, id) {
     if (!reportFormValidity(form)) return;
     if (kind === "appointments" && !updateAppointmentConflictNotice(true)) return;
     const data = collectForm(form);
-    const path = id ? `/api/${kind}/${id}` : `/api/${kind}`;
+    const path = id ? entityRecordPath(kind, id) : entityCollectionPath(kind);
     const method = id ? "PUT" : "POST";
     setSaveButtonsBusy(true);
     try {
@@ -3659,13 +3751,13 @@ async function saveOrder(id) {
         markFirstInvalidOrderItem("quantity", stockMessage);
         return;
     }
-    const path = id ? `/api/orders/${id}` : "/api/orders";
+    const path = id ? entityRecordPath("orders", id) : entityCollectionPath("orders");
     const method = id ? "PUT" : "POST";
     setSaveButtonsBusy(true);
     try {
         await api(path, { method, body: JSON.stringify(data) });
         closeModal(true);
-        await refreshAfterMutation("Заказ-наряд сохранен");
+        await refreshAfterMutation("Заказ-наряд сохранён");
     } catch (error) {
         showError(error);
     } finally {
@@ -3778,7 +3870,7 @@ async function deleteEntity(kind, id) {
     if (!confirm("Удалить запись? Это действие скроет запись из активной базы CRM.")) return;
     setSaveButtonsBusy(true);
     try {
-        await api(`/api/${kind}/${id}`, { method: "DELETE" });
+        await api(entityRecordPath(kind, id), { method: "DELETE" });
         closeModal(true);
         await refreshAfterMutation("Удалено");
     } catch (error) {
@@ -3790,8 +3882,7 @@ async function deleteEntity(kind, id) {
 
 function showError(error) {
     if (error?.name === "AbortError") return;
-    const status = Number(error?.status || 0);
-    if (!status) setOnlineState(false);
+    if (error?.networkError) setOnlineState(false, { rerenderContent: true });
     const message = error.message || String(error);
     state.lastError = message;
     applyFormError(error);
@@ -3857,7 +3948,7 @@ $("#globalSearch")?.addEventListener("keydown", event => {
 });
 $("#clearSearch")?.addEventListener("click", clearGlobalSearch);
 window.addEventListener("offline", () => {
-    setOnlineState(false);
+    setOnlineState(false, { rerenderContent: true });
     announce("Браузер сообщает, что сеть недоступна. Работаем с последними загруженными данными.", true);
 });
 window.addEventListener("online", () => {
@@ -4061,7 +4152,7 @@ function nextThemePreference(current) {
 
 applyTheme(safeStorageGet("sto-crm-theme") || "auto");
 const savedDensity = safeStorageGet("sto-crm-density");
-applyDensity(savedDensity ? savedDensity === "compact" : true);
+applyDensity(savedDensity ? savedDensity === "compact" : false);
 const densityToggle = $("#densityToggle");
 if (densityToggle) {
     densityToggle.addEventListener("click", toggleDensity);

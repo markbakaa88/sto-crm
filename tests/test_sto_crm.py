@@ -759,7 +759,40 @@ class StoCrmTests(unittest.TestCase):
                 baseline_vehicle["mileage"],
             )
 
-        manual_vehicle = self.create_vehicle(customer["id"], "M003LG")
+        equal_vehicle = self.create_vehicle(customer["id"], "M003LG")
+        equal_first = sto_crm.create_order(
+            {
+                "customer_id": customer["id"],
+                "vehicle_id": equal_vehicle["id"],
+                "status": "new",
+                "priority": "normal",
+                "odometer": 5000,
+                "items": [service_item(10)],
+            }
+        )
+        equal_second = sto_crm.create_order(
+            {
+                "customer_id": customer["id"],
+                "vehicle_id": equal_vehicle["id"],
+                "status": "new",
+                "priority": "normal",
+                "odometer": 5000,
+                "items": [service_item(10)],
+            }
+        )
+        sto_crm.delete_order(equal_first["id"])
+        with sto_crm.db() as conn:
+            equal_after_first_delete = sto_crm.get_vehicle(conn, equal_vehicle["id"])
+        self.assertEqual(equal_after_first_delete["mileage"], 5000)
+        self.assertEqual(equal_after_first_delete["mileage_order_id"], equal_second["id"])
+
+        sto_crm.delete_order(equal_second["id"])
+        with sto_crm.db() as conn:
+            equal_after_second_delete = sto_crm.get_vehicle(conn, equal_vehicle["id"])
+        self.assertEqual(equal_after_second_delete["mileage"], equal_vehicle["mileage"])
+        self.assertIsNone(equal_after_second_delete["mileage_order_id"])
+
+        manual_vehicle = self.create_vehicle(customer["id"], "M004LG")
         manual_order = sto_crm.create_order(
             {
                 "customer_id": customer["id"],
@@ -787,7 +820,7 @@ class StoCrmTests(unittest.TestCase):
                 manual_vehicle["mileage"],
             )
 
-        confirmed_vehicle = self.create_vehicle(customer["id"], "M004LG")
+        confirmed_vehicle = self.create_vehicle(customer["id"], "M005LG")
         confirmed_order = sto_crm.create_order(
             {
                 "customer_id": customer["id"],
@@ -3483,6 +3516,8 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn("const enteringFilteredOrders = hasOrderFilter", html)
         self.assertIn('data-reload-before-action="1"', html)
         self.assertIn("function exportUrl(entity)", html)
+        self.assertIn("function entityRecordPath(kind, id)", html)
+        self.assertIn("function safeDownloadFilename(value", html)
         self.assertIn("async function downloadCsv(entity)", html)
         self.assertIn('data-action="export-csv"', html)
         self.assertIn(
@@ -3543,7 +3578,7 @@ class StoCrmTests(unittest.TestCase):
         )
         self.assertIn(".sr-only.scroll-hint-sr { width: 1px !important;", html)
         self.assertIn(
-            "@media (max-width: 860px) { [data-tooltip]::after { display: none; } }",
+            "@media (max-width: 1024px), (pointer: coarse) { [data-tooltip]::after { display: none; } }",
             html,
         )
         self.assertIn('return normalize(value) || normalize(fallback) || "#";', html)
@@ -4063,11 +4098,11 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn("function moneyCompact(", html)
         self.assertIn("function viewHeading(", html)
         self.assertIn("view-heading-actions", html)
-        self.assertIn("Календарь приемки", html)
+        self.assertIn("Календарь приёмки", html)
         self.assertNotIn("Digital Vehicle Inspection", html)
         self.assertIn("Заказ-наряды", html)
         self.assertIn("Каталог автомобилей", html)
-        self.assertIn("Отчеты и аналитика", html)
+        self.assertIn("Отчёты и аналитика", html)
         self.assertIn('action: "open-action-plan"', html)
         self.assertIn(
             "linear-gradient(160deg, var(--brand-start), var(--brand-mid) 54%, var(--brand-end))",
@@ -4108,7 +4143,7 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn(".scroll-hint { display: none;", html)
         self.assertIn(".has-horizontal-overflow .scroll-hint { display: block; }", html)
         self.assertIn(".span-3 { grid-column: 1 / -1; }", html)
-        self.assertIn(".business-hints { padding-right: var(--space-5); }", html)
+        self.assertIn(".business-hints { grid-template-columns: 1fr; padding-right: var(--space-5); }", html)
         self.assertIn("function closeTransientPanels(", html)
         self.assertIn('closeTransientPanels("cta")', html)
 

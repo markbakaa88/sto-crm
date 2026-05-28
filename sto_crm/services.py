@@ -515,11 +515,13 @@ def reconcile_vehicle_mileage_after_order_change(
     previous_order_id: int,
     previous_odometer: int = 0,
 ) -> None:
-    """Lower stale order-synced mileage when the owning order reading is removed.
+    """Repoint or lower stale order-synced mileage after an order changes.
 
-    Manual mileage entered directly on the vehicle card is preserved.  We only
-    lower the card when it still equals the previous order reading and explicitly
-    points to that order as the source of the synchronized mileage.
+    Manual mileage entered directly on the vehicle card is preserved. We only
+    touch the card when it still equals the previous order reading and explicitly
+    points to that order as the source of the synchronized mileage. If another
+    active order has the same highest odometer, transfer the source pointer to it
+    instead of leaving a stale reference to the changed or deleted order.
     """
     if not vehicle_id or not previous_order_id or previous_odometer <= 0:
         return
@@ -536,9 +538,12 @@ def reconcile_vehicle_mileage_after_order_change(
     manual_odometer = parse_int(row["mileage_manual"])
     max_order_id, max_order_odometer = vehicle_order_mileage_source(conn, vehicle_id)
     target_odometer = max(manual_odometer, max_order_odometer)
-    if target_odometer >= previous_odometer:
+    target_order_id = max_order_id if max_order_odometer >= manual_odometer else None
+    if (
+        target_odometer == previous_odometer
+        and target_order_id == previous_order_id
+    ):
         return
-    max_order_id = max_order_id if max_order_odometer >= manual_odometer else None
     stamp = now_iso()
     conn.execute(
         """
@@ -546,7 +551,7 @@ def reconcile_vehicle_mileage_after_order_change(
         SET mileage = ?, mileage_order_id = ?, updated_at = ?
         WHERE id = ? AND deleted_at IS NULL AND mileage = ?
         """,
-        (target_odometer, max_order_id, stamp, vehicle_id, previous_odometer),
+        (target_odometer, target_order_id, stamp, vehicle_id, previous_odometer),
     )
 
 
@@ -638,11 +643,11 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         if old_status == "closed":
             ensure_closed_order_not_changed(old, old_items, data)
         elif str(old["closed_at"] or "") and old_status == "cancelled":
-            # Отмененный после закрытия заказ-наряд: финансы заморожены,
+            # Отменённый после закрытия заказ-наряд: финансы заморожены,
             # разрешаем только noop-сохранение в статусе cancelled.
             if new_status != "cancelled":
                 raise ValueError(
-                    "Отмененный после закрытия заказ-наряд нельзя повторно открыть или изменить. Создайте новый корректирующий заказ."
+                    "Отменённый после закрытия заказ-наряд нельзя повторно открыть или изменить. Создайте новый корректирующий заказ."
                 )
             # Для проверки noop нормализуем обе стороны: статус уже 'cancelled' → 'cancelled',
             # а ensure_closed_order_not_changed ожидает старую запись в 'closed' и
@@ -656,18 +661,18 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
             )
             if old_payload_signature != new_payload_signature:
                 raise ValueError(
-                    "Отмененный после закрытия заказ-наряд нельзя повторно открыть или изменить. Создайте новый корректирующий заказ."
+                    "Отменённый после закрытия заказ-наряд нельзя повторно открыть или изменить. Создайте новый корректирующий заказ."
                 )
         elif old_status == "cancelled":
             if new_status != "cancelled":
                 raise ValueError(
-                    "Отмененный заказ-наряд нельзя повторно открыть. Создайте новый заказ."
+                    "Отменённый заказ-наряд нельзя повторно открыть. Создайте новый заказ."
                 )
             if closed_order_signature(old, old_items) != closed_order_signature(
                 data, data["items"]
             ):
                 raise ValueError(
-                    "Отмененный заказ-наряд нельзя изменить. Создайте новый заказ."
+                    "Отменённый заказ-наряд нельзя изменить. Создайте новый заказ."
                 )
         apply_inventory_delta(conn, old_status, new_status, old_items, data["items"])
         conn.execute(
@@ -723,7 +728,7 @@ def ensure_order_status_transition(old_status: str, new_status: str) -> None:
         return
     if old_status == "cancelled":
         raise ValueError(
-            "Отмененный заказ-наряд нельзя повторно открыть. Создайте новый заказ."
+            "Отменённый заказ-наряд нельзя повторно открыть. Создайте новый заказ."
         )
     raise ValueError("Некорректный переход статуса заказ-наряда.")
 
@@ -747,13 +752,13 @@ def delete_order(record_id: int) -> dict[str, Any]:
             raise KeyError("Заказ-наряд не найден.")
         if str(old["status"]) in CONSUMING_STATUSES:
             raise ValueError(
-                "Закрытый заказ-наряд сначала переведите в статус «Отменен», "
+                "Закрытый заказ-наряд сначала переведите в статус «Отменён», "
                 "чтобы возврат складских остатков был явным."
             )
         if str(old["closed_at"] or ""):
             raise ValueError(
                 "Заказ-наряд с закрытой финансовой историей нельзя удалить. "
-                "Оставьте его отмененным или создайте корректирующий заказ."
+                "Оставьте его отменённым или создайте корректирующий заказ."
             )
         old_items = list_order_items(conn, record_id)
         apply_inventory_delta(conn, str(old["status"]), "", old_items, [])
@@ -937,7 +942,7 @@ def apply_inventory_delta(
                     f"Складская позиция недоступна для списания: {part['name']}."
                 )
             raise ValueError(
-                f"Восстановите позицию склада «{part['name']}» перед возвратом остатков отмененного заказа."
+                f"Восстановите позицию склада «{part['name']}» перед возвратом остатков отменённого заказа."
             )
         current_qty = parse_float(part["quantity"])
         if delta > 0 and current_qty + stock_epsilon < delta:
