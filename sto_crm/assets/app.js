@@ -322,8 +322,19 @@ function classToken(value) {
     return String(value ?? "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-") || "unknown";
 }
 
+function toneToken(value, fallback = "info") {
+    const token = classToken(value || fallback);
+    const aliases = { ok: "success", warn: "warning", bad: "danger", error: "danger" };
+    const normalized = aliases[token] || token;
+    return ["success", "warning", "danger", "info", "neutral"].includes(normalized) ? normalized : fallback;
+}
+
+function semanticToneClass(value, fallback = "") {
+    return value ? toneToken(value, fallback || "neutral") : fallback;
+}
+
 function helpTip(text, label = "?") {
-    return `<button type="button" class="help-tip" aria-label="${esc(text)}" title="${esc(text)}"><span aria-hidden="true">${esc(label)}</span></button>`;
+    return `<button type="button" class="help-tip" aria-label="${esc(text)}" title="${esc(text)}" data-help-tip="true"><span aria-hidden="true">${esc(label)}</span></button>`;
 }
 
 function textOrDash(value, fallback = "—") {
@@ -364,7 +375,8 @@ function localDateKey(value = new Date()) {
 }
 
 function contextPill(label, value, hint, tone = "") {
-    const toneClass = tone ? ` ${classToken(tone)}` : "";
+    const toneClassName = semanticToneClass(tone);
+    const toneClass = toneClassName ? ` ${toneClassName}` : "";
     return `<article class="context-pill${toneClass}" aria-label="${esc(`${label}: ${value}. ${hint}`)}"><div class="context-label"><span class="live-dot" aria-hidden="true"></span>${esc(label)}</div><strong>${esc(value)}</strong><span>${esc(hint)}</span></article>`;
 }
 
@@ -643,7 +655,10 @@ function readCachedBootstrap() {
             clearCachedBootstrap();
             return null;
         }
-    } catch { /* sessionStorage can be unavailable or contain stale data */ }
+    } catch {
+        // sessionStorage can be unavailable or contain stale data; clear it once.
+        clearCachedBootstrap();
+    }
     return null;
 }
 
@@ -885,11 +900,11 @@ function updateScrollHints(root = document) {
         $$(".table-wrap, .items-table, .timeline", root).forEach(container => {
             const isNativeScrollRegion = container.classList.contains("timeline");
             let hint = container.querySelector(":scope > .scroll-hint");
-            if (!hint && !isNativeScrollRegion) {
+            if (!hint) {
                 hint = document.createElement("div");
                 hint.className = "scroll-hint";
                 hint.setAttribute("aria-hidden", "true");
-                hint.textContent = "Прокрутите вправо →";
+                hint.textContent = isNativeScrollRegion ? "Календарь прокручивается вправо →" : "Прокрутите вправо →";
                 container.append(hint);
             }
             let srHint = container.querySelector(":scope > .scroll-hint-sr");
@@ -1024,6 +1039,7 @@ function updateSyncChip() {
     if (textEl) textEl.textContent = text;
     chip.setAttribute("aria-label", `Синхронизация: ${text}`);
     chip.setAttribute("data-tooltip", stampTip ? `Обновлено ${stampTip}. Нажмите, чтобы синхронизировать.` : "Нажмите, чтобы обновить данные");
+    updateTopbarOffset();
 }
 
 function renderBreadcrumbs() {
@@ -1056,7 +1072,7 @@ function renderStatusBar() {
     const connection = $("#statusConnectionText");
     const connectionWrap = $("#statusConnection");
     if (connectionWrap) {
-        connectionWrap.dataset.tone = state.offlineMode ? "bad" : "ok";
+        connectionWrap.dataset.tone = state.offlineMode ? "danger" : "success";
         if (connection) connection.textContent = state.offlineMode ? "Нет связи" : "Подключено";
     }
     const dbPath = state.data?.app?.db_path || "";
@@ -1073,7 +1089,7 @@ function renderStatusBar() {
     const lastBackup = state.lastBackupAt || state.data?.app?.last_backup_at || "";
     if (backupEl) backupEl.textContent = lastBackup ? `Бэкап · ${shortStamp(lastBackup)}` : "Создать бэкап";
     if (backupWrap) {
-        backupWrap.dataset.tone = lastBackup ? "ok" : "warn";
+        backupWrap.dataset.tone = lastBackup ? "success" : "warning";
         backupWrap.setAttribute("data-tooltip", lastBackup ? `Последний бэкап: ${shortStamp(lastBackup)}. Создать ещё.` : "Резервная копия не создавалась в этой сессии — нажмите, чтобы сохранить сейчас");
     }
 
@@ -1088,12 +1104,7 @@ function renderStatusBar() {
 function collectBellItems() {
     const items = [];
     const r = state.data?.reports || {};
-    const normalizeTone = tone => {
-        const value = classToken(tone || "info");
-        if (value === "warn") return "warning";
-        if (value === "ok") return "success";
-        return ["danger", "warning", "info", "success"].includes(value) ? value : "info";
-    };
+    const normalizeTone = tone => toneToken(tone, "info");
     (r.action_plan || []).slice(0, 6).forEach(action => {
         if (!action) return;
         const tone = normalizeTone(action.tone);
@@ -1133,7 +1144,7 @@ function renderBell() {
     if (count) { count.hidden = false; count.textContent = String(items.length > 99 ? "99+" : items.length); }
     $("#bellBtn")?.setAttribute("aria-label", `Уведомления: ${items.length} ${pluralRu(items.length, "событие", "события", "событий")}`);
     list.innerHTML = items.map(item => `
-        <button type="button" class="bell-item" data-tone="${esc(classToken(item.tone || "info"))}"
+        <button type="button" class="bell-item" data-tone="${esc(toneToken(item.tone || "info"))}"
             data-bell-action="${esc(item.action)}"
             data-bell-route="${esc(item.route || "")}"
             data-bell-id="${esc(item.id || "")}">
@@ -1148,7 +1159,7 @@ function renderShell() {
     renderBreadcrumbs();
     renderStatusBar();
     updateSyncChip();
-    renderBell();
+    if ($("#bellPanel")?.hidden !== false) renderBell();
 }
 
 let mobileNavTabbableSnapshot = [];
@@ -1332,7 +1343,10 @@ function handleMenuPanelKeydown(event, panel, triggerButton, closePanel, onOpenI
     }
 }
 
+let shellRefreshInterval = 0;
 function initShell() {
+    if (document.documentElement.dataset.shellBound) return;
+    document.documentElement.dataset.shellBound = "1";
     initMobileNavigation();
     const collapseBtn = $("#sidebarCollapse");
     if (collapseBtn && !collapseBtn.dataset.bound) {
@@ -1465,7 +1479,7 @@ function initShell() {
     });
 
     bindShellShortcuts();
-    setInterval(renderShell, 30000);
+    if (!shellRefreshInterval) shellRefreshInterval = setInterval(renderShell, 30000);
     renderShell();
 }
 
@@ -1675,7 +1689,7 @@ function sectionIntro(title, text, options = {}) {
     const className = options.hero ? "section-card hero-card" : "section-card";
     const eyebrow = options.eyebrow ? `<div class="hero-eyebrow">${esc(options.eyebrow)}</div>` : "";
     const summary = (options.summary || []).length
-        ? `<div class="hero-summary">${options.summary.map(item => `<span class="context-pill ${esc(classToken(item.tone || ""))}"><small>${esc(item.label)}</small><strong>${esc(item.value)}</strong></span>`).join("")}</div>`
+        ? `<div class="hero-summary">${options.summary.map(item => `<span class="context-pill ${esc(semanticToneClass(item.tone || ""))}"><small>${esc(item.label)}</small><strong>${esc(item.value)}</strong></span>`).join("")}</div>`
         : "";
     const actions = (options.actions || []).length
         ? `<div class="hero-actions">${options.actions.map(action => action.action === "export-csv"
@@ -1801,7 +1815,7 @@ function renderDashboard() {
             hero: true,
             eyebrow: "Premium workspace",
             summary: [
-                { label: "План", value: `${r.action_plan_total || 0} задач`, tone: r.action_plan_total ? "warn" : "success" },
+                { label: "План", value: `${r.action_plan_total || 0} задач`, tone: r.action_plan_total ? "warning" : "success" },
                 { label: "Выручка", value: moneyCompact(r.revenue_month || 0), tone: "success" },
                 { label: "Риски", value: r.risk_total || 0, tone: r.risk_total ? "danger" : "success" }
             ],
@@ -1819,12 +1833,12 @@ function renderDashboard() {
             ${healthMetric(r)}
             ${metric("Активная воронка", money(r.pipeline_value || 0), `${money(r.pipeline_due || 0)} ожидает оплаты`)}
             ${metric("К оплате", money(r.due_total || 0), "Долг по открытым заказам")}
-            ${metric("Низкий склад", r.low_stock_count || 0, "Позиции ниже минимума", { tone: (r.low_stock_count || 0) ? "warn" : "" })}
+            ${metric("Низкий склад", r.low_stock_count || 0, "Позиции ниже минимума", { tone: (r.low_stock_count || 0) ? "warning" : "" })}
         </section>
-        ${safeStorageGet("sto-crm-dashboard-hints-dismissed") === "1" ? "" : `<section class="business-hints" aria-label="Визуальные подсказки панели">
+        ${safeStorageGet("sto-crm-dashboard-hints-dismissed") === "1" ? "" : `<section class="business-hints has-dismiss" aria-label="Визуальные подсказки панели">
             <strong>Подсказки</strong>
-            <span class="hint-chip" data-tone="ok"><span class="hint-dot ok" aria-hidden="true"></span>Индекс 0–100 показывает здоровье смены</span>
-            <span class="hint-chip" data-tone="warn"><span class="hint-dot warning" aria-hidden="true"></span>Приоритет — что открыть первым</span>
+            <span class="hint-chip" data-tone="success"><span class="hint-dot ok" aria-hidden="true"></span>Индекс 0–100 показывает здоровье смены</span>
+            <span class="hint-chip" data-tone="warning"><span class="hint-dot warning" aria-hidden="true"></span>Приоритет — что открыть первым</span>
             <span class="hint-chip" data-tone="danger"><span class="hint-dot danger" aria-hidden="true"></span>Красный и янтарный — зона риска</span>
             <button type="button" class="hint-dismiss" data-action="dismiss-dashboard-hints" aria-label="Скрыть подсказки" data-tooltip="Скрыть подсказки">×</button>
         </section>`}
@@ -1882,10 +1896,11 @@ function renderDashboard() {
 }
 
 function metric(label, value, hint, options = {}) {
-    const toneClass = options.tone ? ` tone-${classToken(options.tone)}` : "";
+    const metricTone = semanticToneClass(options.tone);
+    const toneClassName = metricTone ? ` tone-${metricTone}` : "";
     const icon = options.icon || String(label || "").trim().slice(0, 1).toLocaleUpperCase("ru-RU") || "•";
     const help = options.help ? helpTip(options.help) : "";
-    return `<article class="metric${toneClass}" aria-label="${esc(`${label}: ${value}. ${hint}`)}"><div class="metric-top"><small>${esc(label)}${help}</small><span class="metric-icon" aria-hidden="true">${esc(icon)}</span></div><strong>${esc(value)}</strong><div class="trend">${esc(hint)}</div></article>`;
+    return `<article class="metric${toneClassName}" aria-label="${esc(`${label}: ${value}. ${hint}`)}"><div class="metric-top"><small>${esc(label)}${help}</small><span class="metric-icon" aria-hidden="true">${esc(icon)}</span></div><strong>${esc(value)}</strong><div class="trend">${esc(hint)}</div></article>`;
 }
 
 function miniLedger(report) {
@@ -1956,7 +1971,7 @@ function appointmentTimeline(days = []) {
         return `
         <article class="timeline-day ${day.date === todayKey ? "today" : ""}">
             <strong><span>${esc(day.label)}</span><span class="count-pill">${esc(day.count)}</span></strong>
-            <div class="bar-track" aria-label="Загрузка ${esc(day.label)}: ${esc(day.count)}"><div class="bar-fill ${widthClassFromPercent(width)}"></div></div>
+            <div class="bar-track" role="img" aria-label="Загрузка ${esc(day.label)}: ${esc(day.count)}"><div class="bar-fill ${widthClassFromPercent(width)}"></div></div>
             <div class="timeline-list">${(day.appointments || []).slice(0, 2).map(item => `<span>${esc(dateShort(item.scheduled_at))} · ${esc(item.customer_name || "")}</span>`).join("") || `<span class="muted">Свободно</span>`}</div>
         </article>`;
     }).join("")}</div>`;
@@ -1995,7 +2010,7 @@ function actionPlanList(items = []) {
             item.due_at ? dateShort(item.due_at) : "",
             Number(item.amount || 0) ? moneyCompact(item.amount) : ""
         ].filter(Boolean);
-        return `<article class="action-card" data-tone="${esc(classToken(item.tone || "info"))}">
+        return `<article class="action-card" data-tone="${esc(toneToken(item.tone || "info"))}">
             <div>
                 <strong>${esc(item.title)}</strong>
                 <p>${esc(item.detail || "")}</p>
@@ -2176,7 +2191,7 @@ function renderCustomers() {
                             <td data-label="Клиент"><div class="cell-title"><strong>${esc(c.name)}</strong><div class="muted">${textOrDash(c.notes)}</div></div></td>
                             <td data-label="Телефон">${textOrDash(c.phone, "Нет телефона")}</td>
                             <td data-label="Email">${textOrDash(c.email, "Нет email")}</td>
-                            <td data-label="Канал">${esc(channelLabel(c.preferred_channel))}${Number(c.reminder_consent) ? "" : `<div><span class="count-pill" data-tone="warn" title="Клиент отказался от напоминаний" aria-label="Без напоминаний">без напоминаний</span></div>`}</td>
+                            <td data-label="Канал">${esc(channelLabel(c.preferred_channel))}${Number(c.reminder_consent) ? "" : `<div><span class="count-pill" data-tone="warning" title="Клиент отказался от напоминаний" aria-label="Без напоминаний">без напоминаний</span></div>`}</td>
                             <td data-label="Источник">${textOrDash(c.source)}</td>
                             <td data-label="Авто">${c.vehicles_count}</td>
                             <td data-label="Заказы"><div class="cell-title"><strong>${c.orders_count}</strong><div class="muted">${c.last_order_at ? `посл. ${dateShort(c.last_order_at)}` : "нет заказов"}</div></div></td>
@@ -2273,7 +2288,7 @@ function renderCatalog() {
         <section class="catalog-summary">
             ${metric("Производители", stats.makes, "Полный офлайн-справочник марок", { icon: "М" })}
             ${metric("Модели", stats.models, "Доступны в карточке авто", { icon: "▦" })}
-            ${metric("Без моделей", stats.empty_makes || 0, "Редкие производители из официального списка", { icon: "○", tone: stats.empty_makes ? "warn" : "" })}
+            ${metric("Без моделей", stats.empty_makes || 0, "Редкие производители из официального списка", { icon: "○", tone: stats.empty_makes ? "warning" : "" })}
             ${metric("В подборке", entries.length, `${visibleEntries.length} показано`, { icon: "⌕", tone: "info" })}
         </section>
         <div class="toolbar">
@@ -2454,7 +2469,7 @@ function renderReports() {
 }
 
 function toneStatusBadge(label, tone = "info") {
-    return `<span class="status" data-tone="${esc(classToken(tone))}">${esc(label)}</span>`;
+    return `<span class="status" data-tone="${esc(toneToken(tone, "info"))}">${esc(label)}</span>`;
 }
 
 function updateStatusBadge(status) {
@@ -2818,7 +2833,7 @@ function openModal(title, body, foot, size = "") {
     const allowedSizes = new Set(["", "small", "wide"]);
     const modalSize = allowedSizes.has(size) ? size : "";
     const backdrop = $("#modalBackdrop");
-    if (!backdrop) return;
+    if (!backdrop) return false;
     assertSafeModalMarkup(body);
     assertSafeModalMarkup(foot);
     if (backdrop.classList.contains("open")) closeModal(true, { restoreFocus: false });
@@ -2837,6 +2852,7 @@ function openModal(title, body, foot, size = "") {
     updateScrollHints($("#modal"));
     focusModalStart();
     requestAnimationFrame(focusModalStart);
+    return true;
 }
 
 function closeModal(force = false, options = {}) {
@@ -3269,7 +3285,7 @@ function openAppointmentModal(appointment = {}) {
         return;
     }
     const selectedCustomer = appointment.customer_id || "";
-    openModal(
+    if (!openModal(
         appointment.id ? "Запись клиента" : "Новая запись",
         `<form id="entityForm" class="stack" data-record-id="${safeRecordId(appointment.id)}">
             <fieldset class="form-fieldset"><legend>Клиент и авто</legend>
@@ -3298,7 +3314,7 @@ function openAppointmentModal(appointment = {}) {
          <button class="btn" type="button" data-save="cancel">Отмена</button>
          <button class="btn primary" type="button" data-save="appointment" data-id="${safeRecordId(appointment.id)}">Сохранить</button>`,
         "small"
-    );
+    )) return;
     $("#appointment_customer_id").addEventListener("change", event => {
         const vehicle = $("#appointment_vehicle_id");
         vehicle.innerHTML = vehicleOptions(event.target.value, "");
@@ -3354,7 +3370,7 @@ function openVehicleModal(vehicle = {}) {
     const customers = state.data?.lookups?.customers || state.data?.customers || [];
     const hasCustomers = customers.length > 0;
     const selectedCustomer = vehicle.customer_id || "";
-    openModal(
+    if (!openModal(
         vehicle.id ? "Автомобиль" : "Новый автомобиль",
         `<form id="entityForm" class="stack">
             ${hasCustomers ? "" : `<div class="notice">В базе нет клиентов для привязки автомобиля.</div>`}
@@ -3389,7 +3405,7 @@ function openVehicleModal(vehicle = {}) {
          <button class="btn" type="button" data-save="cancel">Отмена</button>
          <button class="btn primary" type="button" data-save="vehicle" data-id="${safeRecordId(vehicle.id)}" ${hasCustomers ? "" : "disabled"}>Сохранить</button>`,
         "small"
-    );
+    )) return;
     bindVehicleCatalog();
 }
 
@@ -3486,7 +3502,7 @@ function openOrderModal(order = {}) {
         }
         return vehicleOptions(selectedCustomer, order.vehicle_id, [vehicle]);
     };
-    openModal(
+    if (!openModal(
         order.id ? `Заказ-наряд ${order.number}` : "Новый заказ-наряд",
         `<form id="orderForm" class="stack">
             ${closedFinancialOrder ? `<div class="notice warning"><strong>Финансовая история закрыта.</strong><p>Поля и позиции доступны только для просмотра. Закрытый заказ можно оставить закрытым или отменить без изменения суммы, списаний и позиций.</p></div>` : ""}
@@ -3545,8 +3561,8 @@ function openOrderModal(order = {}) {
             </div>
             <div class="business-hints" aria-label="Подсказки заказ-наряда">
                 <strong>Подсказки:</strong>
-                <span class="hint-chip" data-tone="ok"><span class="hint-dot ok" aria-hidden="true"></span>Согласовано — входит в сумму</span>
-                <span class="hint-chip" data-tone="warn"><span class="hint-dot warning" aria-hidden="true"></span>Отложено/отказ — не списывает склад</span>
+                <span class="hint-chip" data-tone="success"><span class="hint-dot ok" aria-hidden="true"></span>Согласовано — входит в сумму</span>
+                <span class="hint-chip" data-tone="warning"><span class="hint-dot warning" aria-hidden="true"></span>Отложено/отказ — не списывает склад</span>
                 <span class="hint-chip" data-tone="danger"><span class="hint-dot danger" aria-hidden="true"></span>К оплате пересчитывается сразу</span>
             </div>
             <div class="notice">Запчасть можно выбрать со склада или указать вручную как «вне склада» — такие позиции не списывают остатки, но учитываются в сумме заказ-наряда.</div>
@@ -3557,7 +3573,7 @@ function openOrderModal(order = {}) {
          <button class="btn" type="button" data-save="cancel">Отмена</button>
          <button class="btn primary" type="button" data-save="order" data-id="${safeRecordId(order.id)}" ${order.status === "cancelled" ? "disabled" : ""}>Сохранить</button>`,
         "wide"
-    );
+    )) return;
     renderOrderItems();
     $("#order_customer_id").addEventListener("change", event => {
         if (state.orderDraftReadOnly) return;
@@ -3589,6 +3605,7 @@ function openOrderModal(order = {}) {
 
 function renderOrderItems() {
     const host = $("#itemsHost");
+    if (!host) return;
     host.innerHTML = `<div class="items-table">
         <table aria-label="Позиции заказ-наряда">
             <thead>${tableHead(["Тип", "Источник запчасти", "Наименование", "Согласование", "Кол-во", "Цена", "Себест.", {text: "Сумма", className: "money"}, ""])}</thead>
@@ -4121,6 +4138,7 @@ function applyDensity(compact) {
         densityButton.setAttribute("aria-label", state.compactMode ? "Компактный режим включен. Нажмите для обычной плотности." : "Обычная плотность включена. Нажмите для компактного режима.");
         densityButton.title = state.compactMode ? "Компактный режим" : "Обычная плотность";
     }
+    updateTopbarOffset();
 }
 
 function toggleDensity() {

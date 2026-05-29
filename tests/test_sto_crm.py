@@ -3532,7 +3532,7 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('data-action="duplicate-order"', html)
         self.assertIn('aria-label="Печать заказ-наряда', html)
         self.assertIn("Прокрутите вправо", html)
-        self.assertNotIn("overflow-x: hidden;", html)
+        self.assertIn("overflow-x: hidden; overflow-x: clip;", html)
         self.assertNotIn('id="content" aria-live="polite"', html)
 
     def test_home_page_wires_inline_form_errors_to_save_failures(self):
@@ -3574,7 +3574,7 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('const selectedCustomer = order.customer_id || "";', html)
         self.assertNotIn("lookupCustomers[0]?.id", html)
         self.assertIn(
-            "html { min-height: 100%; background: var(--bg); overflow-x: clip; }", html
+            "html { min-height: 100%; background: var(--bg); overflow-x: hidden; overflow-x: clip; }", html
         )
         self.assertIn(".sr-only.scroll-hint-sr { width: 1px !important;", html)
         self.assertIn(

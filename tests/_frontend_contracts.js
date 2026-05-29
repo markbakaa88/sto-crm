@@ -149,6 +149,7 @@ const REQUIRED_SUBSTRINGS = [
   'class="system-menu-icon" aria-hidden="true">⚙',
   'class="btn ghost bell-panel-close"',
   'type="button" class="help-tip" aria-label',
+  'data-help-tip="true"',
   '$("#bellClose")?.addEventListener("click"',
   "function updateTopbarOffset()",
   "--topbar-offset: var(--header-h)",

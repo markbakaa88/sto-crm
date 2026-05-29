@@ -87,7 +87,7 @@ class FrontendStaticQualityTests(unittest.TestCase):
             .replace("__STO_CRM_APP_CSS__", read(APP_CSS), 1)
             .replace("__STO_CRM_APP_JS__", read(APP_JS), 1)
         )
-        self.assertEqual(page.lower().count("</script>"), 1)
+        self.assertEqual(page.lower().count("</script>"), 2)
         self.assertIn("function safeRecordId(value)", page)
 
     def test_frontend_mobile_nav_and_dialog_visibility_contracts(self) -> None:
@@ -266,6 +266,7 @@ class FrontendStaticQualityTests(unittest.TestCase):
         self.assertIn('class="system-menu-icon" aria-hidden="true">⚙', html)
         self.assertIn('class="btn ghost bell-panel-close"', html)
         self.assertIn('type="button" class="help-tip" aria-label', js)
+        self.assertIn('data-help-tip="true"', js)
         self.assertIn('$("#bellClose")?.addEventListener("click"', js)
         self.assertNotIn("#commandBtn,\n    #refreshBtn,", css)
         self.assertNotIn("#refreshBtn,\n    #systemMenuBtn", css)
