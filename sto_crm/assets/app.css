@@ -225,6 +225,7 @@ a:hover { text-decoration: underline; }
 button { font-family: inherit; color: inherit; }
 input, select, textarea, button { font: inherit; }
 ::selection { background: var(--brand-soft); color: var(--ink); }
+html:focus-within { scroll-behavior: smooth; }
 
 .sr-only {
     position: absolute !important;
@@ -1766,6 +1767,7 @@ body.compact .bell-count { top: -4px; right: -4px; }
         animation-duration: 0.01ms !important;
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
+        transition-delay: 0ms !important;
         scroll-behavior: auto !important;
     }
 }

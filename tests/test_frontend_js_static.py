@@ -79,6 +79,13 @@ class FrontendStaticQualityTests(unittest.TestCase):
         self.assertNotIn("catch (_error)", js)
         self.assertNotIn("document.documentElement.style", js)
         self.assertNotIn("</script", js.lower())
+        self.assertNotIn('$("#appointment_customer_id").addEventListener', js)
+        self.assertNotIn('$("#order_customer_id").addEventListener', js)
+        self.assertNotIn('$("#addService").addEventListener', js)
+        self.assertIn('customerSelect?.addEventListener("change"', js)
+        self.assertIn('$("#order_customer_id")?.addEventListener("change"', js)
+        self.assertIn('$("#addService")?.addEventListener("click"', js)
+        self.assertIn('$("#addPart")?.addEventListener("click"', js)
 
     def test_embedded_frontend_script_is_not_cut_by_html_parser(self) -> None:
         """Inline bundle must not contain a literal closing script tag."""
@@ -243,6 +250,9 @@ class FrontendStaticQualityTests(unittest.TestCase):
         self.assertIn("@media (pointer: coarse)", css)
         self.assertIn("min-height: 44px", css)
         self.assertIn("100dvh", css)
+        self.assertIn("@media (prefers-reduced-motion: reduce)", css)
+        self.assertIn("transition-delay: 0ms !important;", css)
+        self.assertIn("html:focus-within { scroll-behavior: smooth; }", css)
         self.assertIn(".help-tip:focus-visible", css)
         self.assertIn(".modal-backdrop[hidden], .command-palette-backdrop[hidden]", css)
         self.assertRegex(css, r"\.modal\.small\s*\{\s*max-width:\s*520px")

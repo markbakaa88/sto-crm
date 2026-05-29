@@ -3572,6 +3572,9 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('const selectedCustomer = appointment.customer_id || "";', html)
         self.assertIn('const selectedCustomer = vehicle.customer_id || "";', html)
         self.assertIn('const selectedCustomer = order.customer_id || "";', html)
+        self.assertIn('customerSelect?.addEventListener("change"', html)
+        self.assertIn('$("#order_customer_id")?.addEventListener("change"', html)
+        self.assertIn('$("#addService")?.addEventListener("click"', html)
         self.assertNotIn("lookupCustomers[0]?.id", html)
         self.assertIn(
             "html { min-height: 100%; background: var(--bg); overflow-x: hidden; overflow-x: clip; }", html

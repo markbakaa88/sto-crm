@@ -3315,8 +3315,10 @@ function openAppointmentModal(appointment = {}) {
          <button class="btn primary" type="button" data-save="appointment" data-id="${safeRecordId(appointment.id)}">Сохранить</button>`,
         "small"
     )) return;
-    $("#appointment_customer_id").addEventListener("change", event => {
+    const customerSelect = $("#appointment_customer_id");
+    customerSelect?.addEventListener("change", event => {
         const vehicle = $("#appointment_vehicle_id");
+        if (!vehicle) return;
         vehicle.innerHTML = vehicleOptions(event.target.value, "");
         vehicle.value = "";
         vehicle.dispatchEvent(new Event("change", { bubbles: true }));
@@ -3575,20 +3577,21 @@ function openOrderModal(order = {}) {
         "wide"
     )) return;
     renderOrderItems();
-    $("#order_customer_id").addEventListener("change", event => {
+    $("#order_customer_id")?.addEventListener("change", event => {
         if (state.orderDraftReadOnly) return;
         const vehicle = $("#order_vehicle_id");
+        if (!vehicle) return;
         vehicle.innerHTML = vehicleOptions(event.target.value, "");
         vehicle.value = "";
         vehicle.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    $("#addService").addEventListener("click", () => {
+    $("#addService")?.addEventListener("click", () => {
         if (state.orderDraftReadOnly) return;
         markModalDirty();
         state.orderDraftItems.push({ kind: "service", title: "", approval_status: "approved", quantity: 1, unit_price: 0, unit_cost: 0 });
         renderOrderItems();
     });
-    $("#addPart").addEventListener("click", () => {
+    $("#addPart")?.addEventListener("click", () => {
         if (state.orderDraftReadOnly) return;
         markModalDirty();
         state.orderDraftItems.push({ kind: "part", inventory_id: "", title: "", approval_status: "approved", quantity: 1, unit_price: 0, unit_cost: 0 });
