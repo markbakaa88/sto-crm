@@ -75,13 +75,14 @@
     --z-progress: 300;
 
     --brand-start: #0f766e;
-    --brand-mid: #0e7490;
-    --brand-end: #1e3a8a;
+    --brand-mid: #0f6f86;
+    --brand-end: #1f4f7a;
     --brand: #0f766e;
-    --brand-soft: #e0f2f1;
+    --brand-soft: #e6f4f2;
     --brand-strong: #115e59;
     --on-brand: #ffffff;
     --brand-mark-ink: #ffffff;
+    --brand-gradient: linear-gradient(145deg, var(--brand-start), var(--brand-mid) 58%, var(--brand-end));
     --on-brand-muted-bg: rgba(255, 255, 255, 0.15);
     --on-brand-muted-border: rgba(255, 255, 255, 0.25);
     --on-brand-muted-ink: var(--on-brand);
@@ -123,7 +124,7 @@
     --badge-info-ink: #ffffff;
     --toast-error-bg: var(--danger);
     --toast-error-ink: #ffffff;
-    --hero-card-bg: linear-gradient(135deg, rgba(15, 118, 110, 0.07), rgba(30, 64, 175, 0.04));
+    --hero-card-bg: linear-gradient(135deg, rgba(15, 118, 110, 0.05), rgba(31, 79, 122, 0.035));
     --hero-card-border: var(--line);
     --health-card-border: rgba(15, 118, 110, 0.18);
 }
@@ -133,12 +134,12 @@ body.light { color-scheme: light; }
 
 body.dark, [data-theme="dark"] {
     color-scheme: dark;
-    --brand-start: #14b8a6;
-    --brand-mid: #0ea5e9;
-    --brand-end: #6366f1;
-    --brand: #2dd4bf;
-    --brand-soft: rgba(45, 212, 191, 0.15);
-    --brand-strong: #14b8a6;
+    --brand-start: #2fb7aa;
+    --brand-mid: #2f8ea7;
+    --brand-end: #5863b7;
+    --brand: #5ac8bd;
+    --brand-soft: rgba(90, 200, 189, 0.12);
+    --brand-strong: #35b4a8;
     --on-brand: #03111d;
     --brand-mark-ink: #03111d;
     --on-brand-muted-bg: rgba(3, 17, 29, 0.08);
@@ -162,14 +163,14 @@ body.dark, [data-theme="dark"] {
     --line: rgba(255, 255, 255, 0.08);
     --line-strong: rgba(255, 255, 255, 0.14);
     --table-row-hover: rgba(148, 163, 184, 0.08);
-    --focus-ring: rgba(45, 212, 191, 0.38);
+    --focus-ring: rgba(90, 200, 189, 0.3);
 
     --ok: #34d399;
     --ok-soft: rgba(52, 211, 153, 0.15);
-    --warn: #fbbf24;
-    --warn-soft: rgba(251, 191, 36, 0.16);
-    --danger: #f87171;
-    --danger-soft: rgba(248, 113, 113, 0.16);
+    --warn: #f59e0b;
+    --warn-soft: rgba(245, 158, 11, 0.14);
+    --danger: #fb7185;
+    --danger-soft: rgba(251, 113, 133, 0.14);
     --info: #60a5fa;
     --info-soft: rgba(96, 165, 250, 0.16);
     --neutral-soft: rgba(255, 255, 255, 0.08);
@@ -187,9 +188,9 @@ body.dark, [data-theme="dark"] {
     --badge-info-ink: #ffffff;
     --toast-error-bg: #7f1d1d;
     --toast-error-ink: #fee2e2;
-    --hero-card-bg: linear-gradient(135deg, rgba(45, 212, 191, 0.14), rgba(30, 58, 138, 0.14));
+    --hero-card-bg: linear-gradient(135deg, rgba(90, 200, 189, 0.1), rgba(88, 99, 183, 0.09));
     --hero-card-border: rgba(148, 163, 184, 0.18);
-    --health-card-border: rgba(45, 212, 191, 0.24);
+    --health-card-border: rgba(90, 200, 189, 0.2);
 }
 
 /* 2. База ------------------------------------------------------------------ */
@@ -263,7 +264,7 @@ body.sidebar-collapsed .app { grid-template-columns: var(--sidebar-w-collapsed) 
 .brand-mark {
     width: 40px; height: 40px; flex-shrink: 0;
     border-radius: var(--radius-md);
-    background: linear-gradient(160deg, var(--brand-start), var(--brand-mid) 54%, var(--brand-end));
+    background: var(--brand-gradient);
     color: var(--brand-mark-ink); font-weight: 700; letter-spacing: 0.4px;
     display: inline-flex; align-items: center; justify-content: center;
     font-size: var(--font-size-sm);
@@ -322,7 +323,7 @@ body.sidebar-collapsed .nav-section-label { display: none; }
 .nav > .nav-section > button.active::before {
     content: ""; position: absolute; left: calc(var(--sidebar-active-offset) * -1); top: 50%;
     transform: translateY(-50%); width: 3px; height: 20px;
-    background: linear-gradient(180deg, var(--brand-start), var(--brand-end));
+    background: linear-gradient(180deg, var(--brand-start), var(--brand-mid));
     border-radius: 2px;
 }
 .nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -823,7 +824,7 @@ body.dark .context-pill.success { background: linear-gradient(180deg, var(--ok-s
 .bar { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(120px, 2fr) auto; gap: 8px; align-items: center; font-size: var(--font-size-xs); }
 .signal-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; font-size: var(--font-size-xs); }
 .bar-track, .signal-track { background: var(--surface-subtle); border-radius: 999px; height: 8px; overflow: hidden; border: 1px solid var(--line); }
-.bar-fill, .signal-fill { background: linear-gradient(90deg, var(--brand-start), var(--brand-end)); height: 100%; display: block; border-radius: 999px; }
+.bar-fill, .signal-fill { background: linear-gradient(90deg, var(--brand-start), var(--brand-mid)); height: 100%; display: block; border-radius: 999px; }
 .signal-fill.danger { background: var(--danger); }
 .signal-fill.warning, .signal-fill.warn { background: var(--warn); }
 .signal-fill.info { background: var(--info); }
@@ -1453,7 +1454,7 @@ body.compact .bell-count { top: -4px; right: -4px; }
 }
 .app-progress::after {
     content: ""; display: block; height: 100%; width: 30%;
-    background: linear-gradient(90deg, transparent, var(--brand), var(--brand-end), transparent);
+    background: linear-gradient(90deg, transparent, var(--brand), var(--brand-mid), transparent);
     opacity: 0; transform: translateX(-100%);
     transition: opacity var(--dur-fast) var(--ease-out);
 }

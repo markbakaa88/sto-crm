@@ -272,6 +272,8 @@ class FrontendStaticQualityTests(unittest.TestCase):
         self.assertIn("#commandBtn, #refreshBtn { width: 44px;", css)
         self.assertIn("#commandBtn::before", css)
         self.assertIn("--topbar-offset: var(--header-h)", css)
+        self.assertIn("--brand-gradient: linear-gradient(145deg", css)
+        self.assertIn("background: var(--brand-gradient);", css)
         self.assertIn("top: var(--topbar-offset)", css)
         self.assertIn(
             "max-height: calc(100dvh - var(--topbar-offset) - var(--space-4))",

@@ -4104,10 +4104,8 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn("Каталог автомобилей", html)
         self.assertIn("Отчёты и аналитика", html)
         self.assertIn('action: "open-action-plan"', html)
-        self.assertIn(
-            "linear-gradient(160deg, var(--brand-start), var(--brand-mid) 54%, var(--brand-end))",
-            html,
-        )
+        self.assertIn("--brand-gradient: linear-gradient(145deg", html)
+        self.assertIn("background: var(--brand-gradient);", html)
         self.assertIn("grid-template-columns: 260px minmax(0, 1fr)", html)
         self.assertIn("workspace-grid", html)
         self.assertIn("function riskRadar(report)", html)
