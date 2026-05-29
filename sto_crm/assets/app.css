@@ -23,9 +23,9 @@
     --space-6: 24px;
     --space-7: 32px;
     --space-8: 40px;
-    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 1px rgba(15, 23, 42, 0.04);
-    --shadow-md: 0 4px 14px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.05);
-    --shadow-lg: 0 18px 40px rgba(15, 23, 42, 0.16), 0 6px 12px rgba(15, 23, 42, 0.08);
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.045), 0 1px 1px rgba(15, 23, 42, 0.03);
+    --shadow-md: 0 3px 12px rgba(15, 23, 42, 0.065), 0 2px 4px rgba(15, 23, 42, 0.04);
+    --shadow-lg: 0 16px 36px rgba(15, 23, 42, 0.13), 0 6px 12px rgba(15, 23, 42, 0.07);
     --shadow-focus: 0 0 0 3px var(--focus-ring);
     --overlay-backdrop: rgba(15, 23, 42, 0.55);
     --overlay-backdrop-mobile: rgba(15, 23, 42, 0.45);
@@ -174,11 +174,11 @@ body.dark, [data-theme="dark"] {
     --info: #60a5fa;
     --info-soft: rgba(96, 165, 250, 0.16);
     --neutral-soft: rgba(255, 255, 255, 0.08);
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(148, 163, 184, 0.08);
-    --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(148, 163, 184, 0.08);
-    --shadow-lg: 0 18px 40px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(148, 163, 184, 0.1);
-    --overlay-backdrop: rgba(2, 6, 23, 0.72);
-    --overlay-backdrop-mobile: rgba(2, 6, 23, 0.62);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.36), 0 0 0 1px rgba(148, 163, 184, 0.06);
+    --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(148, 163, 184, 0.07);
+    --shadow-lg: 0 18px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(148, 163, 184, 0.09);
+    --overlay-backdrop: rgba(2, 6, 23, 0.66);
+    --overlay-backdrop-mobile: rgba(2, 6, 23, 0.56);
     --overlay-table-loading: rgba(15, 23, 42, 0);
     --badge-danger-bg: #dc2626;
     --badge-danger-ink: #ffffff;
@@ -439,7 +439,7 @@ body.sidebar-collapsed .db-path { display: none; }
 }
 .btn.primary {
     background: var(--brand); color: var(--on-brand); border-color: var(--brand);
-    box-shadow: var(--shadow-sm);
+    box-shadow: none;
     padding-right: var(--space-4);
 }
 .btn.primary:hover { background: var(--brand-strong); border-color: var(--brand-strong); }
@@ -708,7 +708,7 @@ body.dark .context-pill.success { background: linear-gradient(180deg, var(--ok-s
     position: relative; overflow: hidden;
     transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
-.metric:hover { border-color: var(--line-strong); box-shadow: var(--shadow-md); }
+.metric:hover { border-color: var(--line-strong); box-shadow: var(--shadow-sm); }
 .metric .metric-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: var(--font-size-xs); color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.8px; }
 .metric .metric-icon {
     width: 32px; height: 32px; border-radius: var(--radius-sm);
@@ -1472,7 +1472,7 @@ body.compact .bell-count { top: -4px; right: -4px; }
 #content[aria-busy="true"] .table-wrap::after {
     content: ""; position: absolute; inset: 0;
     background: linear-gradient(180deg, var(--overlay-table-loading) 0%, var(--surface) 100%);
-    opacity: 0.35; pointer-events: none;
+    opacity: 0.28; pointer-events: none;
     animation: skeleton-shine 1.6s var(--ease-out) infinite;
 }
 @media (max-width: 1280px) and (min-width: 1025px) {
