@@ -90,6 +90,21 @@ class FrontendStaticQualityTests(unittest.TestCase):
         self.assertEqual(page.lower().count("</script>"), 2)
         self.assertIn("function safeRecordId(value)", page)
 
+    def test_frontend_tone_and_theme_contracts_are_normalized(self) -> None:
+        css = read(APP_CSS)
+        js = read(APP_JS)
+        html = read(INDEX_HTML)
+        self.assertIn('data-initial-theme="light"', html)
+        self.assertIn('document.documentElement.dataset.themeReady = "1"', html)
+        self.assertIn('typeof media === "function"', js)
+        self.assertIn('function toneToken(value, fallback = "info")', js)
+        self.assertIn('function semanticToneClass(value, fallback = "")', js)
+        self.assertIn('.metric.tone-neutral .metric-icon', css)
+        self.assertIn('.context-pill.neutral', css)
+        self.assertIn('.hint-chip[data-tone="success"] .hint-dot', css)
+        self.assertNotRegex(css, r"calc\([^\n;{}]*\*[^\n;{}]*\)")
+        self.assertNotIn(":has(", css)
+
     def test_frontend_mobile_nav_and_dialog_visibility_contracts(self) -> None:
         html = read(INDEX_HTML)
         js = read(APP_JS)
@@ -253,6 +268,9 @@ class FrontendStaticQualityTests(unittest.TestCase):
         self.assertIn(".system-menu-panel { display: none !important; }", css)
         self.assertIn(".business-hints { display: grid;", css)
         self.assertIn("align-items: stretch", css)
+        self.assertIn(".business-hints > * { min-width: 0; }", css)
+        self.assertIn("overflow-wrap: anywhere", css)
+        self.assertIn(".business-hints.has-dismiss { grid-template-columns: 1fr; }", css)
         self.assertIn(".hint-dismiss {\n    position: static;", css)
         self.assertIn(".sidebar-collapse[data-tooltip]", css)
         self.assertIn(".bell-item {\n    display: grid;", css)

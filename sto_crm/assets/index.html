@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-initial-theme="light">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -19,8 +19,10 @@
                 const prefersDark = typeof media === "function" && media("(prefers-color-scheme: dark)").matches;
                 const dark = stored === "dark" || (stored !== "light" && prefersDark);
                 document.documentElement.dataset.initialTheme = dark ? "dark" : "light";
+                document.documentElement.dataset.themeReady = "1";
             } catch {
                 document.documentElement.dataset.initialTheme = "light";
+                document.documentElement.dataset.themeReady = "1";
             }
         })();
     </script>

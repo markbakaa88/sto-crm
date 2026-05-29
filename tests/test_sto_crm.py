@@ -4056,6 +4056,8 @@ class StoCrmTests(unittest.TestCase):
     def test_home_page_exposes_theme_route_and_modal_accessibility_hooks(self):
         html = sto_crm.INDEX_HTML
         self.assertIn('id="themeToggle"', html)
+        self.assertIn('data-initial-theme="light"', html)
+        self.assertIn('document.documentElement.dataset.themeReady = "1"', html)
         self.assertIn('themeToggle.addEventListener("click"', html)
         self.assertIn('id="densityToggle"', html)
         self.assertIn("function applyDensity(", html)
@@ -4091,7 +4093,7 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn("metric-icon", html)
         self.assertIn("insight-icon", html)
         self.assertIn("--content-max: 1680px;", html)
-        self.assertIn("Premium workspace", html)
+        self.assertIn("Профессиональная панель", html)
         self.assertIn("Смена под контролем", html)
         self.assertIn("primary-kpi-grid", html)
         self.assertIn("function pluralRu(", html)

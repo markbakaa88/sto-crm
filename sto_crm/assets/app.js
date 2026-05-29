@@ -1811,9 +1811,9 @@ function renderDashboard() {
             { label: "Новый заказ", action: "new-order", className: "primary" },
             { label: "Запись", action: "new-appointment", className: "ghost" }
         ])}
-        ${sectionIntro("Смена под контролем", "Premium workspace для мастера-приёмщика: индекс смены, деньги, риски, воронка и календарь на одном экране.", {
+        ${sectionIntro("Смена под контролем", "Профессиональная панель мастера-приёмщика: индекс смены, деньги, риски, воронка и календарь на одном экране.", {
             hero: true,
-            eyebrow: "Premium workspace",
+            eyebrow: "Профессиональная панель",
             summary: [
                 { label: "План", value: `${r.action_plan_total || 0} задач`, tone: r.action_plan_total ? "warning" : "success" },
                 { label: "Выручка", value: moneyCompact(r.revenue_month || 0), tone: "success" },
@@ -4087,7 +4087,8 @@ $("#shutdownBtn")?.addEventListener("click", () => shutdownApp());
 
 // init theme
 function systemPrefersDark() {
-    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const media = window.matchMedia;
+    return typeof media === "function" && media("(prefers-color-scheme: dark)").matches;
 }
 
 function resolveTheme(theme) {
@@ -4101,6 +4102,8 @@ function applyTheme(theme) {
     document.body.classList.toggle("dark", isDark);
     document.body.classList.toggle("light", !isDark);
     document.body.dataset.theme = requested;
+    document.documentElement.dataset.initialTheme = resolved;
+    document.documentElement.dataset.themeReady = "1";
     const themeButton = $("#themeToggle");
     if (themeButton) {
         const label = requested === "auto" ? `Тема: авто (${isDark ? "тёмная" : "светлая"})` : `Тема: ${isDark ? "тёмная" : "светлая"}`;
@@ -4184,8 +4187,9 @@ if (themeToggle) {
         applyTheme(nextTheme);
     });
 }
-if (window.matchMedia) {
-    const colorSchemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
+const colorSchemeMedia = window.matchMedia;
+if (typeof colorSchemeMedia === "function") {
+    const colorSchemeQuery = colorSchemeMedia("(prefers-color-scheme: dark)");
     const onSystemThemeChange = () => {
         if (!safeStorageGet("sto-crm-theme")) applyTheme("auto");
     };

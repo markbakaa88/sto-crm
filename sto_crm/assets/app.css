@@ -125,6 +125,8 @@
     --badge-warning-ink: #ffffff;
     --badge-info-bg: var(--info);
     --badge-info-ink: #ffffff;
+    --badge-success-bg: var(--ok);
+    --badge-success-ink: var(--on-brand);
     --toast-error-bg: var(--danger);
     --toast-error-ink: #ffffff;
     --hero-card-bg: linear-gradient(135deg, rgba(15, 118, 110, 0.05), rgba(31, 79, 122, 0.035));
@@ -193,6 +195,8 @@ body.dark, [data-theme="dark"] {
     --badge-warning-ink: #111827;
     --badge-info-bg: #2563eb;
     --badge-info-ink: #ffffff;
+    --badge-success-bg: var(--ok);
+    --badge-success-ink: #03111d;
     --toast-error-bg: #7f1d1d;
     --toast-error-ink: #fee2e2;
     --hero-card-bg: linear-gradient(135deg, rgba(90, 200, 189, 0.1), rgba(88, 99, 183, 0.09));
@@ -356,8 +360,11 @@ body.sidebar-collapsed .nav > .nav-section > button.active::before { left: calc(
     padding: 1px 7px; border-radius: 999px;
     margin-left: auto; min-width: 20px; text-align: center;
 }
-.nav-badge[data-tone="warn"] { background: var(--badge-warning-bg); color: var(--badge-warning-ink); }
+.nav-badge[data-tone="warn"],
+.nav-badge[data-tone="warning"] { background: var(--badge-warning-bg); color: var(--badge-warning-ink); }
 .nav-badge[data-tone="info"] { background: var(--badge-info-bg); color: var(--badge-info-ink); }
+.nav-badge[data-tone="success"],
+.nav-badge[data-tone="ok"] { background: var(--badge-success-bg); color: var(--badge-success-ink); }
 body.sidebar-collapsed .nav-badge { display: none; }
 
 .db-path {
@@ -604,10 +611,12 @@ body.sidebar-collapsed .db-path { display: none; }
 .context-pill.danger .live-dot { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
 .context-pill.info .live-dot { background: var(--info); box-shadow: 0 0 0 3px var(--info-soft); }
 .context-pill.success .live-dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.context-pill.neutral .live-dot { background: var(--ink-faint); box-shadow: 0 0 0 3px var(--neutral-soft); }
 .context-pill.warning, .context-pill.warn { border-color: transparent; background: linear-gradient(180deg, var(--warn-soft), var(--surface) 60%); }
 .context-pill.danger { border-color: transparent; background: linear-gradient(180deg, var(--danger-soft), var(--surface) 60%); }
 .context-pill.info { border-color: transparent; background: linear-gradient(180deg, var(--info-soft), var(--surface) 60%); }
 .context-pill.ok, .context-pill.success { border-color: transparent; background: linear-gradient(180deg, var(--ok-soft), var(--surface) 60%); }
+.context-pill.neutral { border-color: transparent; background: linear-gradient(180deg, var(--neutral-soft), var(--surface) 60%); }
 
 /* Design-system hardening: consistent dark-theme card surfaces */
 body.dark .context-pill.warning,
@@ -616,6 +625,7 @@ body.dark .context-pill.danger { background: linear-gradient(180deg, var(--dange
 body.dark .context-pill.info { background: linear-gradient(180deg, var(--info-soft), var(--surface) 70%); }
 body.dark .context-pill.ok,
 body.dark .context-pill.success { background: linear-gradient(180deg, var(--ok-soft), var(--surface) 70%); }
+body.dark .context-pill.neutral { background: linear-gradient(180deg, var(--neutral-soft), var(--surface) 70%); }
 
 .view-heading {
     display: flex; align-items: flex-end; justify-content: space-between;
@@ -743,6 +753,7 @@ body.dark .context-pill.success { background: linear-gradient(180deg, var(--ok-s
 .metric.tone-warning .metric-icon { background: var(--warn-soft); color: var(--warn); }
 .metric.tone-danger .metric-icon { background: var(--danger-soft); color: var(--danger); }
 .metric.tone-info .metric-icon { background: var(--info-soft); color: var(--info); }
+.metric.tone-neutral .metric-icon { background: var(--neutral-soft); color: var(--ink-muted); }
 
 .insight-grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
 .insight-card {
@@ -1090,8 +1101,9 @@ body.compact .row-actions .btn { height: 26px; padding: 0 8px; font-size: var(--
 /* Business hints */
 .business-hints { display: grid; gap: var(--space-2); grid-template-columns: auto repeat(3, minmax(min(100%, 220px), 1fr)); align-items: stretch; margin-bottom: var(--space-3); position: relative; }
 .business-hints.has-dismiss { grid-template-columns: auto repeat(3, minmax(min(100%, 220px), 1fr)) auto; }
+.business-hints > * { min-width: 0; }
 .business-hints > strong { color: var(--ink); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.8px; white-space: nowrap; align-self: center; }
-.hint-chip { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; height: 100%; min-width: 0; padding: 8px 12px; border-radius: var(--radius-md); background: var(--surface-subtle); border: 1px solid var(--line); color: var(--ink-soft); font-size: var(--font-size-xs); }
+.hint-chip { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; height: 100%; min-width: 0; max-width: 100%; padding: 8px 12px; border-radius: var(--radius-md); background: var(--surface-subtle); border: 1px solid var(--line); color: var(--ink-soft); font-size: var(--font-size-xs); white-space: normal; overflow-wrap: anywhere; }
 .hint-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--brand); flex-shrink: 0; }
 .hint-dismiss {
     position: static; justify-self: end; align-self: center;
@@ -1104,9 +1116,12 @@ body.compact .row-actions .btn { height: 26px; padding: 0 8px; font-size: var(--
 }
 .hint-dismiss:hover { background: var(--inverse-bg); color: var(--inverse-ink); border-color: var(--inverse-bg); transform: scale(1.05); }
 .hint-dismiss:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
-.hint-chip[data-tone="warn"] .hint-dot { background: var(--warn); }
-.hint-chip[data-tone="ok"] .hint-dot { background: var(--ok); }
+.hint-chip[data-tone="warn"] .hint-dot,
+.hint-chip[data-tone="warning"] .hint-dot { background: var(--warn); }
+.hint-chip[data-tone="ok"] .hint-dot,
+.hint-chip[data-tone="success"] .hint-dot { background: var(--ok); }
 .hint-chip[data-tone="danger"] .hint-dot { background: var(--danger); }
+.hint-chip[data-tone="info"] .hint-dot { background: var(--info); }
 .hint-dot.warning { background: var(--warn); }
 .hint-dot.danger { background: var(--danger); }
 .hint-dot.info { background: var(--info); }
@@ -1118,7 +1133,8 @@ body.compact .row-actions .btn { height: 26px; padding: 0 8px; font-size: var(--
 .span-2 { grid-column: span 2; }
 .span-3 { grid-column: 1 / -1; }
 @media (max-width: 900px) {
-    .business-hints { grid-template-columns: 1fr; }
+    .business-hints,
+    .business-hints.has-dismiss { grid-template-columns: 1fr; }
     .business-hints > strong { white-space: normal; }
     .hint-dismiss { justify-self: start; }
 }
