@@ -380,15 +380,27 @@ function contextPill(label, value, hint, tone = "") {
     return `<article class="context-pill${toneClass}" aria-label="${esc(`${label}: ${value}. ${hint}`)}"><div class="context-label"><span class="live-dot" aria-hidden="true"></span>${esc(label)}</div><strong>${esc(value)}</strong><span>${esc(hint)}</span></article>`;
 }
 
+function healthToneFromScore(score) {
+    const value = Math.max(0, Math.min(100, Number(score || 0)));
+    if (value >= 85) return "success";
+    if (value >= 65) return "info";
+    if (value >= 45) return "warning";
+    return "danger";
+}
+
+function dueTone(report) {
+    if (Number(report.overdue_orders_count || 0) > 0) return "warning";
+    return Number(report.due_total || 0) > 0 ? "info" : "success";
+}
+
 function contextStripHtml() {
     if (!state.data) return "";
     const r = state.data.reports || {};
-    const riskCount = Number(r.overdue_orders_count || 0) + Number(r.low_stock_count || 0);
-    const riskTone = riskCount > 0 ? (riskCount > 3 ? "danger" : "warning") : "success";
+    const healthScore = Math.max(0, Math.min(100, Number(r.business_health_score || 0)));
     return `<section class="context-strip" aria-label="Операционный статус CRM">
-        ${contextPill("Смена", `${Math.max(0, Math.min(100, Number(r.business_health_score || 0)))}/100 · ${r.business_health_label || "Контроль"}`, "Индекс здоровья сервиса", riskTone)}
+        ${contextPill("Смена", `${healthScore}/100 · ${r.business_health_label || "Контроль"}`, "Индекс здоровья сервиса", healthToneFromScore(healthScore))}
         ${contextPill("Воронка", moneyCompact(r.pipeline_value || 0), `${r.active_orders || 0} ${pluralRu(r.active_orders, "активный заказ", "активных заказа", "активных заказов")}`, "info")}
-        ${contextPill("К оплате", moneyCompact(r.due_total || 0), "Дебиторская задолженность", Number(r.due_total || 0) > 0 ? "warning" : "success")}
+        ${contextPill("К оплате", moneyCompact(r.due_total || 0), "Дебиторская задолженность", dueTone(r))}
         ${contextPill(
             "Обновлено",
             formatClockTime(state.lastLoadedAt),
@@ -961,18 +973,20 @@ function setOnlineState(isOnline, { rerenderContent = false } = {}) {
 function updateNavigationBadges() {
     const r = state.data?.reports || {};
     const badgeValues = {
-        dashboard: r.action_plan_total || 0,
-        appointments: r.appointments_today_count || 0,
-        orders: r.active_orders || 0,
-        inventory: r.low_stock_count || 0,
-        updates: state.updateStatus?.ok && state.updateStatus.release?.is_newer ? "!" : 0
+        dashboard: { value: r.action_plan_total || 0, tone: r.risk_total ? "attention" : "neutral", label: "действий в плане" },
+        appointments: { value: r.appointments_today_count || 0, tone: "neutral", label: "записей сегодня" },
+        orders: { value: r.active_orders || 0, tone: Number(r.overdue_orders_count || 0) > 0 ? "attention" : "neutral", label: "активных заказов" },
+        inventory: { value: r.low_stock_count || 0, tone: Number(r.low_stock_count || 0) > 0 ? "warning" : "neutral", label: "позиций к закупке" },
+        updates: { value: state.updateStatus?.ok && state.updateStatus.release?.is_newer ? "!" : 0, tone: "info", label: "доступно обновление" }
     };
     $$('[data-nav-badge]').forEach(badge => {
-        const value = badgeValues[badge.dataset.navBadge] || 0;
+        const meta = badgeValues[badge.dataset.navBadge] || { value: 0, tone: "neutral", label: "" };
+        const value = meta.value || 0;
         const visible = value === "!" || Number(value) > 0;
         badge.hidden = !visible;
         badge.textContent = visible ? String(value) : "";
-        badge.setAttribute("aria-label", value === "!" ? "Доступно обновление" : `${value} требует внимания`);
+        badge.dataset.tone = meta.tone || "neutral";
+        badge.setAttribute("aria-label", value === "!" ? "Доступно обновление" : `${value} ${meta.label || "требует внимания"}`);
     });
     $$("#nav button[data-route]").forEach(button => {
         const label = button.querySelector(".nav-label")?.textContent?.trim() || button.dataset.route || "Раздел";
@@ -1089,8 +1103,8 @@ function renderStatusBar() {
     const lastBackup = state.lastBackupAt || state.data?.app?.last_backup_at || "";
     if (backupEl) backupEl.textContent = lastBackup ? `Бэкап · ${shortStamp(lastBackup)}` : "Создать бэкап";
     if (backupWrap) {
-        backupWrap.dataset.tone = lastBackup ? "success" : "warning";
-        backupWrap.setAttribute("data-tooltip", lastBackup ? `Последний бэкап: ${shortStamp(lastBackup)}. Создать ещё.` : "Резервная копия не создавалась в этой сессии — нажмите, чтобы сохранить сейчас");
+        backupWrap.dataset.tone = lastBackup ? "success" : "neutral";
+        backupWrap.setAttribute("data-tooltip", lastBackup ? `Последний бэкап: ${shortStamp(lastBackup)}. Создать ещё.` : "Создать резервную копию SQLite");
     }
 
     const versionEl = $("#statusVersionText");
@@ -1815,9 +1829,9 @@ function renderDashboard() {
             hero: true,
             eyebrow: "Профессиональная панель",
             summary: [
-                { label: "План", value: `${r.action_plan_total || 0} задач`, tone: r.action_plan_total ? "warning" : "success" },
+                { label: "План", value: `${r.action_plan_total || 0} задач`, tone: r.risk_total ? "warning" : "info" },
                 { label: "Выручка", value: moneyCompact(r.revenue_month || 0), tone: "success" },
-                { label: "Риски", value: r.risk_total || 0, tone: r.risk_total ? "danger" : "success" }
+                { label: "Риски", value: r.risk_total || 0, tone: r.risk_total ? "warning" : "success" }
             ],
             actions: [
                 { label: "Открыть план", action: "open-action-plan", className: "primary" },
@@ -1837,9 +1851,9 @@ function renderDashboard() {
         </section>
         ${safeStorageGet("sto-crm-dashboard-hints-dismissed") === "1" ? "" : `<section class="business-hints has-dismiss" aria-label="Визуальные подсказки панели">
             <strong>Подсказки</strong>
-            <span class="hint-chip" data-tone="success"><span class="hint-dot ok" aria-hidden="true"></span>Индекс 0–100 показывает здоровье смены</span>
-            <span class="hint-chip" data-tone="warning"><span class="hint-dot warning" aria-hidden="true"></span>Приоритет — что открыть первым</span>
-            <span class="hint-chip" data-tone="danger"><span class="hint-dot danger" aria-hidden="true"></span>Красный и янтарный — зона риска</span>
+            <span class="hint-chip" data-tone="success"><span class="hint-dot ok" aria-hidden="true"></span>Индекс смены показывает здоровье сервиса</span>
+            <span class="hint-chip" data-tone="info"><span class="hint-dot info" aria-hidden="true"></span>Открывайте первый пункт плана смены</span>
+            <span class="hint-chip" data-tone="warning"><span class="hint-dot warning" aria-hidden="true"></span>Янтарный сигнал — зона внимания</span>
             <button type="button" class="hint-dismiss" data-action="dismiss-dashboard-hints" aria-label="Скрыть подсказки" data-tooltip="Скрыть подсказки">×</button>
         </section>`}
         <section class="workspace-grid dashboard-focus-grid">
@@ -1916,7 +1930,7 @@ function miniLedger(report) {
 function riskRadar(report) {
     const rows = [
         { label: "Просрочки", value: report.overdue_orders_count || 0, max: 8, tone: "danger" },
-        { label: "Склад", value: report.low_stock_count || 0, max: 8, tone: "info" },
+        { label: "Склад", value: report.low_stock_count || 0, max: 8, tone: Number(report.low_stock_count || 0) > 0 ? "warning" : "info" },
         { label: "Сметы", value: (report.authorizations_pending || []).length, max: 8, tone: "warning" }
     ];
     return `<div class="signal-grid">${rows.map(row => {
@@ -1944,7 +1958,7 @@ function pipelineBoard(statuses = []) {
     const active = statuses.filter(column => !["cancelled"].includes(column.status));
     if (!active.length) return `<div class="muted">Воронка пока пуста.</div>`;
     return `<div class="pipeline-board">${active.map(column => `
-        <article class="pipeline-column">
+        <article class="pipeline-column ${Number(column.count || 0) ? "" : "is-empty"}">
             <div class="pipeline-head"><strong>${esc(column.label)}</strong><span class="count-pill">${column.count}</span></div>
             <div class="pipeline-body">
                 <div class="muted">${money(column.total)} · долг ${money(column.due)}</div>
@@ -1957,7 +1971,7 @@ function pipelineBoard(statuses = []) {
                         <div>${money(order.total)} · ${esc(priorityLabels[order.priority] || order.priority || "")}</div>
                         <button class="btn ghost" type="button" data-action="edit-order" data-id="${safeRecordId(order.id)}" aria-label="Открыть заказ-наряд ${esc(order.number || order.id)}">Открыть</button>
                     </div>`;
-                }).join("") || `<div class="muted">Нет заказов в статусе.</div>`}
+                }).join("") || `<div class="pipeline-empty">Пусто</div>`}
             </div>
         </article>`).join("")}</div>`;
 }
@@ -2020,8 +2034,8 @@ function actionPlanList(items = []) {
                 </div>
             </div>
             <div class="action-side">
-                <span class="action-score" title="Приоритет задачи: ${Number(item.priority || 0)} из 100" aria-label="Приоритет задачи: ${Number(item.priority || 0)} из 100">Приоритет ${Number(item.priority || 0)}/100</span>
-                <button class="btn primary" type="button" data-action="${esc(item.action || "")}" data-id="${safeRecordId(item.record_id)}" data-route-target="${esc(item.route || "dashboard")}" data-reload-before-action="1">${esc(item.cta || "Открыть")}</button>
+                <span class="action-score" title="Приоритет задачи: ${Number(item.priority || 0)} из 100" aria-label="Приоритет задачи: ${Number(item.priority || 0)} из 100">${Number(item.priority || 0)}/100</span>
+                <button class="btn" type="button" data-action="${esc(item.action || "")}" data-id="${safeRecordId(item.record_id)}" data-route-target="${esc(item.route || "dashboard")}" data-reload-before-action="1">${esc(item.cta || "Открыть")}</button>
             </div>
         </article>`;
     }).join("")}${hiddenNote}</div>`;
@@ -3564,8 +3578,8 @@ function openOrderModal(order = {}) {
             <div class="business-hints" aria-label="Подсказки заказ-наряда">
                 <strong>Подсказки:</strong>
                 <span class="hint-chip" data-tone="success"><span class="hint-dot ok" aria-hidden="true"></span>Согласовано — входит в сумму</span>
-                <span class="hint-chip" data-tone="warning"><span class="hint-dot warning" aria-hidden="true"></span>Отложено/отказ — не списывает склад</span>
-                <span class="hint-chip" data-tone="danger"><span class="hint-dot danger" aria-hidden="true"></span>К оплате пересчитывается сразу</span>
+                <span class="hint-chip" data-tone="warning"><span class="hint-dot warning" aria-hidden="true"></span>Отложено или отказ — не списывает склад</span>
+                <span class="hint-chip" data-tone="info"><span class="hint-dot info" aria-hidden="true"></span>Итоги пересчитываются сразу</span>
             </div>
             <div class="notice">Запчасть можно выбрать со склада или указать вручную как «вне склада» — такие позиции не списывают остатки, но учитываются в сумме заказ-наряда.</div>
             <div id="itemsHost"></div>
