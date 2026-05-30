@@ -324,7 +324,7 @@ function classToken(value) {
 
 function toneToken(value, fallback = "info") {
     const token = classToken(value || fallback);
-    const aliases = { ok: "success", warn: "warning", bad: "danger", error: "danger" };
+    const aliases = { ok: "success", warn: "warning", bad: "danger", error: "danger", attention: "warning" };
     const normalized = aliases[token] || token;
     return ["success", "warning", "danger", "info", "neutral"].includes(normalized) ? normalized : fallback;
 }
@@ -911,6 +911,7 @@ function updateScrollHints(root = document) {
     const refresh = () => {
         $$(".table-wrap, .items-table, .timeline", root).forEach(container => {
             const isNativeScrollRegion = container.classList.contains("timeline");
+            const hadOverflow = container.classList.contains("has-horizontal-overflow");
             let hint = container.querySelector(":scope > .scroll-hint");
             if (!hint) {
                 hint = document.createElement("div");
@@ -934,6 +935,9 @@ function updateScrollHints(root = document) {
                     .reduce((maxWidth, child) => Math.max(maxWidth, child.scrollWidth || child.getBoundingClientRect().width || 0), 0);
             const hasOverflow = contentWidth > container.clientWidth + 1;
             container.classList.toggle("has-horizontal-overflow", hasOverflow);
+            if (isNativeScrollRegion && hasOverflow && !hadOverflow) {
+                container.scrollLeft = 0;
+            }
             if (hasOverflow) {
                 container.setAttribute("tabindex", container.getAttribute("tabindex") || "0");
                 const describedBy = new Set((container.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
@@ -973,9 +977,9 @@ function setOnlineState(isOnline, { rerenderContent = false } = {}) {
 function updateNavigationBadges() {
     const r = state.data?.reports || {};
     const badgeValues = {
-        dashboard: { value: r.action_plan_total || 0, tone: r.risk_total ? "attention" : "neutral", label: "действий в плане" },
+        dashboard: { value: r.action_plan_total || 0, tone: r.risk_total ? "warning" : "neutral", label: "действий в плане" },
         appointments: { value: r.appointments_today_count || 0, tone: "neutral", label: "записей сегодня" },
-        orders: { value: r.active_orders || 0, tone: Number(r.overdue_orders_count || 0) > 0 ? "attention" : "neutral", label: "активных заказов" },
+        orders: { value: r.active_orders || 0, tone: Number(r.overdue_orders_count || 0) > 0 ? "warning" : "neutral", label: "активных заказов" },
         inventory: { value: r.low_stock_count || 0, tone: Number(r.low_stock_count || 0) > 0 ? "warning" : "neutral", label: "позиций к закупке" },
         updates: { value: state.updateStatus?.ok && state.updateStatus.release?.is_newer ? "!" : 0, tone: "info", label: "доступно обновление" }
     };
@@ -985,7 +989,7 @@ function updateNavigationBadges() {
         const visible = value === "!" || Number(value) > 0;
         badge.hidden = !visible;
         badge.textContent = visible ? String(value) : "";
-        badge.dataset.tone = meta.tone || "neutral";
+        badge.dataset.tone = toneToken(meta.tone || "neutral", "neutral");
         badge.setAttribute("aria-label", value === "!" ? "Доступно обновление" : `${value} ${meta.label || "требует внимания"}`);
     });
     $$("#nav button[data-route]").forEach(button => {
