@@ -2435,6 +2435,7 @@ class StoCrmTests(unittest.TestCase):
             self.assertNotIn("path", backup_payload)
             self.assertIn("display_path", backup_payload)
             self.assertIn("filename", backup_payload)
+            self.assertIn("created_at", backup_payload)
 
             request = urllib.request.Request(
                 f"{base}/api/customers",
@@ -2694,6 +2695,16 @@ class StoCrmTests(unittest.TestCase):
         finally:
             conn.close()
         self.assertEqual(row[0], "Backup Customer")
+
+    def test_bootstrap_backup_metadata_does_not_expose_absolute_path(self):
+        result = sto_crm.create_backup()
+        payload = sto_crm.bootstrap_payload()
+        backup = payload["app"]["last_backup"]
+        self.assertIsNotNone(backup)
+        self.assertNotIn("path", backup)
+        self.assertEqual(backup["filename"], Path(result["path"]).name)
+        self.assertEqual(payload["app"]["last_backup_at"], backup["created_at"])
+        self.assertNotIn(str(Path(self.tempdir.name)), backup["display_path"])
 
     def test_backup_retention_prunes_oldest_files(self):
         backup_dir = Path(self.tempdir.name) / "backups"

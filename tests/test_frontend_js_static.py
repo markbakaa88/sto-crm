@@ -180,6 +180,12 @@ class FrontendStaticQualityTests(unittest.TestCase):
         )
         self.assertIn('state.status = "all";', js)
 
+    def test_frontend_backup_status_uses_server_timestamp_without_path_leak(self) -> None:
+        js = read(APP_JS)
+        self.assertIn('state.lastBackupAt = result.created_at || new Date().toISOString();', js)
+        self.assertIn('result.display_path || result.filename || "готово"', js)
+        self.assertNotIn("result.path", js)
+
     def test_frontend_order_history_readonly_contracts(self) -> None:
         js = read(APP_JS)
         self.assertIn("function entityRecordPath(kind, id)", js)

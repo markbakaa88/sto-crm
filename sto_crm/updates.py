@@ -185,6 +185,17 @@ def latest_backup_info() -> dict[str, Any] | None:
     }
 
 
+def public_backup_payload(info: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return backup metadata that is safe to expose to the browser UI."""
+    if not info:
+        return None
+    return {
+        key: info[key]
+        for key in ("display_path", "filename", "size", "created_at")
+        if key in info
+    }
+
+
 def semantic_version_tuple(version: str) -> tuple[int, ...]:
     """Сравнимый кортеж для SemVer-подобных тегов GitHub Releases."""
     core = str(version or "").strip().lstrip("vV").split("-", 1)[0]

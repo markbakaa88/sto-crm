@@ -1695,9 +1695,9 @@ async function createBackupFromUi() {
     if (!requiresFreshCsrf("резервное копирование")) return;
     try {
         const result = await api("/api/backup", { method: "POST", body: "{}" });
-        state.lastBackupAt = new Date().toISOString();
+        state.lastBackupAt = result.created_at || new Date().toISOString();
         renderShell();
-        toast(`Резервная копия: ${result.display_path || result.filename || result.path}`);
+        toast(`Резервная копия: ${result.display_path || result.filename || "готово"}`);
     } catch (error) {
         showError(error);
     }

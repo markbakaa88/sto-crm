@@ -46,7 +46,12 @@ from .services import (
     update_order,
     update_vehicle,
 )
-from .updates import create_backup, install_update_from_github, update_status
+from .updates import (
+    create_backup,
+    install_update_from_github,
+    public_backup_payload,
+    update_status,
+)
 from .web import FAVICON_SVG, INDEX_HTML
 
 _UPDATE_STATUS_CACHE: dict[str, Any] = {"expires_at": 0.0, "payload": None}
@@ -227,9 +232,7 @@ class CRMHandler(BaseHTTPRequestHandler):
 
             if entity == "backup" and len(parts) == 2 and method == "POST":
                 backup = create_backup()
-                self.send_json(
-                    {key: value for key, value in backup.items() if key != "path"}
-                )
+                self.send_json(public_backup_payload(backup) or {})
                 return
             if (
                 entity == "update"
@@ -239,14 +242,7 @@ class CRMHandler(BaseHTTPRequestHandler):
             ):
                 result = install_update_from_github()
                 if isinstance(result.get("backup"), dict):
-                    result = {
-                        **result,
-                        "backup": {
-                            key: value
-                            for key, value in result["backup"].items()
-                            if key != "path"
-                        },
-                    }
+                    result = {**result, "backup": public_backup_payload(result["backup"]) or {}}
                 self.send_json(result)
                 if result.get("updated"):
                     threading.Thread(target=self.server.shutdown, daemon=True).start()
