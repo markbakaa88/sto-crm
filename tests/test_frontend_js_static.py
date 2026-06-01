@@ -209,6 +209,7 @@ class FrontendStaticQualityTests(unittest.TestCase):
         self.assertIn('function initialBootstrapToken()', js)
         self.assertIn('document.body?.dataset?.bootstrapToken', js)
         self.assertIn('delete document.body.dataset.bootstrapToken;', js)
+        self.assertIn('accessToken: "",', js)
         self.assertIn('state.bootstrapToken = "";', js)
         self.assertIn('delete cached.app.access_token;', js)
         self.assertIn('headers["X-CRM-Access-Token"] = accessToken;', js)

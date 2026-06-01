@@ -20,6 +20,7 @@ const state = {
     loading: false,
     lastLoadedAt: "",
     offlineMode: false,
+    accessToken: "",
     compactMode: false,
     searchTimer: null,
     lastBackupAt: "",
