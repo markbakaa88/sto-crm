@@ -117,6 +117,23 @@ function Get-FreeTcpPort {
     }
 }
 
+function Join-ProcessArguments {
+    param(
+        [string[]]$ArgumentList = @()
+    )
+
+    $quoted = foreach ($argument in $ArgumentList) {
+        $value = [string]$argument
+        if ($value.Length -gt 0 -and $value -notmatch '[\s"]') {
+            $value
+        }
+        else {
+            '"' + (($value -replace '(\\+)$', '$1$1') -replace '"', '\"') + '"'
+        }
+    }
+    return ($quoted -join ' ')
+}
+
 function Write-ReleaseMetadata {
     param(
         [Parameter(Mandatory = $true)]
@@ -174,14 +191,11 @@ function Invoke-ReleaseSmokeTest {
     try {
         $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
         $startInfo.FileName = $ExePath
-        $startInfo.UseShellExecute = $true
-        $startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
-        foreach ($argument in @("--no-browser", "--port", $port.ToString(), "--db", $dbPath)) {
-            [void]$startInfo.ArgumentList.Add([string]$argument)
-        }
+        $startInfo.Arguments = Join-ProcessArguments @("--no-browser", "--port", $port.ToString(), "--db", $dbPath)
         $startInfo.UseShellExecute = $false
         $startInfo.RedirectStandardOutput = $true
         $startInfo.RedirectStandardError = $true
+        $startInfo.CreateNoWindow = $true
         $process = [System.Diagnostics.Process]::Start($startInfo)
         $baseUrl = "http://127.0.0.1:$port"
         $health = $null

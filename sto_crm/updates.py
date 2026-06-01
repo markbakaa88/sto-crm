@@ -674,6 +674,11 @@ def ensure_downloaded_executable(path: Path) -> None:
             raise RuntimeError("Скачанный файл не содержит корректную PE-сигнатуру.")
 
 
+def powershell_single_quoted_literal(value: str) -> str:
+    """Return a Unicode-safe PowerShell single-quoted string literal."""
+    return "'" + value.replace("'", "''") + "'"
+
+
 def write_windows_update_script(
     script_path: Path,
     current_exe: Path,
@@ -684,12 +689,12 @@ def write_windows_update_script(
 ) -> None:
     ps = f"""
 $ErrorActionPreference = 'Stop'
-$Current = {json.dumps(str(current_exe))}
-$Downloaded = {json.dumps(str(downloaded_exe))}
-$Backup = {json.dumps(str(backup_exe))}
-$Log = {json.dumps(str(log_path))}
+$Current = {powershell_single_quoted_literal(str(current_exe))}
+$Downloaded = {powershell_single_quoted_literal(str(downloaded_exe))}
+$Backup = {powershell_single_quoted_literal(str(backup_exe))}
+$Log = {powershell_single_quoted_literal(str(log_path))}
 $ScriptPath = $MyInvocation.MyCommand.Path
-$ExpectedSha256 = {json.dumps(expected_sha256)}
+$ExpectedSha256 = {powershell_single_quoted_literal(expected_sha256)}
 function Write-UpdateLog([string]$Message) {{
     $dir = Split-Path -Parent $Log
     if ($dir) {{ New-Item -ItemType Directory -Force -Path $dir | Out-Null }}
@@ -747,7 +752,7 @@ try {{
     }}
 }}
 """.strip()
-    script_path.write_text(ps, encoding="utf-8")
+    script_path.write_text(ps, encoding="utf-8-sig")
 
 
 def schedule_windows_update(downloaded_exe: Path, expected_sha256: str) -> None:

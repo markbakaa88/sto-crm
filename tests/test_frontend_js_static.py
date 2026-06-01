@@ -211,14 +211,24 @@ class FrontendStaticQualityTests(unittest.TestCase):
         self.assertIn('result.display_path || result.filename || "готово"', js)
         self.assertNotIn("result.path", js)
 
-    def test_frontend_access_token_is_not_cached_and_is_sent_as_header(self) -> None:
+    def test_frontend_security_tokens_are_not_cached_and_are_sent_as_headers(self) -> None:
         js = read(APP_JS)
         self.assertIn('function initialBootstrapToken()', js)
         self.assertIn('document.body?.dataset?.bootstrapToken', js)
         self.assertIn('delete document.body.dataset.bootstrapToken;', js)
         self.assertIn('accessToken: "",', js)
         self.assertIn('state.bootstrapToken = "";', js)
+        self.assertIn('delete cached.app.csrf_token;', js)
         self.assertIn('delete cached.app.access_token;', js)
+        self.assertIn(
+            'if (state.data?.app?.csrf_token) data.app.csrf_token = state.data.app.csrf_token;',
+            js,
+        )
+        self.assertIn(
+            'if (state.data?.app?.access_token) data.app.access_token = state.data.app.access_token;',
+            js,
+        )
+        self.assertIn('headers["X-CSRF-Token"] = state.data.app.csrf_token;', js)
         self.assertIn('headers["X-CRM-Access-Token"] = accessToken;', js)
         self.assertNotIn('url.searchParams.get("access_token")', js)
         self.assertNotIn('url.searchParams.get("bootstrap_token")', js)

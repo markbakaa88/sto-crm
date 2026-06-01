@@ -567,7 +567,7 @@ def create_order_tx(conn: sqlite3.Connection, payload: dict[str, Any]) -> int:
             .replace(microsecond=0)
             .isoformat(timespec="minutes")
         )
-    if status_reserves_inventory(data["status"]):
+    if status_needs_inventory_availability_check("", data["status"]):
         ensure_inventory_available_for_order(conn, data["items"])
     apply_inventory_delta(conn, "", data["status"], [], data["items"])
     cur = conn.execute(
@@ -678,7 +678,7 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError(
                     "Отменённый заказ-наряд нельзя изменить. Создайте новый заказ."
                 )
-        if status_reserves_inventory(new_status):
+        if status_needs_inventory_availability_check(old_status, new_status):
             ensure_inventory_available_for_order(
                 conn, data["items"], exclude_order_id=record_id
             )
@@ -885,6 +885,19 @@ def ensure_inventory_available_for_order(
 
 def status_reserves_inventory(status: str) -> bool:
     return status in {"approved", "in_progress", "done"}
+
+
+def status_needs_inventory_availability_check(old_status: str, new_status: str) -> bool:
+    """Return whether new order items must respect free stock reservations.
+
+    Active orders reserve inventory; closed orders consume it immediately. Closing
+    an active order must be allowed to consume its own reservation, but neither a
+    newly closed order nor an order being closed from a non-reserving status may
+    consume stock already reserved by other active orders.
+    """
+    return status_reserves_inventory(new_status) or (
+        new_status in CONSUMING_STATUSES and old_status not in CONSUMING_STATUSES
+    )
 
 
 def closed_signature_number(value: Any) -> float:

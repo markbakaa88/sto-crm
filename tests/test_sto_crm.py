@@ -948,6 +948,96 @@ class StoCrmTests(unittest.TestCase):
         )
         self.assertEqual(second["status"], "approved")
 
+    def test_closed_order_cannot_consume_stock_reserved_by_another_active_order(self):
+        customer = self.create_customer("Reserved Close Customer")
+        vehicle = self.create_vehicle(customer["id"], "R001CL")
+        part = sto_crm.create_inventory(
+            {
+                "sku": "RESERVED-CLOSE",
+                "name": "Reserved close part",
+                "quantity": 1,
+                "price": 10,
+                "cost": 5,
+            }
+        )
+        part_item = {
+            "kind": "part",
+            "inventory_id": part["id"],
+            "title": part["name"],
+            "quantity": 1,
+            "unit_price": 10,
+            "unit_cost": 5,
+        }
+
+        sto_crm.create_order(
+            {
+                "customer_id": customer["id"],
+                "vehicle_id": vehicle["id"],
+                "status": "approved",
+                "priority": "normal",
+                "items": [part_item],
+            }
+        )
+
+        closed_payload = {
+            "customer_id": customer["id"],
+            "vehicle_id": vehicle["id"],
+            "status": "closed",
+            "priority": "normal",
+            "items": [part_item],
+        }
+        with self.assertRaisesRegex(ValueError, "свободного остатка"):
+            sto_crm.create_order(closed_payload)
+
+        draft = sto_crm.create_order({**closed_payload, "status": "new"})
+        draft_payload = self.order_payload_from_record(draft)
+        draft_payload["status"] = "closed"
+        with self.assertRaisesRegex(ValueError, "свободного остатка"):
+            sto_crm.update_order(draft["id"], draft_payload)
+
+        with sto_crm.db() as conn:
+            self.assertEqual(sto_crm.get_inventory(conn, part["id"])["quantity"], 1)
+            self.assertEqual(sto_crm.get_order(conn, draft["id"])["status"], "new")
+
+    def test_order_can_consume_its_own_active_reservation_when_closed(self):
+        customer = self.create_customer("Own Reservation Customer")
+        vehicle = self.create_vehicle(customer["id"], "R002CL")
+        part = sto_crm.create_inventory(
+            {
+                "sku": "OWN-RESERVE",
+                "name": "Own reserved part",
+                "quantity": 1,
+                "price": 10,
+                "cost": 5,
+            }
+        )
+        order = sto_crm.create_order(
+            {
+                "customer_id": customer["id"],
+                "vehicle_id": vehicle["id"],
+                "status": "approved",
+                "priority": "normal",
+                "items": [
+                    {
+                        "kind": "part",
+                        "inventory_id": part["id"],
+                        "title": part["name"],
+                        "quantity": 1,
+                        "unit_price": 10,
+                        "unit_cost": 5,
+                    }
+                ],
+            }
+        )
+
+        payload = self.order_payload_from_record(order)
+        payload["status"] = "closed"
+        closed = sto_crm.update_order(order["id"], payload)
+
+        self.assertEqual(closed["status"], "closed")
+        with sto_crm.db() as conn:
+            self.assertEqual(sto_crm.get_inventory(conn, part["id"])["quantity"], 0)
+
     def test_closed_order_tracks_closed_at_normalizes_money_and_restores_stock(self):
         customer = self.create_customer("Stock Customer")
         vehicle = self.create_vehicle(customer["id"], "B002BB")
@@ -4109,14 +4199,20 @@ class StoCrmTests(unittest.TestCase):
 
         sto_crm.write_windows_update_script(
             script_path,
-            Path("C:/Program Files/STO CRM/STO_CRM.exe"),
-            Path(self.tempdir.name) / "downloaded.exe",
-            Path(self.tempdir.name) / "backup.exe",
-            Path(self.tempdir.name) / "update.log",
+            Path("C:/Users/Иван O'Connor/AppData/Local/STO CRM/STO_CRM.exe"),
+            Path(self.tempdir.name) / "скачанное обновление.exe",
+            Path(self.tempdir.name) / "backup O'Connor.exe",
+            Path(self.tempdir.name) / "журнал обновления.log",
             expected_sha256,
         )
 
-        script = script_path.read_text(encoding="utf-8")
+        self.assertTrue(script_path.read_bytes().startswith(codecs.BOM_UTF8))
+        script = script_path.read_text(encoding="utf-8-sig")
+        self.assertIn("$Current = 'C:/Users/Иван O''Connor/AppData/Local/STO CRM/STO_CRM.exe'", script)
+        self.assertIn("скачанное обновление.exe'", script)
+        self.assertIn("backup O''Connor.exe'", script)
+        self.assertNotIn("\\u0418", script)
+        self.assertNotIn('"C:/Users', script)
         self.assertIn("$ExpectedSha256", script)
         self.assertIn(expected_sha256, script)
         self.assertIn("if (-not (Test-Path -LiteralPath $Downloaded))", script)
@@ -4127,6 +4223,17 @@ class StoCrmTests(unittest.TestCase):
             script.index("Get-FileHash -Algorithm SHA256 -LiteralPath $Downloaded"),
             script.index("Move-Item -LiteralPath $Current -Destination $Backup -Force"),
         )
+
+    def test_build_smoke_test_uses_windows_powershell_compatible_process_args(self):
+        build_script = (Path(__file__).resolve().parents[1] / "build.ps1").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("function Join-ProcessArguments", build_script)
+        self.assertIn("$startInfo.Arguments = Join-ProcessArguments", build_script)
+        self.assertIn("$startInfo.CreateNoWindow = $true", build_script)
+        self.assertNotIn("$startInfo.ArgumentList", build_script)
+        self.assertNotIn("[void]$startInfo.ArgumentList.Add", build_script)
 
     def test_update_status_requires_installable_hash_before_enabling_install(self):
         old_latest = sto_crm.latest_release_info
