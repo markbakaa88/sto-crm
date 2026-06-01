@@ -1921,7 +1921,10 @@ function renderDashboard() {
             <div class="dashboard-main-stack">
                 <div class="panel action-center action-center-large">
                     <div class="panel-head">
-                        <h3>План смены ${helpTip("Автоматический список важных действий: просрочки, сметы, follow-up, сервисные напоминания и закупка.")}</h3>
+                        <div class="panel-title-row">
+                            <h3>План смены</h3>
+                            ${helpTip("Автоматический список важных действий: просрочки, сметы, follow-up, сервисные напоминания и закупка.")}
+                        </div>
                         <span class="count-pill">${r.action_plan_total || 0}</span>
                     </div>
                     <div class="panel-body">${actionPlanList(r.action_plan || [])}</div>

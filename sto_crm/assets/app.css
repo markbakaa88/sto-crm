@@ -732,6 +732,9 @@ body.dark .context-pill.neutral { background: var(--surface); }
 .panel-head > * { min-width: 0; }
 .panel-head h2, .panel-head h3 { margin: 0; font-size: var(--font-size-md); font-weight: 600; color: var(--ink); letter-spacing: -0.005em; }
 .panel-head .muted { color: var(--ink-muted); font-size: var(--font-size-xs); }
+.panel-title-row { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.panel-title-row h2,
+.panel-title-row h3 { min-width: 0; }
 .panel-body { display: flex; flex-direction: column; gap: var(--space-3); }
 
 /* Report group heading (большие разделы отчётов) */
@@ -1687,11 +1690,13 @@ body.compact .bell-count { top: -4px; right: -4px; }
     }
     .sync-chip .sync-text,
     #primaryCtaBtn kbd,
-    #commandBtn,
     #systemMenuBtn span:first-child { display: none; }
     #primaryCtaBtn { width: var(--icon-size); min-width: var(--icon-size); padding: 0; justify-content: center; gap: 0; font-size: 0; overflow: hidden; }
     #primaryCtaBtn > span[aria-hidden="true"] { font-size: 16px; }
+    #commandBtn,
     #refreshBtn { width: var(--icon-size); min-width: var(--icon-size); padding: 0; justify-content: center; }
+    #commandBtn { font-size: 0; overflow: hidden; }
+    #commandBtn::before { content: "⌘"; font-size: 16px; }
     #primaryCtaMore { width: var(--icon-size); min-width: var(--icon-size); padding: 0; justify-content: center; }
     .system-menu-button { width: var(--icon-size); min-width: var(--icon-size); padding: 0; justify-content: center; }
 }
