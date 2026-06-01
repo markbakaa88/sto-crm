@@ -57,6 +57,7 @@
     --icon-size-compact: 32px;
     --icon-size-touch: 44px;
     --interactive-min: 44px;
+    --interactive-compact: 32px;
     --sidebar-icon-size: 44px;
     --sidebar-active-offset: 14px;
     --sidebar-collapsed-pad: 14px;
@@ -562,10 +563,10 @@ body.sidebar-collapsed .db-path { display: none; }
 
 .sync-chip {
     display: inline-flex; align-items: center; gap: 6px;
-    padding: 0 var(--space-3); height: 30px; border-radius: 999px;
+    padding: 0 var(--space-3); min-height: var(--interactive-compact); border-radius: 999px;
     border: 1px solid var(--line); background: var(--surface-subtle);
-    font-size: var(--font-size-xs); color: var(--ink-soft);
-    cursor: pointer; white-space: nowrap;
+    font-size: var(--font-size-xs); color: var(--ink-soft); cursor: pointer;
+    white-space: nowrap;
     transition: background var(--dur-fast) var(--ease-out);
 }
 .sync-chip:hover { background: var(--neutral-soft); }
@@ -1070,9 +1071,9 @@ body.dark .context-pill.neutral { background: var(--surface); }
 .row-actions { display: inline-flex; gap: 4px; flex-wrap: wrap; }
 .row-actions-start { justify-content: flex-start; }
 .order-row-actions { gap: 2px; }
-.order-row-actions .btn { height: 28px; padding: 0 10px; font-size: var(--font-size-xs); }
+.order-row-actions .btn { min-height: var(--interactive-compact); padding: 0 10px; font-size: var(--font-size-xs); }
 .order-row-actions .btn.icon-sm {
-    width: 28px; padding: 0; justify-content: center;
+    width: var(--interactive-compact); min-width: var(--interactive-compact); padding: 0; justify-content: center;
     font-size: 14px; border-color: var(--line);
 }
 .order-row-actions .btn.icon-sm:hover { background: var(--brand-soft); color: var(--brand-strong); border-color: transparent; }
@@ -1245,11 +1246,10 @@ body.compact .row-actions .btn { height: 26px; padding: 0 8px; font-size: var(--
 .hint-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--brand); flex-shrink: 0; }
 .hint-dismiss {
     position: static; justify-self: end; align-self: center;
-    width: 28px; height: 28px; border-radius: 999px;
-    border: 1px solid var(--line); background: var(--surface); color: var(--ink-soft);
-    cursor: pointer; font-size: 16px; line-height: 1; font-weight: 500;
-    display: inline-flex; align-items: center; justify-content: center;
-    box-shadow: var(--shadow-sm);
+    width: var(--interactive-compact); min-width: var(--interactive-compact); min-height: var(--interactive-compact); border-radius: 999px;
+    border: 1px solid var(--line); background: var(--surface-subtle); color: var(--ink-muted);
+    display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+    font-size: 16px; flex-shrink: 0;
     transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 .hint-dismiss:hover { background: var(--neutral-soft); color: var(--ink); border-color: var(--line-strong); transform: scale(1.04); }
