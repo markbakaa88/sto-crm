@@ -1396,6 +1396,20 @@ function focusMenuPanelItem(panel, index = 0) {
     items[((index % items.length) + items.length) % items.length].focus();
 }
 
+function bindTransientPanelFocusExit(panel, triggerButton, closePanel) {
+    if (!panel || !triggerButton || panel.dataset.focusExitBound) return;
+    panel.dataset.focusExitBound = "1";
+    panel.addEventListener("focusout", event => {
+        const next = event.relatedTarget;
+        if (next && (panel.contains(next) || triggerButton.contains(next))) return;
+        requestAnimationFrame(() => {
+            const active = document.activeElement;
+            if (panel.hidden || panel.contains(active) || triggerButton.contains(active)) return;
+            closePanel(false);
+        });
+    });
+}
+
 function handleMenuPanelKeydown(event, panel, triggerButton, closePanel, onOpenItem = null) {
     const items = menuPanelItems(panel);
     const activeIndex = items.findIndex(item => item === document.activeElement);
@@ -1486,6 +1500,7 @@ function initShell() {
             setCtaMenuOpen(true, { focusFirst: true });
         });
         ctaMenu.addEventListener("keydown", event => handleMenuPanelKeydown(event, ctaMenu, more, setCtaMenuOpen, activateCtaItem));
+        bindTransientPanelFocusExit(ctaMenu, more, setCtaMenuOpen);
         ctaMenu.addEventListener("click", event => {
             const item = event.target.closest("[data-action]");
             if (!item) return;
@@ -1540,6 +1555,7 @@ function initShell() {
             setBellPanelOpen(false);
         });
         bellPanel.addEventListener("keydown", event => handleMenuPanelKeydown(event, bellPanel, bellBtn, setBellPanelOpen, activateBellItem));
+        bindTransientPanelFocusExit(bellPanel, bellBtn, setBellPanelOpen);
         $("#bellClose")?.addEventListener("click", () => setBellPanelOpen(false, { restoreFocus: true }));
         bellPanel.addEventListener("click", event => {
             const item = event.target.closest("[data-bell-route], [data-bell-action]");
@@ -4152,6 +4168,7 @@ $("#systemMenu")?.addEventListener("click", event => {
     if (routeButton) setRoute(routeButton.dataset.systemRoute);
     if (event.target.closest("button")) closeSystemMenu({ restoreFocus: true });
 });
+bindTransientPanelFocusExit($("#systemMenu"), $("#systemMenuBtn"), setSystemMenuOpen);
 $("#systemMenu")?.addEventListener("keydown", event => {
     const items = systemMenuItems();
     const activeIndex = items.findIndex(item => item === document.activeElement);
