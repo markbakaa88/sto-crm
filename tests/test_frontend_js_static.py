@@ -153,6 +153,17 @@ class FrontendStaticQualityTests(unittest.TestCase):
         self.assertNotIn('backdrop.setAttribute("aria-hidden", "true");', js)
         self.assertNotIn('palette.setAttribute("aria-hidden", "true");', js)
 
+    def test_frontend_toast_live_region_contracts(self) -> None:
+        html = read(INDEX_HTML)
+        js = read(APP_JS)
+        self.assertIn('id="toast" role="status" aria-live="polite" aria-atomic="true"', html)
+        self.assertIn('id="appStatus" role="status" aria-live="polite" aria-atomic="true"', html)
+        self.assertIn('function toast(message, type = "info")', js)
+        self.assertIn('node.setAttribute("aria-live", isError ? "assertive" : "polite");', js)
+        self.assertIn('node.setAttribute("aria-atomic", "true");', js)
+        self.assertIn('node.textContent = "";', js)
+        self.assertNotIn('node.setAttribute("role", isError ? "alert" : "status");', js)
+
     def test_frontend_update_install_guards_stale_and_unsupported_states(self) -> None:
         js = read(APP_JS)
         self.assertIn("if (state.updateInstalling) return;", js)

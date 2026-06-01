@@ -478,12 +478,15 @@ function toast(message, type = "info") {
     }
     node.textContent = message;
     node.classList.toggle("error", isError);
-    node.setAttribute("role", isError ? "alert" : "status");
     node.setAttribute("aria-live", isError ? "assertive" : "polite");
+    node.setAttribute("aria-atomic", "true");
     node.classList.add("show");
     announce(message, isError);
     clearTimeout(node.timer);
-    node.timer = setTimeout(() => node.classList.remove("show"), isError ? 5200 : 3200);
+    node.timer = setTimeout(() => {
+        node.classList.remove("show");
+        node.textContent = "";
+    }, isError ? 5200 : 3200);
 }
 
 function clearAllFormErrors(form) {
