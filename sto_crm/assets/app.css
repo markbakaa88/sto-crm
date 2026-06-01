@@ -954,11 +954,11 @@ body.dark .context-pill.neutral { background: var(--surface); }
 .timeline-day { min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); font-size: var(--font-size-xs); }
 .timeline.has-horizontal-overflow::after {
     content: "";
-    position: sticky;
+    position: absolute;
+    top: 0;
     right: 0;
-    grid-row: 1;
+    bottom: var(--space-4);
     width: 28px;
-    margin-left: -28px;
     background: linear-gradient(90deg, transparent, var(--surface));
     pointer-events: none;
     z-index: 1;

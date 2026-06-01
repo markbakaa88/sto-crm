@@ -148,6 +148,21 @@ function safeRecordId(value) {
     return Number.isSafeInteger(id) && id > 0 ? String(id) : "";
 }
 
+function stableElementId(element, prefix = "ui") {
+    const root = document.body || document.documentElement;
+    if (!root) return `${prefix}0`;
+    const selector = `[id^="${prefix}"]`;
+    const nextIndex = root.querySelectorAll(selector).length + 1;
+    let candidate = `${prefix}${nextIndex}`;
+    let suffix = nextIndex;
+    while (document.getElementById(candidate)) {
+        suffix += 1;
+        candidate = `${prefix}${suffix}`;
+    }
+    if (element?.dataset) element.dataset.generatedId = candidate;
+    return candidate;
+}
+
 function assertSafeModalMarkup(markup) {
     const template = document.createElement("template");
     template.innerHTML = String(markup || "");
@@ -963,7 +978,7 @@ function updateScrollHints(root = document) {
             if (!srHint) {
                 srHint = document.createElement("div");
                 srHint.className = "sr-only scroll-hint-sr";
-                srHint.id = `scrollHint${Math.random().toString(36).slice(2)}`;
+                srHint.id = stableElementId(container, "scrollHint");
                 srHint.textContent = `${isNativeScrollRegion ? "Область" : "Таблица"} прокручивается горизонтально. Используйте Shift и колесо мыши, тач-жест или горизонтальную прокрутку клавиатурой.`;
                 container.append(srHint);
             }
