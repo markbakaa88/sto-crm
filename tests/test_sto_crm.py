@@ -58,6 +58,7 @@ class StoCrmTests(unittest.TestCase):
             time.time(),
             "test-csrf-token",
             "test-access-token",
+            "test-bootstrap-token",
         )
         sto_crm.init_db()
 
@@ -571,7 +572,11 @@ class StoCrmTests(unittest.TestCase):
     def test_legacy_database_adds_missing_columns_before_indexes(self):
         legacy_db = Path(self.tempdir.name) / "legacy.sqlite3"
         sto_crm.RUNTIME = sto_crm.Runtime(
-            legacy_db, time.time(), "test-csrf-token", "test-access-token"
+            legacy_db,
+            time.time(),
+            "test-csrf-token",
+            "test-access-token",
+            "test-bootstrap-token",
         )
         conn = sqlite3.connect(legacy_db)
         try:
@@ -1586,15 +1591,18 @@ class StoCrmTests(unittest.TestCase):
         base = f"http://127.0.0.1:{server.server_port}"
 
         try:
-            with urllib.request.urlopen(
-                f"{base}/?access_token={sto_crm.RUNTIME.access_token}", timeout=5
-            ) as response:
+            with urllib.request.urlopen(f"{base}/", timeout=5) as response:
                 self.assertEqual(response.status, 200)
                 csp = response.headers["Content-Security-Policy"]
+                body = response.read().decode("utf-8")
                 self.assertIn("default-src 'self'", csp)
                 self.assertIn("style-src 'self' 'nonce-", csp)
                 self.assertNotIn("'unsafe-inline'", csp)
-                self.assertIn('style nonce="', response.read().decode("utf-8"))
+                self.assertIn('style nonce="', body)
+                self.assertIn(
+                    f'data-bootstrap-token="{sto_crm.RUNTIME.bootstrap_token}"', body
+                )
+                self.assertNotIn("?bootstrap_token=", body)
                 self.assertEqual(response.headers["X-Frame-Options"], "DENY")
                 self.assertNotIn("Python", response.headers["Server"])
                 self.assertEqual(response.headers["Connection"], "close")
@@ -2506,14 +2514,14 @@ class StoCrmTests(unittest.TestCase):
             self.assertEqual(error.exception.code, 403)
             error.exception.close()
 
-            bootstrap_request = urllib.request.Request(
-                f"{base}/api/bootstrap",
-                headers={"X-CRM-Access-Token": sto_crm.RUNTIME.access_token},
-            )
-            with urllib.request.urlopen(bootstrap_request, timeout=5) as response:
+            with urllib.request.urlopen(
+                f"{base}/api/bootstrap?bootstrap_token={sto_crm.RUNTIME.bootstrap_token}",
+                timeout=5,
+            ) as response:
                 payload = json.loads(response.read().decode("utf-8"))
             self.assertEqual(payload["app"]["csrf_token"], sto_crm.RUNTIME.csrf_token)
             self.assertEqual(payload["app"]["access_token"], sto_crm.RUNTIME.access_token)
+            self.assertNotEqual(payload["app"]["access_token"], sto_crm.RUNTIME.bootstrap_token)
             self.assertEqual(payload["app"]["db_path"], sto_crm.RUNTIME.db_path.name)
             self.assertEqual(
                 payload["app"]["db_directory"],
@@ -2577,6 +2585,8 @@ class StoCrmTests(unittest.TestCase):
         self.assertNotIn("other", redacted)
         self.assertIn("token=***", redacted)
         self.assertIn("csrf_token=***", redacted)
+        self.assertNotIn("url-secret", sto_crm.redact_sensitive_query("GET /?bootstrap_token=url-secret HTTP/1.1"))
+        self.assertNotIn("api-secret", sto_crm.redact_sensitive_query("GET /?access_token=api-secret HTTP/1.1"))
 
     def test_create_server_binds_without_separate_port_probe(self):
         server = sto_crm.create_server(0)
@@ -2691,7 +2701,11 @@ class StoCrmTests(unittest.TestCase):
         finally:
             conn.close()
         sto_crm.RUNTIME = sto_crm.Runtime(
-            legacy_db, time.time(), "legacy-token", "legacy-access-token"
+            legacy_db,
+            time.time(),
+            "legacy-token",
+            "legacy-access-token",
+            "legacy-bootstrap-token",
         )
         try:
             sto_crm.init_db()
@@ -2770,7 +2784,11 @@ class StoCrmTests(unittest.TestCase):
         finally:
             conn.close()
         sto_crm.RUNTIME = sto_crm.Runtime(
-            legacy_db, time.time(), "legacy-token", "legacy-access-token"
+            legacy_db,
+            time.time(),
+            "legacy-token",
+            "legacy-access-token",
+            "legacy-bootstrap-token",
         )
         try:
             sto_crm.init_db()
@@ -2861,6 +2879,22 @@ class StoCrmTests(unittest.TestCase):
         self.assertTrue(symlink.is_symlink())
         self.assertTrue(outside.exists())
 
+
+    def test_backup_creation_rejects_symlink_backup_directory(self):
+        if not hasattr(os, "symlink"):
+            self.skipTest("symlink is not available on this platform")
+        backup_dir = Path(self.tempdir.name) / "backups"
+        outside = Path(self.tempdir.name) / "outside-backups"
+        outside.mkdir()
+        try:
+            os.symlink(outside, backup_dir)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"symlink creation is not available: {exc}")
+
+        with self.assertRaisesRegex(RuntimeError, "резервную копию"):
+            sto_crm.create_backup()
+        self.assertEqual(list(outside.iterdir()), [])
+
     def test_backup_reports_filesystem_errors_as_runtime_error(self):
         old_runtime = sto_crm.RUNTIME
         blocker = Path(self.tempdir.name) / "not-a-directory"
@@ -2870,6 +2904,7 @@ class StoCrmTests(unittest.TestCase):
             time.time(),
             "test-csrf-token",
             "test-access-token",
+            "test-bootstrap-token",
         )
         try:
             with self.assertRaisesRegex(RuntimeError, "резервную копию"):
@@ -3389,6 +3424,34 @@ class StoCrmTests(unittest.TestCase):
             self.assertIn("Пустое тело", body)
             self.assertNotIn("Укажите имя", body)
             error.exception.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+
+
+    def test_truncated_json_body_is_rejected_before_mutation(self):
+        server = sto_crm.CRMServer(("127.0.0.1", 0), sto_crm.CRMHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with socket.create_connection(("127.0.0.1", server.server_port), timeout=5) as client:
+                client.sendall(
+                    (
+                        "POST /api/backup HTTP/1.1\r\n"
+                        f"Host: 127.0.0.1:{server.server_port}\r\n"
+                        "Content-Type: application/json\r\n"
+                        f"X-CSRF-Token: {sto_crm.RUNTIME.csrf_token}\r\n"
+                        f"X-CRM-Access-Token: {sto_crm.RUNTIME.access_token}\r\n"
+                        "Content-Length: 100\r\n"
+                        "Connection: close\r\n"
+                        "\r\n"
+                        "{}"
+                    ).encode("ascii")
+                )
+                client.shutdown(socket.SHUT_WR)
+                response = recv_http_response(client)
+            self.assertIn("408", response.splitlines()[0])
+            self.assertIsNone(sto_crm.latest_backup_info())
         finally:
             server.shutdown()
             server.server_close()

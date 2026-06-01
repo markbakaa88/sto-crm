@@ -179,6 +179,9 @@ function Invoke-ReleaseSmokeTest {
         foreach ($argument in @("--no-browser", "--port", $port.ToString(), "--db", $dbPath)) {
             [void]$startInfo.ArgumentList.Add([string]$argument)
         }
+        $startInfo.UseShellExecute = $false
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
         $process = [System.Diagnostics.Process]::Start($startInfo)
         $baseUrl = "http://127.0.0.1:$port"
         $health = $null
@@ -200,13 +203,19 @@ function Invoke-ReleaseSmokeTest {
             throw "Release smoke test failed: /api/health did not return ok=true."
         }
 
-        $bootstrap = Invoke-RestMethod -Uri "$baseUrl/api/bootstrap" -TimeoutSec 5
+        $homeResponse = Invoke-WebRequest -Uri "$baseUrl/" -TimeoutSec 5
+        $bootstrapToken = [regex]::Match($homeResponse.Content, 'data-bootstrap-token="([^"&<\s]+)"').Groups[1].Value
+        if ([string]::IsNullOrWhiteSpace($bootstrapToken)) {
+            throw "Release smoke test failed: startup page did not expose a bootstrap token."
+        }
+        $bootstrap = Invoke-RestMethod -Uri "$baseUrl/api/bootstrap?bootstrap_token=$bootstrapToken" -TimeoutSec 5
         $token = [string]$bootstrap.app.csrf_token
-        if ([string]::IsNullOrWhiteSpace($token)) {
-            throw "Release smoke test failed: bootstrap response does not contain a CSRF token."
+        $accessToken = [string]$bootstrap.app.access_token
+        if ([string]::IsNullOrWhiteSpace($token) -or [string]::IsNullOrWhiteSpace($accessToken)) {
+            throw "Release smoke test failed: bootstrap response does not contain required tokens."
         }
 
-        Invoke-RestMethod -Method Post -Uri "$baseUrl/api/shutdown" -Headers @{ "X-CSRF-Token" = $token } -ContentType "application/json" -Body "{}" -TimeoutSec 5 | Out-Null
+        Invoke-RestMethod -Method Post -Uri "$baseUrl/api/shutdown" -Headers @{ "X-CSRF-Token" = $token; "X-CRM-Access-Token" = $accessToken } -ContentType "application/json" -Body "{}" -TimeoutSec 5 | Out-Null
         if (-not $process.WaitForExit(10000)) {
             throw "Release smoke test failed: STO_CRM.exe did not stop after /api/shutdown."
         }

@@ -5,6 +5,7 @@ from __future__ import annotations
 from importlib import resources
 from pathlib import Path
 
+from . import runtime as _runtime
 from .runtime import is_frozen
 
 _ASSET_PACKAGE = f"{__package__}.assets"
@@ -32,3 +33,9 @@ def load_index_html() -> str:
 
 
 INDEX_HTML = load_index_html()
+
+
+def index_html() -> str:
+    return INDEX_HTML.replace(
+        "__STO_CRM_BOOTSTRAP_TOKEN__", _runtime.RUNTIME.bootstrap_token
+    )

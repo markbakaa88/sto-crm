@@ -128,13 +128,14 @@ def main(argv: list[str] | None = None) -> int:
         start_time=time.time(),
         csrf_token=secrets.token_urlsafe(32),
         access_token=secrets.token_urlsafe(32),
+        bootstrap_token=secrets.token_urlsafe(32),
     )
     init_db(seed_demo=args.demo)
     server = create_server(args.port, args.host)
     host = server.server_address[0]
     port = server.server_port
     url_host = "[::1]" if host == "::1" else "127.0.0.1"
-    url = f"http://{url_host}:{port}/?access_token={_runtime.RUNTIME.access_token}"
+    url = f"http://{url_host}:{port}/"
 
     def shutdown(*_: Any) -> None:
         threading.Thread(target=server.shutdown, daemon=True).start()

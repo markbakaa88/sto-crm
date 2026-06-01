@@ -59,7 +59,7 @@ from .updates import (
     public_backup_payload,
     update_status,
 )
-from .web import FAVICON_SVG, INDEX_HTML
+from .web import FAVICON_SVG, index_html
 
 _UPDATE_STATUS_CACHE: dict[str, Any] = {"expires_at": 0.0, "payload": None}
 _UPDATE_STATUS_LOCK = threading.Lock()
@@ -142,9 +142,7 @@ class CRMHandler(BaseHTTPRequestHandler):
 
             if method == "HEAD" and path in {"/", "/app"}:
                 self.validate_local_request_context()
-                if query.get("access_token") != [_runtime.RUNTIME.access_token]:
-                    self.require_access_token()
-                self.send_html(INDEX_HTML, write_body=False)
+                self.send_html(index_html(), write_body=False)
                 return
             if method == "HEAD" and path == "/api/health":
                 self.validate_local_request_context()
@@ -160,9 +158,7 @@ class CRMHandler(BaseHTTPRequestHandler):
 
             if method == "GET" and path in {"/", "/app"}:
                 self.validate_local_request_context()
-                if query.get("access_token") != [_runtime.RUNTIME.access_token]:
-                    self.require_access_token()
-                self.send_html(INDEX_HTML)
+                self.send_html(index_html())
                 return
             if method in {"GET", "HEAD"} and path in {"/favicon.ico", "/favicon.svg"}:
                 self.validate_local_request_context()
@@ -204,7 +200,7 @@ class CRMHandler(BaseHTTPRequestHandler):
                 return
             if method == "GET" and path == "/api/bootstrap":
                 self.validate_local_request_context()
-                if query.get("access_token") != [_runtime.RUNTIME.access_token]:
+                if query.get("bootstrap_token") != [_runtime.RUNTIME.bootstrap_token]:
                     self.require_access_token()
                 q = clean_text((query.get("q") or [""])[0], 120)
                 status = clean_text((query.get("status") or ["all"])[0], 40, "all")
@@ -499,6 +495,8 @@ class CRMHandler(BaseHTTPRequestHandler):
         if length == 0:
             raise ValueError("Пустое тело JSON-запроса.")
         raw = self.rfile.read(length)
+        if len(raw) != length:
+            raise TimeoutError("Тело запроса получено не полностью.")
         try:
             text = raw.decode("utf-8")
             data = strict_json_loads(text)
@@ -606,9 +604,13 @@ class CRMHandler(BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         for key, value in (headers or {}).items():
             self.send_header(key, value)
-        self.end_headers()
-        if write_body:
-            self.wfile.write(body)
+        try:
+            self.end_headers()
+            if write_body:
+                self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.close_connection = True
+            raise BrokenPipeError
 
 
 class CRMServer(ThreadingHTTPServer):

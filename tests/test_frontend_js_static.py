@@ -192,10 +192,14 @@ class FrontendStaticQualityTests(unittest.TestCase):
 
     def test_frontend_access_token_is_not_cached_and_is_sent_as_header(self) -> None:
         js = read(APP_JS)
-        self.assertIn('function initialAccessToken()', js)
-        self.assertIn('url.searchParams.delete("access_token");', js)
+        self.assertIn('function initialBootstrapToken()', js)
+        self.assertIn('document.body?.dataset?.bootstrapToken', js)
+        self.assertIn('delete document.body.dataset.bootstrapToken;', js)
+        self.assertIn('state.bootstrapToken = "";', js)
         self.assertIn('delete cached.app.access_token;', js)
         self.assertIn('headers["X-CRM-Access-Token"] = accessToken;', js)
+        self.assertNotIn('url.searchParams.get("access_token")', js)
+        self.assertNotIn('url.searchParams.get("bootstrap_token")', js)
 
     def test_frontend_order_history_readonly_contracts(self) -> None:
         js = read(APP_JS)

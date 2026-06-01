@@ -102,6 +102,15 @@ def _safe_unlink(path: Path) -> None:
         path.unlink(missing_ok=True)
 
 
+def ensure_real_backup_dir(backup_dir: Path) -> None:
+    """Create and validate the backup directory without following link attacks."""
+    if backup_dir.exists() and backup_dir.is_symlink():
+        raise OSError("Каталог резервных копий не может быть символической ссылкой.")
+    ensure_private_dir(backup_dir)
+    if backup_dir.is_symlink():
+        raise OSError("Каталог резервных копий не может быть символической ссылкой.")
+
+
 def prune_backups(backup_dir: Path, keep_path: Path | None = None) -> None:
     """Keep automatic SQLite backups bounded so manual backup spam cannot fill the disk."""
     if MAX_BACKUP_FILES <= 0 and MAX_BACKUP_TOTAL_BYTES <= 0:
@@ -110,6 +119,8 @@ def prune_backups(backup_dir: Path, keep_path: Path | None = None) -> None:
     if keep_path is not None:
         with contextlib.suppress(OSError):
             keep_resolved = keep_path.resolve()
+    if backup_dir.exists() and backup_dir.is_symlink():
+        raise OSError("Каталог резервных копий не может быть символической ссылкой.")
     backups: list[tuple[float, int, Path, bool]] = []
     for path in backup_dir.glob("sto_crm_backup_*.sqlite3"):
         try:
@@ -140,7 +151,7 @@ def create_backup() -> dict[str, Any]:
         / f"sto_crm_backup_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.sqlite3"
     )
     try:
-        ensure_private_dir(backup_dir)
+        ensure_real_backup_dir(backup_dir)
         ensure_private_file_created(target)
         with (
             closing(connect()) as source,

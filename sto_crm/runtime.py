@@ -457,6 +457,7 @@ class Runtime:
     start_time: float
     csrf_token: str = ""
     access_token: str = ""
+    bootstrap_token: str = ""
 
 
 RUNTIME = Runtime(
@@ -464,4 +465,5 @@ RUNTIME = Runtime(
     start_time=time.time(),
     csrf_token=secrets.token_urlsafe(32),
     access_token=secrets.token_urlsafe(32),
+    bootstrap_token=secrets.token_urlsafe(32),
 )

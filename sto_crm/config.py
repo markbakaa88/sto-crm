@@ -36,7 +36,8 @@ MANIFEST_ASSET_RE = re.compile(
 VIN_RE = re.compile(r"^[A-HJ-NPR-Z0-9]{17}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 SENSITIVE_QUERY_RE = re.compile(
-    r"([?&](?:token|access_token|csrf|csrf_token)=)([^&\s]+)", re.IGNORECASE
+    r"([?&](?:token|access_token|bootstrap_token|csrf|csrf_token)=)([^&\s]+)",
+    re.IGNORECASE,
 )
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TRUSTED_UPDATE_DOWNLOAD_HOSTS = {

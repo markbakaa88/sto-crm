@@ -70,13 +70,11 @@ if (requestedRoute && routes[requestedRoute]) {
     state.route = requestedRoute;
 }
 
-function initialAccessToken() {
+function initialBootstrapToken() {
     try {
-        const url = new URL(location.href);
-        const token = url.searchParams.get("access_token") || "";
-        if (token) {
-            url.searchParams.delete("access_token");
-            history.replaceState(history.state, "", url);
+        const token = document.body?.dataset?.bootstrapToken || "";
+        if (document.body?.dataset) {
+            delete document.body.dataset.bootstrapToken;
         }
         return token;
     } catch {
@@ -84,7 +82,7 @@ function initialAccessToken() {
     }
 }
 
-state.accessToken = initialAccessToken();
+state.bootstrapToken = initialBootstrapToken();
 
 const priorityLabels = { low: "Низкий", normal: "Обычный", high: "Высокий", urgent: "Срочно" };
 const orderStatusTransitions = {
@@ -580,6 +578,12 @@ function clearFormError(target) {
     delete target.dataset.errorDescribedby;
 }
 
+function withBootstrapToken(path) {
+    if (!state.bootstrapToken) return path;
+    const separator = path.includes("?") ? "&" : "?";
+    return `${path}${separator}bootstrap_token=${encodeURIComponent(state.bootstrapToken)}`;
+}
+
 async function api(path, options = {}, retries = null) {
     const method = String(options.method || "GET").toUpperCase();
     if (method !== "GET" && !state.data?.app?.csrf_token) {
@@ -598,7 +602,8 @@ async function api(path, options = {}, retries = null) {
                 headers["Content-Type"] = headers["Content-Type"] || "application/json";
                 if (state.data?.app?.csrf_token) headers["X-CSRF-Token"] = state.data.app.csrf_token;
             }
-            const response = await fetch(path, {
+            const requestPath = path === "/api/bootstrap" ? withBootstrapToken(path) : path;
+            const response = await fetch(requestPath, {
                 ...options,
                 headers
             });
@@ -708,7 +713,6 @@ function restoreCachedBootstrap() {
         const data = cached.data;
         if (state.data?.app?.csrf_token) data.app.csrf_token = state.data.app.csrf_token;
         if (state.data?.app?.access_token) data.app.access_token = state.data.app.access_token;
-        else if (state.accessToken) data.app.access_token = state.accessToken;
         state.data = data;
         state.lastLoadedAt = cached.loadedAt || state.lastLoadedAt || "";
         state.offlineMode = true;
@@ -785,6 +789,7 @@ async function loadData() {
         const loadedAt = new Date().toISOString();
         state.data = data;
         if (data.app?.access_token) state.accessToken = data.app.access_token;
+        state.bootstrapToken = "";
         state.lastLoadedAt = loadedAt;
         state.offlineMode = false;
         cacheBootstrap(data, loadedAt, { q: state.q, status: requestStatus, route: state.route });
