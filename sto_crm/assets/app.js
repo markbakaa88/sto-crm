@@ -608,6 +608,13 @@ function withBootstrapToken(path) {
     return `${path}${separator}bootstrap_token=${encodeURIComponent(state.bootstrapToken)}`;
 }
 
+async function parseResponsePayload(response) {
+    const contentType = response.headers.get("Content-Type") || "";
+    if (response.status === 204 || response.status === 205) return null;
+    if (contentType.includes("application/json")) return response.json();
+    return response.text();
+}
+
 async function api(path, options = {}, retries = null) {
     const method = String(options.method || "GET").toUpperCase();
     if (method !== "GET" && !state.data?.app?.csrf_token) {
@@ -631,10 +638,9 @@ async function api(path, options = {}, retries = null) {
                 ...options,
                 headers
             });
-            const contentType = response.headers.get("Content-Type") || "";
             let data;
             try {
-                data = contentType.includes("application/json") ? await response.json() : await response.text();
+                data = await parseResponsePayload(response);
             } catch (parseError) {
                 const error = new Error("Сервер вернул некорректный ответ. Обновите данные и повторите действие.");
                 error.status = response.status;

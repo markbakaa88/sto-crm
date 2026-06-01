@@ -164,6 +164,13 @@ class FrontendStaticQualityTests(unittest.TestCase):
         self.assertIn('node.textContent = "";', js)
         self.assertNotIn('node.setAttribute("role", isError ? "alert" : "status");', js)
 
+    def test_frontend_api_handles_empty_success_responses(self) -> None:
+        js = read(APP_JS)
+        self.assertIn("async function parseResponsePayload(response)", js)
+        self.assertIn("if (response.status === 204 || response.status === 205) return null;", js)
+        self.assertIn("data = await parseResponsePayload(response);", js)
+        self.assertNotIn("data = contentType.includes(\"application/json\") ? await response.json() : await response.text();", js)
+
     def test_frontend_update_install_guards_stale_and_unsupported_states(self) -> None:
         js = read(APP_JS)
         self.assertIn("if (state.updateInstalling) return;", js)
