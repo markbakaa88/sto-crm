@@ -438,7 +438,7 @@ def ensure_unique_active_value(
     }
     if (table, column) not in allowed_columns:
         raise ValueError("Некорректная проверка уникальности.")
-    query = f"SELECT id FROM {table} WHERE CASEFOLD({column}) = CASEFOLD(?) AND deleted_at IS NULL"
+    query = f"SELECT id FROM {table} WHERE CASEFOLD(TRIM({column})) = CASEFOLD(TRIM(?)) AND deleted_at IS NULL"
     params: list[Any] = [value]
     if record_id:
         query += " AND id <> ?"

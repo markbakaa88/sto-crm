@@ -470,7 +470,7 @@ def build_reports(
             }
         )
 
-    for order in overdue_orders[:10]:
+    for order in overdue_orders:
         promised_dt = parse_local_datetime(order.get("promised_at"))
         overdue_hours = (
             int(max((now - promised_dt).total_seconds() // 3600, 0))
@@ -497,7 +497,7 @@ def build_reports(
             str(order.get("promised_at") or ""),
         )
 
-    for order in authorizations_pending[:8]:
+    for order in authorizations_pending:
         add_action(
             "authorization",
             f"Согласовать смету {order.get('number') or 'без номера'}",
@@ -515,7 +515,7 @@ def build_reports(
             str(order.get("updated_at") or ""),
         )
 
-    for order in followups_due[:8]:
+    for order in followups_due:
         add_action(
             "follow_up",
             f"Связаться после визита {order.get('number') or ''}".strip(),
@@ -533,7 +533,7 @@ def build_reports(
             str(order.get("follow_up_at") or ""),
         )
 
-    for vehicle in service_reminders[:8]:
+    for vehicle in service_reminders:
         vehicle_text = " ".join(
             str(part)
             for part in [
@@ -566,7 +566,7 @@ def build_reports(
             str(vehicle.get("next_service_at") or ""),
         )
 
-    for item in deferred_work[:8]:
+    for item in deferred_work:
         approval_status = str(item.get("approval_status") or "deferred")
         add_action(
             "deferred_work",
@@ -584,7 +584,7 @@ def build_reports(
             item.get("amount"),
         )
 
-    for part in procurement_plan[:8]:
+    for part in procurement_plan:
         add_action(
             "procurement",
             f"Заказать склад: {part.get('name') or 'позиция'}",
@@ -601,7 +601,7 @@ def build_reports(
             part.get("budget"),
         )
 
-    for appointment in appointments_today[:6]:
+    for appointment in appointments_today:
         status = str(appointment.get("status") or "scheduled")
         appointment_vehicle = " ".join(
             str(part)

@@ -385,7 +385,7 @@ def update_inventory(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
             "Складская позиция с таким артикулом уже есть в базе.",
             record_id,
         )
-        has_closed_history = conn.execute(
+        closed_usage = conn.execute(
             """
             SELECT 1
             FROM order_items oi
@@ -398,13 +398,15 @@ def update_inventory(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
             """,
             (record_id,),
         ).fetchone()
-        if (
-            has_closed_history
-            and abs(parse_float(data["quantity"]) - parse_float(current["quantity"]))
-            > 0.000001
-        ):
+        if closed_usage and abs(
+            parse_float(data["quantity"]) - parse_float(current["quantity"])
+        ) > 0.000001:
             raise ValueError(
                 "Остаток позиции участвует в закрытых заказах. Создайте отдельную складскую корректировку или отмените связанный закрытый заказ без изменения его позиций."
+            )
+        if parse_float(data["quantity"]) + 0.000001 < reserved_quantity(conn, record_id):
+            raise ValueError(
+                "Остаток позиции меньше уже зарезервированного количества в активных заказах. Сначала измените активные заказ-наряды."
             )
         conn.execute(
             """
@@ -565,6 +567,8 @@ def create_order_tx(conn: sqlite3.Connection, payload: dict[str, Any]) -> int:
             .replace(microsecond=0)
             .isoformat(timespec="minutes")
         )
+    if status_reserves_inventory(data["status"]):
+        ensure_inventory_available_for_order(conn, data["items"])
     apply_inventory_delta(conn, "", data["status"], [], data["items"])
     cur = conn.execute(
         """
@@ -674,6 +678,10 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError(
                     "Отменённый заказ-наряд нельзя изменить. Создайте новый заказ."
                 )
+        if status_reserves_inventory(new_status):
+            ensure_inventory_available_for_order(
+                conn, data["items"], exclude_order_id=record_id
+            )
         apply_inventory_delta(conn, old_status, new_status, old_items, data["items"])
         conn.execute(
             """
@@ -823,6 +831,60 @@ def part_quantities(items: list[dict[str, Any]]) -> dict[int, float]:
         ):
             result[int(item["inventory_id"])] += parse_float(item.get("quantity"))
     return dict(result)
+
+
+def reserved_quantity(
+    conn: sqlite3.Connection, inventory_id: int, *, exclude_order_id: int | None = None
+) -> float:
+    params: list[Any] = [inventory_id]
+    exclude_sql = ""
+    if exclude_order_id:
+        exclude_sql = " AND o.id <> ?"
+        params.append(exclude_order_id)
+    row = conn.execute(
+        f"""
+        SELECT COALESCE(SUM(oi.quantity), 0) AS reserved
+        FROM order_items oi
+        JOIN orders o ON o.id = oi.order_id
+        WHERE oi.inventory_id = ?
+          AND oi.kind = 'part'
+          AND oi.approval_status = 'approved'
+          AND o.status IN ('approved', 'in_progress', 'done')
+          AND o.deleted_at IS NULL
+          {exclude_sql}
+        """,
+        params,
+    ).fetchone()
+    return parse_float(row["reserved"] if row else 0)
+
+
+def ensure_inventory_available_for_order(
+    conn: sqlite3.Connection,
+    items: list[dict[str, Any]],
+    *,
+    exclude_order_id: int | None = None,
+) -> None:
+    requested = part_quantities(items)
+    for part_id, quantity in requested.items():
+        part = conn.execute(
+            "SELECT name, quantity, deleted_at FROM inventory WHERE id = ?",
+            (part_id,),
+        ).fetchone()
+        if not part:
+            raise ValueError("Складская позиция для резервирования не найдена.")
+        if part["deleted_at"]:
+            raise ValueError(f"Складская позиция недоступна: {part['name']}.")
+        available = parse_float(part["quantity"]) - reserved_quantity(
+            conn, part_id, exclude_order_id=exclude_order_id
+        )
+        if available + 1e-9 < quantity:
+            raise ValueError(
+                f"Недостаточно свободного остатка: {part['name']}. Доступно {available:g}, требуется {quantity:g}."
+            )
+
+
+def status_reserves_inventory(status: str) -> bool:
+    return status in {"approved", "in_progress", "done"}
 
 
 def closed_signature_number(value: Any) -> float:

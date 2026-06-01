@@ -8,7 +8,14 @@ from contextlib import contextmanager
 
 from . import runtime as _runtime
 from .config import APP_VERSION, LOOKUP_LIMIT
-from .runtime import clean_multiline, ensure_private_file, now_iso, parse_int, safe_log
+from .runtime import (
+    clean_multiline,
+    ensure_private_file,
+    ensure_private_file_created,
+    now_iso,
+    parse_int,
+    safe_log,
+)
 
 
 def _seed_demo_data() -> None:
@@ -19,6 +26,7 @@ def _seed_demo_data() -> None:
 
 
 def connect() -> sqlite3.Connection:
+    ensure_private_file_created(_runtime.RUNTIME.db_path)
     conn = sqlite3.connect(
         _runtime.RUNTIME.db_path, timeout=30, isolation_level="DEFERRED"
     )
@@ -236,9 +244,7 @@ def drop_removed_tables(conn: sqlite3.Connection) -> None:
         archive_removed_table(conn, table, archive_base)
 
 
-def active_duplicate_values(
-    conn: sqlite3.Connection, table: str, column: str, limit: int = 5
-) -> list[sqlite3.Row]:
+def normalized_unique_sql(table: str, column: str) -> str:
     allowed_columns = {
         ("inventory", "sku"),
         ("vehicles", "vin"),
@@ -246,12 +252,19 @@ def active_duplicate_values(
     }
     if (table, column) not in allowed_columns:
         raise ValueError("Некорректная проверка дублей.")
+    return f"CASEFOLD(TRIM({column}))"
+
+
+def active_duplicate_values(
+    conn: sqlite3.Connection, table: str, column: str, limit: int = 5
+) -> list[sqlite3.Row]:
+    normalized = normalized_unique_sql(table, column)
     return conn.execute(
         f"""
-        SELECT CASEFOLD({column}) AS key, MIN({column}) AS value, COUNT(*) AS count, GROUP_CONCAT(id) AS ids
+        SELECT {normalized} AS key, MIN({column}) AS value, COUNT(*) AS count, GROUP_CONCAT(id) AS ids
         FROM {table}
-        WHERE deleted_at IS NULL AND {column} <> ''
-        GROUP BY CASEFOLD({column})
+        WHERE deleted_at IS NULL AND TRIM({column}) <> ''
+        GROUP BY {normalized}
         HAVING COUNT(*) > 1
         ORDER BY count DESC, value COLLATE NOCASE
         LIMIT ?
@@ -260,17 +273,44 @@ def active_duplicate_values(
     ).fetchall()
 
 
+def normalize_legacy_unique_values(
+    conn: sqlite3.Connection, table: str, column: str
+) -> None:
+    normalized = normalized_unique_sql(table, column)
+    stamp = now_iso()
+    rows = conn.execute(
+        f"""
+        SELECT id, {column} AS value, TRIM({column}) AS trimmed
+        FROM {table}
+        WHERE deleted_at IS NULL AND {column} <> TRIM({column})
+        ORDER BY id
+        """
+    ).fetchall()
+    for row in rows:
+        trimmed = str(row["trimmed"] or "")
+        if trimmed and conn.execute(
+            f"SELECT 1 FROM {table} WHERE deleted_at IS NULL AND id <> ? AND {normalized} = CASEFOLD(?) LIMIT 1",
+            (int(row["id"]), trimmed),
+        ).fetchone():
+            continue
+        conn.execute(
+            f"UPDATE {table} SET {column} = ?, updated_at = ? WHERE id = ?",
+            (trimmed, stamp, int(row["id"])),
+        )
+
+
 def resolve_active_duplicate_values(
     conn: sqlite3.Connection, table: str, column: str, label: str
 ) -> int:
     resolved = 0
     stamp = now_iso()
+    normalized = normalized_unique_sql(table, column)
     for duplicate in active_duplicate_values(conn, table, column, LOOKUP_LIMIT):
         rows = conn.execute(
             f"""
             SELECT id, {column} AS value, notes
             FROM {table}
-            WHERE deleted_at IS NULL AND {column} <> '' AND CASEFOLD({column}) = ?
+            WHERE deleted_at IS NULL AND TRIM({column}) <> '' AND {normalized} = ?
             ORDER BY id
             """,
             (duplicate["key"],),
@@ -542,23 +582,24 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     )
     unique_indexes = (
         (
-            "CREATE UNIQUE INDEX IF NOT EXISTS ux_inventory_sku_active ON inventory(CASEFOLD(sku)) WHERE deleted_at IS NULL AND sku <> ''",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_inventory_sku_active ON inventory(CASEFOLD(TRIM(sku))) WHERE deleted_at IS NULL AND TRIM(sku) <> ''",
             "inventory",
             "sku",
             "артикул склада",
         ),
         (
-            "CREATE UNIQUE INDEX IF NOT EXISTS ux_vehicles_vin_active ON vehicles(CASEFOLD(vin)) WHERE deleted_at IS NULL AND vin <> ''",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_vehicles_vin_active ON vehicles(CASEFOLD(TRIM(vin))) WHERE deleted_at IS NULL AND TRIM(vin) <> ''",
             "vehicles",
             "vin",
             "VIN автомобиля",
         ),
         (
-            "CREATE UNIQUE INDEX IF NOT EXISTS ux_vehicles_plate_active ON vehicles(CASEFOLD(plate)) WHERE deleted_at IS NULL AND plate <> ''",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_vehicles_plate_active ON vehicles(CASEFOLD(TRIM(plate))) WHERE deleted_at IS NULL AND TRIM(plate) <> ''",
             "vehicles",
             "plate",
             "госномер автомобиля",
         ),
     )
     for statement, table, column, label in unique_indexes:
+        normalize_legacy_unique_values(conn, table, column)
         ensure_unique_index(conn, statement, table, column, label)

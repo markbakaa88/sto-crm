@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import math
 import os
 import re
@@ -59,6 +60,20 @@ def ensure_private_file(path: Path) -> None:
     if os.name != "nt" and path.exists():
         with contextlib.suppress(OSError):
             path.chmod(0o600)
+
+
+def ensure_private_file_created(path: Path) -> None:
+    """Create a sensitive local file with restrictive permissions from the first open."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        path.touch(exist_ok=True)
+        return
+    flags = os.O_WRONLY | os.O_CREAT
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(path, flags, 0o600)
+    os.close(fd)
+    ensure_private_file(path)
 
 
 def directory_writable(directory: Path) -> bool:
@@ -364,6 +379,60 @@ def redact_sensitive_query(message: str) -> str:
     return SENSITIVE_QUERY_RE.sub(r"\1***", message)
 
 
+_LOCAL_PATH_RE = re.compile(
+    r"(?P<path>\\\\[^\s\"'<>|]+|[A-Za-z]:[\\/][^\s\"'<>|]+|(?<![:/])/(?:[^/\s\"'<>|]+/)+[^\s\"'<>|]+)"
+)
+
+
+def redact_local_paths(message: str) -> str:
+    """Hide absolute local filesystem paths before text is sent to the browser."""
+
+    def replace_path(match: re.Match[str]) -> str:
+        raw = match.group("path")
+        trailing = ""
+        while raw and raw[-1] in ".,;:)]}":
+            trailing = raw[-1] + trailing
+            raw = raw[:-1]
+        if not raw:
+            return trailing
+        if raw.startswith("\\\\") or re.match(r"^[A-Za-z]:[\\/]", raw):
+            filename = raw.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+            return (filename or "локальный файл") + trailing
+        return display_path(Path(raw)) + trailing
+
+    return _LOCAL_PATH_RE.sub(replace_path, str(message))
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"JSON содержит недопустимое значение {value}.")
+
+
+def _strict_json_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError("JSON содержит недопустимое числовое значение.")
+    return parsed
+
+
+def _strict_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("JSON содержит повторяющийся ключ.")
+        result[key] = value
+    return result
+
+
+def strict_json_loads(text: str) -> Any:
+    """Parse external JSON without NaN/Infinity or duplicate object keys."""
+    return json.loads(
+        text,
+        parse_constant=_reject_json_constant,
+        parse_float=_strict_json_float,
+        object_pairs_hook=_strict_json_object,
+    )
+
+
 def safe_log(message: str) -> None:
     stream = getattr(sys, "stdout", None)
     if not stream:
@@ -387,10 +456,12 @@ class Runtime:
     db_path: Path
     start_time: float
     csrf_token: str = ""
+    access_token: str = ""
 
 
 RUNTIME = Runtime(
     db_path=default_db_path(),
     start_time=time.time(),
     csrf_token=secrets.token_urlsafe(32),
+    access_token=secrets.token_urlsafe(32),
 )

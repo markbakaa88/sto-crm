@@ -28,7 +28,14 @@ from .database import db
 from .export import bootstrap_payload, csv_export
 from .printing import print_order_html
 from .queries import get_order
-from .runtime import clean_text, parse_int_field, redact_sensitive_query, safe_log
+from .runtime import (
+    clean_text,
+    parse_int_field,
+    redact_local_paths,
+    redact_sensitive_query,
+    safe_log,
+    strict_json_loads,
+)
 from .services import (
     create_appointment,
     create_customer,
@@ -129,11 +136,14 @@ class CRMHandler(BaseHTTPRequestHandler):
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path.rstrip("/") or "/"
             query = urllib.parse.parse_qs(parsed.query)
+            self.validate_local_request_context()
             self.validate_mutating_request(method)
             trusted_request = True
 
             if method == "HEAD" and path in {"/", "/app"}:
                 self.validate_local_request_context()
+                if query.get("access_token") != [_runtime.RUNTIME.access_token]:
+                    self.require_access_token()
                 self.send_html(INDEX_HTML, write_body=False)
                 return
             if method == "HEAD" and path == "/api/health":
@@ -150,6 +160,8 @@ class CRMHandler(BaseHTTPRequestHandler):
 
             if method == "GET" and path in {"/", "/app"}:
                 self.validate_local_request_context()
+                if query.get("access_token") != [_runtime.RUNTIME.access_token]:
+                    self.require_access_token()
                 self.send_html(INDEX_HTML)
                 return
             if method in {"GET", "HEAD"} and path in {"/favicon.ico", "/favicon.svg"}:
@@ -162,6 +174,7 @@ class CRMHandler(BaseHTTPRequestHandler):
                 return
             if method == "GET" and path.startswith("/print/order/"):
                 self.validate_local_request_context()
+                self.require_access_token()
                 token = (
                     self.headers.get("X-CSRF-Token")
                     or self.headers.get("X-CRM-CSRF-Token")
@@ -191,6 +204,8 @@ class CRMHandler(BaseHTTPRequestHandler):
                 return
             if method == "GET" and path == "/api/bootstrap":
                 self.validate_local_request_context()
+                if query.get("access_token") != [_runtime.RUNTIME.access_token]:
+                    self.require_access_token()
                 q = clean_text((query.get("q") or [""])[0], 120)
                 status = clean_text((query.get("status") or ["all"])[0], 40, "all")
                 self.send_json(bootstrap_payload(q, status))
@@ -201,10 +216,12 @@ class CRMHandler(BaseHTTPRequestHandler):
                 return
             if method == "GET" and path == "/api/update/status":
                 self.validate_local_request_context()
+                self.require_access_token()
                 self.send_json(self.cached_update_status())
                 return
             if method == "GET" and path.startswith("/api/export/"):
                 self.validate_local_request_context()
+                self.require_access_token()
                 token = (
                     self.headers.get("X-CSRF-Token")
                     or self.headers.get("X-CRM-CSRF-Token")
@@ -225,6 +242,8 @@ class CRMHandler(BaseHTTPRequestHandler):
 
             payload = self.read_json() if method in {"POST", "PUT"} else {}
             parts = [p for p in path.split("/") if p]
+            if parts and parts[0] == "api":
+                self.require_access_token()
             if len(parts) < 2 or parts[0] != "api":
                 self.send_error_json(404, "Маршрут не найден.")
                 return
@@ -293,7 +312,10 @@ class CRMHandler(BaseHTTPRequestHandler):
                 "Запись конфликтует с существующими данными. Обновите страницу и повторите действие.",
             )
         except RuntimeError as exc:
-            self.send_error_json(500, str(exc) or INTERNAL_ERROR_MESSAGE)
+            safe_log(f"HTTP runtime error: {redact_sensitive_query(str(exc))}")
+            self.send_error_json(
+                500, redact_local_paths(str(exc)) or INTERNAL_ERROR_MESSAGE
+            )
         except BrokenPipeError:
             return
         except TimeoutError:
@@ -399,6 +421,14 @@ class CRMHandler(BaseHTTPRequestHandler):
                 "Запрос отклонен: внешний сайт не имеет доступа к локальной CRM."
             )
 
+    def require_access_token(self) -> None:
+        token = self.headers.get("X-CRM-Access-Token") or ""
+        expected = _runtime.RUNTIME.access_token or ""
+        if not expected or not secrets.compare_digest(token, expected):
+            raise PermissionError(
+                "Запрос отклонен: откройте CRM из локального стартового окна и повторите действие."
+            )
+
     def require_csrf_token(self) -> None:
         token = self.headers.get("X-CSRF-Token") or self.headers.get("X-CRM-CSRF-Token")
         if not token or not secrets.compare_digest(token, _runtime.RUNTIME.csrf_token):
@@ -471,8 +501,8 @@ class CRMHandler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length)
         try:
             text = raw.decode("utf-8")
-            data = json.loads(text)
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            data = strict_json_loads(text)
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError, RecursionError) as exc:
             raise ValueError("Некорректный JSON.") from exc
         if not isinstance(data, dict):
             raise ValueError("Ожидался JSON-объект.")
@@ -480,20 +510,23 @@ class CRMHandler(BaseHTTPRequestHandler):
         return data
 
     def ensure_json_is_utf8_encodable(self, value: Any) -> None:
-        if isinstance(value, str):
-            try:
-                value.encode("utf-8")
-            except UnicodeEncodeError as exc:
-                raise ValueError("Некорректные символы в JSON.") from exc
-            return
-        if isinstance(value, dict):
-            for key, item in value.items():
-                self.ensure_json_is_utf8_encodable(key)
-                self.ensure_json_is_utf8_encodable(item)
-            return
-        if isinstance(value, list):
-            for item in value:
-                self.ensure_json_is_utf8_encodable(item)
+        stack: list[Any] = [value]
+        nodes_seen = 0
+        while stack:
+            item = stack.pop()
+            nodes_seen += 1
+            if nodes_seen > 20_000:
+                raise ValueError("JSON слишком сложный для обработки.")
+            if isinstance(item, str):
+                try:
+                    item.encode("utf-8")
+                except UnicodeEncodeError as exc:
+                    raise ValueError("Некорректные символы в JSON.") from exc
+            elif isinstance(item, dict):
+                stack.extend(item.keys())
+                stack.extend(item.values())
+            elif isinstance(item, list):
+                stack.extend(item)
 
     def send_json(
         self, payload: Any, status: int = 200, *, write_body: bool = True

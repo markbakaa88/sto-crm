@@ -67,6 +67,7 @@ def bootstrap_payload(q: str = "", status: str = "all") -> dict[str, Any]:
             "db_path": _runtime.RUNTIME.db_path.name,
             "db_directory": display_path(_runtime.RUNTIME.db_path.parent),
             "csrf_token": _runtime.RUNTIME.csrf_token,
+            "access_token": _runtime.RUNTIME.access_token,
             "repository": normalize_github_repository(),
             "repository_url": github_repository_url(),
             "releases_url": github_latest_release_url(),

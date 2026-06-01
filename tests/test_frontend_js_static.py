@@ -182,9 +182,20 @@ class FrontendStaticQualityTests(unittest.TestCase):
 
     def test_frontend_backup_status_uses_server_timestamp_without_path_leak(self) -> None:
         js = read(APP_JS)
+        self.assertIn('state.backupBusy = true;', js)
+        self.assertIn('state.backupBusy = false;', js)
+        self.assertIn('backupBtn?.toggleAttribute("disabled", state.backupBusy);', js)
+        self.assertIn('backupWrap.setAttribute("aria-busy", state.backupBusy ? "true" : "false");', js)
         self.assertIn('state.lastBackupAt = result.created_at || new Date().toISOString();', js)
         self.assertIn('result.display_path || result.filename || "готово"', js)
         self.assertNotIn("result.path", js)
+
+    def test_frontend_access_token_is_not_cached_and_is_sent_as_header(self) -> None:
+        js = read(APP_JS)
+        self.assertIn('function initialAccessToken()', js)
+        self.assertIn('url.searchParams.delete("access_token");', js)
+        self.assertIn('delete cached.app.access_token;', js)
+        self.assertIn('headers["X-CRM-Access-Token"] = accessToken;', js)
 
     def test_frontend_order_history_readonly_contracts(self) -> None:
         js = read(APP_JS)

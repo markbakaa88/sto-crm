@@ -11,6 +11,7 @@ const state = {
     updateCheckScheduled: false,
     loadSeq: 0,
     lastError: "",
+    backupBusy: false,
     orderDraftItems: [],
     orderDraftReadOnly: false,
     bootstrapAbortController: null,
@@ -68,6 +69,22 @@ const requestedRoute = new URLSearchParams(location.search).get("route") || loca
 if (requestedRoute && routes[requestedRoute]) {
     state.route = requestedRoute;
 }
+
+function initialAccessToken() {
+    try {
+        const url = new URL(location.href);
+        const token = url.searchParams.get("access_token") || "";
+        if (token) {
+            url.searchParams.delete("access_token");
+            history.replaceState(history.state, "", url);
+        }
+        return token;
+    } catch {
+        return "";
+    }
+}
+
+state.accessToken = initialAccessToken();
 
 const priorityLabels = { low: "Низкий", normal: "Обычный", high: "Высокий", urgent: "Срочно" };
 const orderStatusTransitions = {
@@ -238,8 +255,12 @@ function entityRecordPath(kind, id) {
 async function downloadCsv(entity) {
     if (!requiresFreshCsrf("экспорт CSV")) return;
     const safeEntity = String(entity || "").trim();
+    const headers = {};
+    if (state.data?.app?.csrf_token) headers["X-CSRF-Token"] = state.data.app.csrf_token;
+    const accessToken = state.data?.app?.access_token || state.accessToken;
+    if (accessToken) headers["X-CRM-Access-Token"] = accessToken;
     const response = await fetch(exportUrl(entity), {
-        headers: state.data?.app?.csrf_token ? { "X-CSRF-Token": state.data.app.csrf_token } : {},
+        headers,
         cache: "no-store"
     });
     if (!response.ok) {
@@ -571,6 +592,8 @@ async function api(path, options = {}, retries = null) {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
             const headers = { ...(options.headers || {}) };
+            const accessToken = state.data?.app?.access_token || state.accessToken;
+            if (accessToken) headers["X-CRM-Access-Token"] = accessToken;
             if (method !== "GET") {
                 headers["Content-Type"] = headers["Content-Type"] || "application/json";
                 if (state.data?.app?.csrf_token) headers["X-CSRF-Token"] = state.data.app.csrf_token;
@@ -620,7 +643,10 @@ function cacheBootstrap(data, loadedAt = new Date().toISOString(), query = {}) {
             return;
         }
         const cached = JSON.parse(JSON.stringify(data || {}));
-        if (cached.app) delete cached.app.csrf_token;
+        if (cached.app) {
+            delete cached.app.csrf_token;
+            delete cached.app.access_token;
+        }
         const payload = {
             schemaVersion: BOOTSTRAP_CACHE_SCHEMA_VERSION,
             cachedAt: Date.now(),
@@ -681,6 +707,8 @@ function restoreCachedBootstrap() {
         if (!cached?.data?.app) return false;
         const data = cached.data;
         if (state.data?.app?.csrf_token) data.app.csrf_token = state.data.app.csrf_token;
+        if (state.data?.app?.access_token) data.app.access_token = state.data.app.access_token;
+        else if (state.accessToken) data.app.access_token = state.accessToken;
         state.data = data;
         state.lastLoadedAt = cached.loadedAt || state.lastLoadedAt || "";
         state.offlineMode = true;
@@ -756,6 +784,7 @@ async function loadData() {
         if (seq !== state.loadSeq) return;
         const loadedAt = new Date().toISOString();
         state.data = data;
+        if (data.app?.access_token) state.accessToken = data.app.access_token;
         state.lastLoadedAt = loadedAt;
         state.offlineMode = false;
         cacheBootstrap(data, loadedAt, { q: state.q, status: requestStatus, route: state.route });
@@ -1105,11 +1134,17 @@ function renderStatusBar() {
     const backupEl = $("#statusBackupText");
     const backupWrap = $("#statusBackup");
     const lastBackup = state.lastBackupAt || state.data?.app?.last_backup_at || "";
-    if (backupEl) backupEl.textContent = lastBackup ? `Бэкап · ${shortStamp(lastBackup)}` : "Создать бэкап";
+    if (backupEl) backupEl.textContent = state.backupBusy ? "Бэкап…" : lastBackup ? `Бэкап · ${shortStamp(lastBackup)}` : "Создать бэкап";
     if (backupWrap) {
         backupWrap.dataset.tone = lastBackup ? "success" : "neutral";
         backupWrap.setAttribute("data-tooltip", lastBackup ? `Последний бэкап: ${shortStamp(lastBackup)}. Создать ещё.` : "Создать резервную копию SQLite");
+        backupWrap.toggleAttribute("disabled", state.backupBusy);
+        backupWrap.setAttribute("aria-busy", state.backupBusy ? "true" : "false");
     }
+
+    const backupBtn = $("#backupBtn");
+    backupBtn?.toggleAttribute("disabled", state.backupBusy);
+    backupBtn?.setAttribute("aria-busy", state.backupBusy ? "true" : "false");
 
     const versionEl = $("#statusVersionText");
     const version = state.data?.app?.version || state.updateStatus?.current_version || "";
@@ -1540,7 +1575,14 @@ function bindShellShortcuts() {
             openCommandPalette();
             return;
         }
-        if (event.key === "Escape") { resetSequence(); return; }
+        if (event.key === "Escape") {
+            if ($("#primaryCtaMenu")?.hidden === false || $("#bellPanel")?.hidden === false || $("#systemMenu")?.hidden === false) {
+                event.preventDefault();
+                closeTransientPanels("", { restoreFocus: true });
+            }
+            resetSequence();
+            return;
+        }
         const lower = event.key.length === 1 ? event.key.toLowerCase() : event.key;
         if (keySequence === "g" && routeKeys[lower]) {
             event.preventDefault();
@@ -1693,13 +1735,18 @@ function requireRecord(record, label = "Запись") {
 
 async function createBackupFromUi() {
     if (!requiresFreshCsrf("резервное копирование")) return;
+    if (state.backupBusy) return;
+    state.backupBusy = true;
+    renderShell();
     try {
         const result = await api("/api/backup", { method: "POST", body: "{}" });
         state.lastBackupAt = result.created_at || new Date().toISOString();
-        renderShell();
         toast(`Резервная копия: ${result.display_path || result.filename || "готово"}`);
     } catch (error) {
         showError(error);
+    } finally {
+        state.backupBusy = false;
+        renderShell();
     }
 }
 
@@ -2580,6 +2627,8 @@ async function checkForUpdates(showToast = true) {
         }
     } catch (error) {
         state.updateCheckScheduled = false;
+        state.updateStatus = { ok: false, error: error?.message || "Не удалось проверить обновления" };
+        if (showToast) toast(state.updateStatus.error, "error");
         throw error;
     } finally {
         state.updateLoading = false;
@@ -3000,7 +3049,7 @@ async function openPrintOrder(id) {
         printButton.disabled = true;
         printButton.setAttribute("aria-busy", "true");
     }
-    const printWindow = window.open("about:blank", "_blank");
+    const printWindow = window.open("about:blank", "_blank", "noopener");
     if (!printWindow) {
         if (printButton) {
             printButton.disabled = previousDisabled;
@@ -3012,8 +3061,11 @@ async function openPrintOrder(id) {
     try { printWindow.opener = null; } catch { /* Some embedded browsers expose opener as readonly. */ }
     printWindow.document.write("<p>Загрузка печатной формы…</p>");
     try {
+        const headers = { "X-CSRF-Token": state.data.app.csrf_token };
+        const accessToken = state.data?.app?.access_token || state.accessToken;
+        if (accessToken) headers["X-CRM-Access-Token"] = accessToken;
         const response = await fetch(`/print/order/${encodeURIComponent(safeId)}`, {
-            headers: { "X-CSRF-Token": state.data.app.csrf_token },
+            headers,
             cache: "no-store"
         });
         const contentType = response.headers.get("Content-Type") || "";
@@ -3028,8 +3080,12 @@ async function openPrintOrder(id) {
             }
             throw new Error(message);
         }
+        const safeBody = alignPrintHtmlNonce(bodyText);
+        if (!/Content-Security-Policy/i.test(safeBody) || /<script\b/i.test(safeBody.replace(/<script\b[^>]*>\s*document\.getElementById\("printButton"\)\.addEventListener\("click", \(\) => window\.print\(\)\);\s*<\/script>/i, ""))) {
+            throw new Error("Печатная форма не прошла проверку безопасности.");
+        }
         printWindow.document.open();
-        printWindow.document.write(alignPrintHtmlNonce(bodyText));
+        printWindow.document.write(safeBody);
         printWindow.document.close();
     } catch (error) {
         printWindow.close();

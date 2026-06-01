@@ -41,6 +41,7 @@ from .runtime import (
     display_path,
     ensure_private_dir,
     ensure_private_file,
+    ensure_private_file_created,
     github_latest_release_api_url,
     github_latest_release_url,
     github_repository_url,
@@ -48,6 +49,8 @@ from .runtime import (
     normalize_github_repository,
     now_iso,
     parse_int,
+    redact_local_paths,
+    strict_json_loads,
     updater_log_path,
     user_data_dir,
 )
@@ -114,7 +117,7 @@ def prune_backups(backup_dir: Path, keep_path: Path | None = None) -> None:
             resolved = path.resolve()
         except OSError:
             continue
-        if path.is_file():
+        if path.is_file() and not path.is_symlink():
             backups.append(
                 (stat.st_mtime, stat.st_size, path, resolved == keep_resolved)
             )
@@ -138,6 +141,7 @@ def create_backup() -> dict[str, Any]:
     )
     try:
         ensure_private_dir(backup_dir)
+        ensure_private_file_created(target)
         with (
             closing(connect()) as source,
             closing(sqlite3.connect(target, timeout=30)) as destination,
@@ -166,7 +170,9 @@ def latest_backup_info() -> dict[str, Any] | None:
     backup_dir = _runtime.RUNTIME.db_path.parent / "backups"
     try:
         backups = [
-            path for path in backup_dir.glob("sto_crm_backup_*.sqlite3") if path.is_file()
+            path
+            for path in backup_dir.glob("sto_crm_backup_*.sqlite3")
+            if path.is_file() and not path.is_symlink()
         ]
         if not backups:
             return None
@@ -375,7 +381,7 @@ def fetch_json(
             charset = (response.headers.get_content_charset() or "utf-8").lower()
             if charset in {"utf-8", "utf8"}:
                 charset = "utf-8-sig"
-            payload = json.loads(
+            payload = strict_json_loads(
                 read_limited_response(
                     response, GITHUB_UPDATE_MAX_JSON_BYTES, "Ответ GitHub/manifest"
                 ).decode(charset)
@@ -556,7 +562,7 @@ def update_status() -> dict[str, Any]:
             "can_install": can_install_windows_update(),
             "app_path": app_path.name,
             "log_path": display_path(updater_log_path()),
-            "error": str(exc),
+            "error": redact_local_paths(str(exc)),
         }
 
 

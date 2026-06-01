@@ -54,7 +54,10 @@ class StoCrmTests(unittest.TestCase):
         self.old_safe_log = sto_crm.safe_log
         sto_crm.safe_log = lambda _message: None
         sto_crm.RUNTIME = sto_crm.Runtime(
-            Path(self.tempdir.name) / "test.sqlite3", time.time(), "test-csrf-token"
+            Path(self.tempdir.name) / "test.sqlite3",
+            time.time(),
+            "test-csrf-token",
+            "test-access-token",
         )
         sto_crm.init_db()
 
@@ -567,7 +570,9 @@ class StoCrmTests(unittest.TestCase):
 
     def test_legacy_database_adds_missing_columns_before_indexes(self):
         legacy_db = Path(self.tempdir.name) / "legacy.sqlite3"
-        sto_crm.RUNTIME = sto_crm.Runtime(legacy_db, time.time(), "test-csrf-token")
+        sto_crm.RUNTIME = sto_crm.Runtime(
+            legacy_db, time.time(), "test-csrf-token", "test-access-token"
+        )
         conn = sqlite3.connect(legacy_db)
         try:
             conn.executescript(
@@ -852,6 +857,91 @@ class StoCrmTests(unittest.TestCase):
             self.assertEqual(
                 sto_crm.get_vehicle(conn, confirmed_vehicle["id"])["mileage"], 10000
             )
+
+
+    def test_active_orders_reserve_inventory_until_closed_or_cancelled(self):
+        customer = self.create_customer("Reservation Customer")
+        vehicle = self.create_vehicle(customer["id"], "R555SV")
+        part = sto_crm.create_inventory(
+            {
+                "sku": "RESERVE",
+                "name": "Reserved part",
+                "quantity": 2,
+                "price": 10,
+                "cost": 4,
+            }
+        )
+        first = sto_crm.create_order(
+            {
+                "customer_id": customer["id"],
+                "vehicle_id": vehicle["id"],
+                "status": "approved",
+                "priority": "normal",
+                "items": [
+                    {
+                        "kind": "part",
+                        "inventory_id": part["id"],
+                        "title": part["name"],
+                        "quantity": 2,
+                        "unit_price": 10,
+                        "unit_cost": 4,
+                    }
+                ],
+            }
+        )
+
+        with self.assertRaisesRegex(ValueError, "свободного остатка"):
+            sto_crm.create_order(
+                {
+                    "customer_id": customer["id"],
+                    "vehicle_id": vehicle["id"],
+                    "status": "approved",
+                    "priority": "normal",
+                    "items": [
+                        {
+                            "kind": "part",
+                            "inventory_id": part["id"],
+                            "title": part["name"],
+                            "quantity": 1,
+                            "unit_price": 10,
+                            "unit_cost": 4,
+                        }
+                    ],
+                }
+            )
+        with self.assertRaisesRegex(ValueError, "зарезервированного"):
+            sto_crm.update_inventory(
+                part["id"],
+                {
+                    "sku": "RESERVE",
+                    "name": part["name"],
+                    "quantity": 1,
+                    "price": 10,
+                    "cost": 4,
+                },
+            )
+
+        payload = self.order_payload_from_record(first)
+        sto_crm.update_order(first["id"], {**payload, "status": "cancelled"})
+        second = sto_crm.create_order(
+            {
+                "customer_id": customer["id"],
+                "vehicle_id": vehicle["id"],
+                "status": "approved",
+                "priority": "normal",
+                "items": [
+                    {
+                        "kind": "part",
+                        "inventory_id": part["id"],
+                        "title": part["name"],
+                        "quantity": 2,
+                        "unit_price": 10,
+                        "unit_cost": 4,
+                    }
+                ],
+            }
+        )
+        self.assertEqual(second["status"], "approved")
 
     def test_closed_order_tracks_closed_at_normalizes_money_and_restores_stock(self):
         customer = self.create_customer("Stock Customer")
@@ -1476,6 +1566,7 @@ class StoCrmTests(unittest.TestCase):
                 "Content-Type": "application/json",
                 "Origin": "http://example.com",
                 "X-CSRF-Token": sto_crm.RUNTIME.csrf_token,
+                "X-CRM-Access-Token": sto_crm.RUNTIME.access_token,
             },
         )
 
@@ -1495,7 +1586,9 @@ class StoCrmTests(unittest.TestCase):
         base = f"http://127.0.0.1:{server.server_port}"
 
         try:
-            with urllib.request.urlopen(f"{base}/", timeout=5) as response:
+            with urllib.request.urlopen(
+                f"{base}/?access_token={sto_crm.RUNTIME.access_token}", timeout=5
+            ) as response:
                 self.assertEqual(response.status, 200)
                 csp = response.headers["Content-Security-Policy"]
                 self.assertIn("default-src 'self'", csp)
@@ -1530,7 +1623,10 @@ class StoCrmTests(unittest.TestCase):
 
             export_request = urllib.request.Request(
                 f"{base}/api/export/catalog.csv",
-                headers={"X-CSRF-Token": sto_crm.RUNTIME.csrf_token},
+                headers={
+                    "X-CSRF-Token": sto_crm.RUNTIME.csrf_token,
+                    "X-CRM-Access-Token": sto_crm.RUNTIME.access_token,
+                },
             )
             with urllib.request.urlopen(export_request, timeout=5) as response:
                 body = response.read()
@@ -1618,6 +1714,7 @@ class StoCrmTests(unittest.TestCase):
                         f"Host: 127.0.0.1:{server.server_port}\r\n"
                         "Content-Type: application/json\r\n"
                         f"X-CSRF-Token: {sto_crm.RUNTIME.csrf_token}\r\n"
+                        f"X-CRM-Access-Token: {sto_crm.RUNTIME.access_token}\r\n"
                         "Content-Length: nope\r\n"
                         "Connection: close\r\n"
                         "\r\n"
@@ -1637,6 +1734,7 @@ class StoCrmTests(unittest.TestCase):
                         f"Origin: http://127.0.0.1:{server.server_port + 1}\r\n"
                         "Content-Type: application/json\r\n"
                         f"X-CSRF-Token: {sto_crm.RUNTIME.csrf_token}\r\n"
+                        f"X-CRM-Access-Token: {sto_crm.RUNTIME.access_token}\r\n"
                         "Content-Length: 2\r\n"
                         "Connection: close\r\n"
                         "\r\n"
@@ -1655,6 +1753,7 @@ class StoCrmTests(unittest.TestCase):
                         f"Host: 127.0.0.1:{server.server_port}\r\n"
                         "Content-Type: application/json\r\n"
                         f"X-CSRF-Token: {sto_crm.RUNTIME.csrf_token}\r\n"
+                        f"X-CRM-Access-Token: {sto_crm.RUNTIME.access_token}\r\n"
                         "Content-Length: 1\r\n"
                         "Connection: close\r\n"
                         "\r\n"
@@ -1676,6 +1775,7 @@ class StoCrmTests(unittest.TestCase):
                         f"Host: 127.0.0.1:{server.server_port}\r\n"
                         "Content-Type: application/json\r\n"
                         f"X-CSRF-Token: {sto_crm.RUNTIME.csrf_token}\r\n"
+                        f"X-CRM-Access-Token: {sto_crm.RUNTIME.access_token}\r\n"
                         f"Content-Length: {len(lone_surrogate_body)}\r\n"
                         "Connection: close\r\n"
                         "\r\n"
@@ -1697,6 +1797,7 @@ class StoCrmTests(unittest.TestCase):
                         f"Origin: http://[::1]:{server.server_port}\r\n"
                         "Content-Type: application/json\r\n"
                         f"X-CSRF-Token: {sto_crm.RUNTIME.csrf_token}\r\n"
+                        f"X-CRM-Access-Token: {sto_crm.RUNTIME.access_token}\r\n"
                         "Content-Length: 2\r\n"
                         "Connection: close\r\n"
                         "\r\n"
@@ -1716,6 +1817,7 @@ class StoCrmTests(unittest.TestCase):
                         f"Host: 127.0.0.1:{server.server_port}\r\n"
                         "Content-Type: application/json\r\n"
                         f"X-CSRF-Token: {sto_crm.RUNTIME.csrf_token}\r\n"
+                        f"X-CRM-Access-Token: {sto_crm.RUNTIME.access_token}\r\n"
                         f"Content-Length: {len(body)}\r\n"
                         "Connection: close\r\n"
                         "\r\n"
@@ -1741,6 +1843,7 @@ class StoCrmTests(unittest.TestCase):
                         f"Host: 127.0.0.1:{server.server_port}\r\n"
                         "Content-Type: application/json\r\n"
                         f"X-CSRF-Token: {sto_crm.RUNTIME.csrf_token}\r\n"
+                        f"X-CRM-Access-Token: {sto_crm.RUNTIME.access_token}\r\n"
                         "Transfer-Encoding: chunked\r\n"
                         f"Content-Length: {len(ambiguous_body)}\r\n"
                         "Connection: close\r\n"
@@ -1768,6 +1871,7 @@ class StoCrmTests(unittest.TestCase):
                         f"Host: 127.0.0.1:{server.server_port}\r\n"
                         "Content-Type: application/json\r\n"
                         f"X-CSRF-Token: {sto_crm.RUNTIME.csrf_token}\r\n"
+                        f"X-CRM-Access-Token: {sto_crm.RUNTIME.access_token}\r\n"
                         f"Content-Length: {len(body)}\r\n"
                         "Connection: close\r\n"
                         "\r\n"
@@ -2397,9 +2501,19 @@ class StoCrmTests(unittest.TestCase):
             self.assertEqual(error.exception.code, 403)
             error.exception.close()
 
-            with urllib.request.urlopen(f"{base}/api/bootstrap", timeout=5) as response:
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                urllib.request.urlopen(f"{base}/api/bootstrap", timeout=5)
+            self.assertEqual(error.exception.code, 403)
+            error.exception.close()
+
+            bootstrap_request = urllib.request.Request(
+                f"{base}/api/bootstrap",
+                headers={"X-CRM-Access-Token": sto_crm.RUNTIME.access_token},
+            )
+            with urllib.request.urlopen(bootstrap_request, timeout=5) as response:
                 payload = json.loads(response.read().decode("utf-8"))
             self.assertEqual(payload["app"]["csrf_token"], sto_crm.RUNTIME.csrf_token)
+            self.assertEqual(payload["app"]["access_token"], sto_crm.RUNTIME.access_token)
             self.assertEqual(payload["app"]["db_path"], sto_crm.RUNTIME.db_path.name)
             self.assertEqual(
                 payload["app"]["db_directory"],
@@ -2427,6 +2541,7 @@ class StoCrmTests(unittest.TestCase):
                 headers={
                     "Content-Type": "application/json",
                     "X-CSRF-Token": sto_crm.RUNTIME.csrf_token,
+                    "X-CRM-Access-Token": sto_crm.RUNTIME.access_token,
                 },
             )
             with urllib.request.urlopen(request, timeout=5) as response:
@@ -2444,6 +2559,7 @@ class StoCrmTests(unittest.TestCase):
                 headers={
                     "Content-Type": "application/json",
                     "X-CSRF-Token": sto_crm.RUNTIME.csrf_token,
+                    "X-CRM-Access-Token": sto_crm.RUNTIME.access_token,
                 },
             )
             with urllib.request.urlopen(request, timeout=5) as response:
@@ -2574,7 +2690,9 @@ class StoCrmTests(unittest.TestCase):
             conn.commit()
         finally:
             conn.close()
-        sto_crm.RUNTIME = sto_crm.Runtime(legacy_db, time.time(), "legacy-token")
+        sto_crm.RUNTIME = sto_crm.Runtime(
+            legacy_db, time.time(), "legacy-token", "legacy-access-token"
+        )
         try:
             sto_crm.init_db()
             migrated = sqlite3.connect(legacy_db)
@@ -2651,7 +2769,9 @@ class StoCrmTests(unittest.TestCase):
             conn.commit()
         finally:
             conn.close()
-        sto_crm.RUNTIME = sto_crm.Runtime(legacy_db, time.time(), "legacy-token")
+        sto_crm.RUNTIME = sto_crm.Runtime(
+            legacy_db, time.time(), "legacy-token", "legacy-access-token"
+        )
         try:
             sto_crm.init_db()
             migrated = sqlite3.connect(legacy_db)
@@ -2722,12 +2842,34 @@ class StoCrmTests(unittest.TestCase):
             (backup_dir / "sto_crm_backup_20240101_000000.sqlite3").exists()
         )
 
+
+    def test_backup_metadata_ignores_symlink_backups(self):
+        if not hasattr(os, "symlink"):
+            self.skipTest("symlink is not available on this platform")
+        backup_dir = Path(self.tempdir.name) / "backups"
+        backup_dir.mkdir()
+        outside = Path(self.tempdir.name) / "outside.sqlite3"
+        outside.write_bytes(b"not a real backup")
+        symlink = backup_dir / "sto_crm_backup_20990101_000000_000000.sqlite3"
+        try:
+            os.symlink(outside, symlink)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"symlink creation is not available: {exc}")
+
+        self.assertIsNone(sto_crm.latest_backup_info())
+        sto_crm.updates.prune_backups(backup_dir)
+        self.assertTrue(symlink.is_symlink())
+        self.assertTrue(outside.exists())
+
     def test_backup_reports_filesystem_errors_as_runtime_error(self):
         old_runtime = sto_crm.RUNTIME
         blocker = Path(self.tempdir.name) / "not-a-directory"
         blocker.write_text("blocked", encoding="utf-8")
         sto_crm.RUNTIME = sto_crm.Runtime(
-            blocker / "db.sqlite3", time.time(), "test-csrf-token"
+            blocker / "db.sqlite3",
+            time.time(),
+            "test-csrf-token",
+            "test-access-token",
         )
         try:
             with self.assertRaisesRegex(RuntimeError, "резервную копию"):
@@ -3213,6 +3355,7 @@ class StoCrmTests(unittest.TestCase):
             headers={
                 "Origin": "http://example.com",
                 "X-CSRF-Token": sto_crm.RUNTIME.csrf_token,
+                "X-CRM-Access-Token": sto_crm.RUNTIME.access_token,
             },
         )
         try:
@@ -3235,6 +3378,7 @@ class StoCrmTests(unittest.TestCase):
             headers={
                 "Content-Type": "application/json",
                 "X-CSRF-Token": sto_crm.RUNTIME.csrf_token,
+                "X-CRM-Access-Token": sto_crm.RUNTIME.access_token,
             },
         )
         try:
@@ -3537,7 +3681,7 @@ class StoCrmTests(unittest.TestCase):
         self.assertNotIn('<a class="btn ghost" href="#" data-action="export-csv"', html)
         self.assertNotIn("?token=${token}", html)
         self.assertIn("openPrintOrder(id)", html)
-        self.assertIn('window.open("about:blank", "_blank")', html)
+        self.assertIn('window.open("about:blank", "_blank", "noopener")', html)
         self.assertIn("printWindow.opener = null;", html)
         self.assertNotIn('window.open("about:blank", "_blank", "noreferrer")', html)
         self.assertIn('data-action="duplicate-order"', html)
@@ -4056,6 +4200,7 @@ class StoCrmTests(unittest.TestCase):
                 headers={
                     "Content-Type": "application/json",
                     "X-CSRF-Token": sto_crm.RUNTIME.csrf_token,
+                    "X-CRM-Access-Token": sto_crm.RUNTIME.access_token,
                 },
             )
             with urllib.request.urlopen(request, timeout=5) as response:

@@ -124,14 +124,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     db_path = args.db if args.db else default_db_path()
     _runtime.RUNTIME = Runtime(
-        db_path=db_path, start_time=time.time(), csrf_token=secrets.token_urlsafe(32)
+        db_path=db_path,
+        start_time=time.time(),
+        csrf_token=secrets.token_urlsafe(32),
+        access_token=secrets.token_urlsafe(32),
     )
     init_db(seed_demo=args.demo)
     server = create_server(args.port, args.host)
     host = server.server_address[0]
     port = server.server_port
     url_host = "[::1]" if host == "::1" else "127.0.0.1"
-    url = f"http://{url_host}:{port}"
+    url = f"http://{url_host}:{port}/?access_token={_runtime.RUNTIME.access_token}"
 
     def shutdown(*_: Any) -> None:
         threading.Thread(target=server.shutdown, daemon=True).start()
@@ -141,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(signal, "SIGTERM"):
             signal.signal(signal.SIGTERM, shutdown)
 
-    safe_log(f"{APP_NAME} запущена: {url}")
+    safe_log(f"{APP_NAME} запущена: http://{url_host}:{port}")
     safe_log(f"База данных: {display_path(_runtime.RUNTIME.db_path)}")
     if not args.no_browser:
         threading.Timer(0.7, lambda: webbrowser.open(url)).start()

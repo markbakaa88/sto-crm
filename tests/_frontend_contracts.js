@@ -80,7 +80,7 @@ const REQUIRED_SUBSTRINGS = [
   'data-action="export-csv"',
   '<button class="btn ghost" type="button" data-action="export-csv"',
   "openPrintOrder(id)",
-  'window.open("about:blank", "_blank")',
+  'window.open("about:blank", "_blank", "noopener")',
   "printWindow.opener = null;",
   'data-action="duplicate-order"',
   'aria-label="Печать заказ-наряда',
