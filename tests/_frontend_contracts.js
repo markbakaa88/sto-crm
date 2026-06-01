@@ -217,6 +217,8 @@ const REQUIRED_SUBSTRINGS = [
   "if (state.updateLoading) return;",
   "state.updateCheckScheduled = true;",
   'const content = $("#content");\n    if (!content) return;',
+  "function isBootstrapRequestPath(path)",
+  "isBootstrapRequestPath(path) ? withBootstrapToken(path) : path",
   "window.setTimeout(() => URL.revokeObjectURL(url), 1000);",
 
   // DOM hooks used from index.html that must live inside JS

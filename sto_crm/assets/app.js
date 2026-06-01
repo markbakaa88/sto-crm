@@ -578,6 +578,11 @@ function clearFormError(target) {
     delete target.dataset.errorDescribedby;
 }
 
+function isBootstrapRequestPath(path) {
+    const value = String(path || "");
+    return value === "/api/bootstrap" || value.startsWith("/api/bootstrap?");
+}
+
 function withBootstrapToken(path) {
     if (!state.bootstrapToken) return path;
     const separator = path.includes("?") ? "&" : "?";
@@ -602,7 +607,7 @@ async function api(path, options = {}, retries = null) {
                 headers["Content-Type"] = headers["Content-Type"] || "application/json";
                 if (state.data?.app?.csrf_token) headers["X-CSRF-Token"] = state.data.app.csrf_token;
             }
-            const requestPath = path === "/api/bootstrap" ? withBootstrapToken(path) : path;
+            const requestPath = isBootstrapRequestPath(path) ? withBootstrapToken(path) : path;
             const response = await fetch(requestPath, {
                 ...options,
                 headers

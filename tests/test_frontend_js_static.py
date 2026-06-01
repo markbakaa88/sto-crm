@@ -165,6 +165,9 @@ class FrontendStaticQualityTests(unittest.TestCase):
     def test_frontend_bootstrap_guards_and_order_route_filter_reload(self) -> None:
         js = read(APP_JS)
         self.assertIn('function ensureBootstrapReady(actionName = "действие")', js)
+        self.assertIn('function isBootstrapRequestPath(path)', js)
+        self.assertIn('isBootstrapRequestPath(path) ? withBootstrapToken(path) : path', js)
+        self.assertNotIn('path === "/api/bootstrap" ? withBootstrapToken(path) : path', js)
         for modal, label in [
             ("openAppointmentModal", "создание записи"),
             ("openCustomerModal", "создание клиента"),
@@ -295,6 +298,10 @@ class FrontendStaticQualityTests(unittest.TestCase):
             css,
         )
         self.assertIn(".search-clear,", css)
+        self.assertIn(".search-clear[hidden] { display: none; }", css)
+        self.assertIn(".quick-tile,", css)
+        self.assertIn(".search input { min-height: calc(var(--interactive-min) - 2px); }", css)
+        self.assertIn("body.compact .btn.icon,", css)
         self.assertIn(".breadcrumbs .crumb,", css)
         self.assertIn(".system-menu-panel { display: none !important; }", css)
         self.assertIn(".business-hints { display: grid;", css)
