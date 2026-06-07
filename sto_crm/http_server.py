@@ -257,7 +257,10 @@ class CRMHandler(BaseHTTPRequestHandler):
             ):
                 result = install_update_from_github()
                 if isinstance(result.get("backup"), dict):
-                    result = {**result, "backup": public_backup_payload(result["backup"]) or {}}
+                    result = {
+                        **result,
+                        "backup": public_backup_payload(result["backup"]) or {},
+                    }
                 self.send_json(result)
                 if result.get("updated"):
                     threading.Thread(target=self.server.shutdown, daemon=True).start()
@@ -453,7 +456,9 @@ class CRMHandler(BaseHTTPRequestHandler):
             port = parsed.port or 80
         except ValueError:
             return False
-        return port == self.server.server_port
+        if not port:
+            port = getattr(self.server, "server_port", 8080)
+        return port == getattr(self.server, "server_port", 8080)
 
     def is_allowed_host_header(self, host_header: str | None) -> bool:
         if not host_header:
@@ -469,7 +474,9 @@ class CRMHandler(BaseHTTPRequestHandler):
             port = parsed.port
         except ValueError:
             return False
-        return (port or 80) == self.server.server_port
+        if not port:
+            port = 80
+        return port == getattr(self.server, "server_port", 8080)
 
     def discard_untrusted_request_body(self) -> None:
         raw_length = self.headers.get("Content-Length")
@@ -500,7 +507,12 @@ class CRMHandler(BaseHTTPRequestHandler):
         try:
             text = raw.decode("utf-8")
             data = strict_json_loads(text)
-        except (UnicodeDecodeError, json.JSONDecodeError, ValueError, RecursionError) as exc:
+        except (
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            ValueError,
+            RecursionError,
+        ) as exc:
             raise ValueError("Некорректный JSON.") from exc
         if not isinstance(data, dict):
             raise ValueError("Ожидался JSON-объект.")

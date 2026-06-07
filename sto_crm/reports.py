@@ -338,7 +338,7 @@ def build_reports(
             {"title": title, "total": round(total, 2)}
             for title, total in service_sales.items()
         ],
-        key=lambda x: x["total"],
+        key=lambda x: parse_float(x["total"] or 0),
         reverse=True,
     )[:5]
 

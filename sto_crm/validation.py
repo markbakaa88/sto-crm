@@ -151,7 +151,7 @@ def validate_vehicle(
     make = clean_text(payload.get("make"), 120)
     model = clean_text(payload.get("model"), 120)
     plate = clean_text(payload.get("plate"), 40).upper()
-    vin = validate_vin(payload.get("vin"))
+    vin = validate_vin(str(payload.get("vin") or ""))
     if not (make or model or plate or vin):
         raise ValueError("Укажите автомобиль: марку, модель, номер или VIN.")
     return {
@@ -416,7 +416,8 @@ def active_exists(conn: sqlite3.Connection, table: str, record_id: int) -> bool:
     if table not in {"customers", "vehicles", "inventory", "orders", "appointments"}:
         return False
     row = conn.execute(
-        f"SELECT 1 FROM {table} WHERE id = ? AND deleted_at IS NULL", (record_id,)
+        f"SELECT 1 FROM {table} WHERE id = ? AND deleted_at IS NULL",
+        (record_id,),  # nosec B608
     ).fetchone()
     return row is not None
 
@@ -438,7 +439,7 @@ def ensure_unique_active_value(
     }
     if (table, column) not in allowed_columns:
         raise ValueError("Некорректная проверка уникальности.")
-    query = f"SELECT id FROM {table} WHERE CASEFOLD(TRIM({column})) = CASEFOLD(TRIM(?)) AND deleted_at IS NULL"
+    query = f"SELECT id FROM {table} WHERE CASEFOLD(TRIM({column})) = CASEFOLD(TRIM(?)) AND deleted_at IS NULL"  # nosec B608
     params: list[Any] = [value]
     if record_id:
         query += " AND id <> ?"

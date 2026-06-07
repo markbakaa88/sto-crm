@@ -34,7 +34,11 @@ from .runtime import (
     github_repository_url,
     normalize_github_repository,
 )
-from .updates import can_install_windows_update, latest_backup_info, public_backup_payload
+from .updates import (
+    can_install_windows_update,
+    latest_backup_info,
+    public_backup_payload,
+)
 
 
 def bootstrap_payload(q: str = "", status: str = "all") -> dict[str, Any]:

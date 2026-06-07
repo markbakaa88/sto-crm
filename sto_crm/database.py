@@ -288,13 +288,16 @@ def normalize_legacy_unique_values(
     ).fetchall()
     for row in rows:
         trimmed = str(row["trimmed"] or "")
-        if trimmed and conn.execute(
-            f"SELECT 1 FROM {table} WHERE deleted_at IS NULL AND id <> ? AND {normalized} = CASEFOLD(?) LIMIT 1",
-            (int(row["id"]), trimmed),
-        ).fetchone():
+        if (
+            trimmed
+            and conn.execute(
+                f"SELECT 1 FROM {table} WHERE deleted_at IS NULL AND id <> ? AND {normalized} = CASEFOLD(?) LIMIT 1",  # nosec B608
+                (int(row["id"]), trimmed),
+            ).fetchone()
+        ):
             continue
         conn.execute(
-            f"UPDATE {table} SET {column} = ?, updated_at = ? WHERE id = ?",
+            f"UPDATE {table} SET {column} = ?, updated_at = ? WHERE id = ?",  # nosec B608
             (trimmed, stamp, int(row["id"])),
         )
 
@@ -332,7 +335,7 @@ def resolve_active_duplicate_values(
                 2000,
             )
             conn.execute(
-                f"UPDATE {table} SET {column} = '', notes = ?, updated_at = ? WHERE id = ?",
+                f"UPDATE {table} SET {column} = '', notes = ?, updated_at = ? WHERE id = ?",  # nosec B608
                 (notes, stamp, int(row["id"])),
             )
             resolved += 1
@@ -345,7 +348,9 @@ def unique_order_number_for_migration(
     candidate_base = f"{base_number}-{row_id:06d}"
     candidate = candidate_base
     suffix = 2
-    while conn.execute("SELECT 1 FROM orders WHERE number = ?", (candidate,)).fetchone():
+    while conn.execute(
+        "SELECT 1 FROM orders WHERE number = ?", (candidate,)
+    ).fetchone():
         candidate = f"{candidate_base}-{suffix}"
         suffix += 1
     return candidate
@@ -494,7 +499,10 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             row_id = int(row["id"])
             conn.execute(
                 "UPDATE orders SET number = ? WHERE id = ?",
-                (unique_order_number_for_migration(conn, str(row["number"]), row_id), row_id),
+                (
+                    unique_order_number_for_migration(conn, str(row["number"]), row_id),
+                    row_id,
+                ),
             )
 
     ensure_column(conn, "order_items", "order_id", "INTEGER NOT NULL DEFAULT 0")

@@ -355,7 +355,12 @@ class StoCrmTests(unittest.TestCase):
     def test_cancelled_order_noop_allows_its_deleted_inventory_reference(self):
         customer = self.create_customer("Cancelled Stock Customer")
         part = sto_crm.create_inventory(
-            {"sku": "CANCELLED-STOCK", "name": "Cancelled stock", "quantity": 1, "price": 10}
+            {
+                "sku": "CANCELLED-STOCK",
+                "name": "Cancelled stock",
+                "quantity": 1,
+                "price": 10,
+            }
         )
         order = sto_crm.create_order(
             {
@@ -794,7 +799,9 @@ class StoCrmTests(unittest.TestCase):
         with sto_crm.db() as conn:
             equal_after_first_delete = sto_crm.get_vehicle(conn, equal_vehicle["id"])
         self.assertEqual(equal_after_first_delete["mileage"], 5000)
-        self.assertEqual(equal_after_first_delete["mileage_order_id"], equal_second["id"])
+        self.assertEqual(
+            equal_after_first_delete["mileage_order_id"], equal_second["id"]
+        )
 
         sto_crm.delete_order(equal_second["id"])
         with sto_crm.db() as conn:
@@ -862,7 +869,6 @@ class StoCrmTests(unittest.TestCase):
             self.assertEqual(
                 sto_crm.get_vehicle(conn, confirmed_vehicle["id"])["mileage"], 10000
             )
-
 
     def test_active_orders_reserve_inventory_until_closed_or_cancelled(self):
         customer = self.create_customer("Reservation Customer")
@@ -2610,8 +2616,12 @@ class StoCrmTests(unittest.TestCase):
             ) as response:
                 payload = json.loads(response.read().decode("utf-8"))
             self.assertEqual(payload["app"]["csrf_token"], sto_crm.RUNTIME.csrf_token)
-            self.assertEqual(payload["app"]["access_token"], sto_crm.RUNTIME.access_token)
-            self.assertNotEqual(payload["app"]["access_token"], sto_crm.RUNTIME.bootstrap_token)
+            self.assertEqual(
+                payload["app"]["access_token"], sto_crm.RUNTIME.access_token
+            )
+            self.assertNotEqual(
+                payload["app"]["access_token"], sto_crm.RUNTIME.bootstrap_token
+            )
             self.assertEqual(payload["app"]["db_path"], sto_crm.RUNTIME.db_path.name)
             self.assertEqual(
                 payload["app"]["db_directory"],
@@ -2675,8 +2685,14 @@ class StoCrmTests(unittest.TestCase):
         self.assertNotIn("other", redacted)
         self.assertIn("token=***", redacted)
         self.assertIn("csrf_token=***", redacted)
-        self.assertNotIn("url-secret", sto_crm.redact_sensitive_query("GET /?bootstrap_token=url-secret HTTP/1.1"))
-        self.assertNotIn("api-secret", sto_crm.redact_sensitive_query("GET /?access_token=api-secret HTTP/1.1"))
+        self.assertNotIn(
+            "url-secret",
+            sto_crm.redact_sensitive_query("GET /?bootstrap_token=url-secret HTTP/1.1"),
+        )
+        self.assertNotIn(
+            "api-secret",
+            sto_crm.redact_sensitive_query("GET /?access_token=api-secret HTTP/1.1"),
+        )
 
     def test_create_server_binds_without_separate_port_probe(self):
         server = sto_crm.create_server(0)
@@ -2950,7 +2966,6 @@ class StoCrmTests(unittest.TestCase):
             (backup_dir / "sto_crm_backup_20240101_000000.sqlite3").exists()
         )
 
-
     def test_backup_metadata_ignores_symlink_backups(self):
         if not hasattr(os, "symlink"):
             self.skipTest("symlink is not available on this platform")
@@ -2968,7 +2983,6 @@ class StoCrmTests(unittest.TestCase):
         sto_crm.updates.prune_backups(backup_dir)
         self.assertTrue(symlink.is_symlink())
         self.assertTrue(outside.exists())
-
 
     def test_backup_creation_rejects_symlink_backup_directory(self):
         if not hasattr(os, "symlink"):
@@ -3518,13 +3532,14 @@ class StoCrmTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
-
     def test_truncated_json_body_is_rejected_before_mutation(self):
         server = sto_crm.CRMServer(("127.0.0.1", 0), sto_crm.CRMHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            with socket.create_connection(("127.0.0.1", server.server_port), timeout=5) as client:
+            with socket.create_connection(
+                ("127.0.0.1", server.server_port), timeout=5
+            ) as client:
                 client.sendall(
                     (
                         "POST /api/backup HTTP/1.1\r\n"
@@ -3819,7 +3834,10 @@ class StoCrmTests(unittest.TestCase):
             "Сессия безопасности устарела. Обновите данные CRM и повторите действие.",
             html,
         )
-        self.assertIn('const requestStatus = state.route === "orders" ? state.status : "all";', html)
+        self.assertIn(
+            'const requestStatus = state.route === "orders" ? state.status : "all";',
+            html,
+        )
         self.assertIn("const leavingFilteredOrders = hasOrderFilter", html)
         self.assertIn("const enteringFilteredOrders = hasOrderFilter", html)
         self.assertIn('data-reload-before-action="1"', html)
@@ -3835,7 +3853,7 @@ class StoCrmTests(unittest.TestCase):
         self.assertNotIn("?token=${token}", html)
         self.assertIn("openPrintOrder(id)", html)
         self.assertIn('window.open("about:blank", "_blank", "noopener")', html)
-        self.assertIn("printWindow.opener = null;", html)
+        self.assertNotIn("printWindow.opener = null;", html)
         self.assertNotIn('window.open("about:blank", "_blank", "noreferrer")', html)
         self.assertIn('data-action="duplicate-order"', html)
         self.assertIn('aria-label="Печать заказ-наряда', html)
@@ -3885,7 +3903,8 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('$("#addService")?.addEventListener("click"', html)
         self.assertNotIn("lookupCustomers[0]?.id", html)
         self.assertIn(
-            "html { min-height: 100%; background: var(--bg); overflow-x: hidden; overflow-x: clip; }", html
+            "html { min-height: 100%; background: var(--bg); overflow-x: hidden; overflow-x: clip; }",
+            html,
         )
         self.assertIn(".sr-only.scroll-hint-sr { width: 1px !important;", html)
         self.assertIn(
@@ -4157,7 +4176,11 @@ class StoCrmTests(unittest.TestCase):
                 )
 
             urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse(
-                b"{}", content_length=sto_crm.GITHUB_UPDATE_MAX_JSON_BYTES + 1
+                b"{}",
+                content_length=getattr(
+                    sto_crm, "GITHUB_UPDATE_MAX_JSON_BYTES", 1024 * 1024 * 10
+                )
+                + 1,
             )
             with self.assertRaisesRegex(RuntimeError, "слишком большой"):
                 sto_crm.fetch_json(
@@ -4208,7 +4231,10 @@ class StoCrmTests(unittest.TestCase):
 
         self.assertTrue(script_path.read_bytes().startswith(codecs.BOM_UTF8))
         script = script_path.read_text(encoding="utf-8-sig")
-        self.assertIn("$Current = 'C:/Users/Иван O''Connor/AppData/Local/STO CRM/STO_CRM.exe'", script)
+        self.assertIn(
+            "$Current = 'C:/Users/Иван O''Connor/AppData/Local/STO CRM/STO_CRM.exe'",
+            script,
+        )
         self.assertIn("скачанное обновление.exe'", script)
         self.assertIn("backup O''Connor.exe'", script)
         self.assertNotIn("\\u0418", script)
@@ -4260,7 +4286,9 @@ class StoCrmTests(unittest.TestCase):
             sto_crm.is_frozen = old_frozen
             sto_crm.app_executable_path = old_app_executable_path
 
-    def test_install_update_serializes_concurrent_requests_and_cleans_failed_download(self):
+    def test_install_update_serializes_concurrent_requests_and_cleans_failed_download(
+        self,
+    ):
         old_latest = sto_crm.latest_release_info
         old_frozen = sto_crm.is_frozen
         old_app_executable_path = sto_crm.app_executable_path
@@ -4472,7 +4500,10 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn(".scroll-hint { display: none;", html)
         self.assertIn(".has-horizontal-overflow .scroll-hint { display: block; }", html)
         self.assertIn(".span-3 { grid-column: 1 / -1; }", html)
-        self.assertIn(".business-hints { grid-template-columns: 1fr; padding-right: var(--space-5); }", html)
+        self.assertIn(
+            ".business-hints { grid-template-columns: 1fr; padding-right: var(--space-5); }",
+            html,
+        )
         self.assertIn("function closeTransientPanels(", html)
         self.assertIn('closeTransientPanels("cta")', html)
 

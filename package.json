@@ -1,0 +1,29 @@
+{
+  "name": "crm",
+  "version": "1.0.0",
+  "description": "Локальная CRM для автосервиса: один `.exe` запускает сервер на `127.0.0.1`, открывает браузер и хранит данные в SQLite в профиле пользователя.",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/markbakaa88/sto-crm.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/markbakaa88/sto-crm/issues"
+  },
+  "homepage": "https://github.com/markbakaa88/sto-crm#readme",
+  "dependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.4.1",
+    "globals": "^17.6.0"
+  },
+  "type": "module"
+}

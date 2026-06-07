@@ -247,7 +247,8 @@ function safeDownloadFilename(value, fallback = "export.csv") {
     const filename = String(value || "")
         .split(/[\\/]/)
         .pop()
-        .replace(/[\u0000-\u001f\u007f]/g, "")
+        // eslint-disable-next-line no-control-regex
+        .replace(/[\x00-\x1f\x7f]/g, "")
         .trim();
     return filename && !/[<>:"|?*]/.test(filename) ? filename : fallback;
 }
@@ -912,7 +913,7 @@ function render() {
         updates: renderUpdates
     };
     const busy = content.getAttribute("aria-busy") || "false";
-    let viewHtml = "";
+    let viewHtml;
     try {
         viewHtml = renderers[state.route]();
     } catch (error) {
@@ -1097,7 +1098,7 @@ function updateSyncChip() {
     if (!chip) return;
     const textEl = chip.querySelector(".sync-text");
     let nextState = "online";
-    let text = "Актуально";
+    let text;
     let stampTip = "";
     if (state.loading) {
         nextState = "syncing";
@@ -3112,7 +3113,7 @@ async function openPrintOrder(id) {
         toast("Разрешите всплывающие окна, чтобы открыть печатную форму.", "error");
         return;
     }
-    try { printWindow.opener = null; } catch { /* Some embedded browsers expose opener as readonly. */ }
+    
     printWindow.document.write("<p>Загрузка печатной формы…</p>");
     try {
         const headers = { "X-CSRF-Token": state.data.app.csrf_token };

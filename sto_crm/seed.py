@@ -33,15 +33,15 @@ def seed_demo_data() -> None:
             ("Мария Соколова", "+7 900 333-44-55", "maria@example.ru", "2ГИС", ""),
         ]
         customer_ids: list[int] = []
-        for item in customers:
+        for customer in customers:
             cur = conn.execute(
                 """
                 INSERT INTO customers(name, phone, email, source, notes, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (*item, stamp, stamp),
+                (*customer, stamp, stamp),
             )
-            customer_ids.append(int(cur.lastrowid))
+            customer_ids.append(int(cur.lastrowid or 0))
 
         next_service_date = (datetime.now() + timedelta(days=10)).date().isoformat()
         vehicles = [
@@ -86,15 +86,15 @@ def seed_demo_data() -> None:
             ),
         ]
         vehicle_ids: list[int] = []
-        for item in vehicles:
+        for vehicle in vehicles:
             cur = conn.execute(
                 """
                 INSERT INTO vehicles(customer_id, make, model, year, plate, vin, mileage, mileage_manual, next_service_at, next_service_mileage, notes, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (*item, stamp, stamp),
+                (*vehicle, stamp, stamp),
             )
-            vehicle_ids.append(int(cur.lastrowid))
+            vehicle_ids.append(int(cur.lastrowid or 0))
 
         parts = [
             (
@@ -152,7 +152,7 @@ def seed_demo_data() -> None:
                 """,
                 (*item, stamp, stamp),
             )
-            part_ids.append(int(cur.lastrowid))
+            part_ids.append(int(cur.lastrowid or 0))
 
         promised = (
             (datetime.now() + timedelta(days=1))

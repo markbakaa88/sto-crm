@@ -26,6 +26,10 @@ dist/
 release/
 *.spec.bak
 
+# Node.js
+node_modules/
+package-lock.json
+
 # OS / editor junk
 .DS_Store
 Thumbs.db

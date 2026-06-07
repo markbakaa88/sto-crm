@@ -106,8 +106,8 @@ class FrontendStaticQualityTests(unittest.TestCase):
         self.assertIn('typeof media === "function"', js)
         self.assertIn('function toneToken(value, fallback = "info")', js)
         self.assertIn('function semanticToneClass(value, fallback = "")', js)
-        self.assertIn('.metric.tone-neutral .metric-icon', css)
-        self.assertIn('.context-pill.neutral', css)
+        self.assertIn(".metric.tone-neutral .metric-icon", css)
+        self.assertIn(".context-pill.neutral", css)
         self.assertIn('.hint-chip[data-tone="success"] .hint-dot', css)
         self.assertNotRegex(css, r"calc\([^\n;{}]*\*[^\n;{}]*\)")
         self.assertNotIn(":has(", css)
@@ -122,19 +122,15 @@ class FrontendStaticQualityTests(unittest.TestCase):
         self.assertIn('aria-controls="appSidebar"', html)
         self.assertIn("function initMobileNavigation()", js)
         self.assertIn("setMobileNavOpen(false);", js)
-        self.assertIn('setMobileNavOpen(false, { restoreFocus: false });', js)
+        self.assertIn("setMobileNavOpen(false, { restoreFocus: false });", js)
         self.assertIn("body.mobile-nav-open .sidebar", css)
         self.assertIn("mobileNavBackdrop", js)
         self.assertIn('id="modalBackdrop" hidden', html)
         self.assertIn('id="commandPalette" hidden', html)
         self.assertNotIn('id="modalBackdrop" role="presentation"', html)
         self.assertNotIn('id="commandPalette" role="presentation"', html)
-        self.assertNotIn(
-            'id="modalBackdrop" aria-hidden="true" hidden', html
-        )
-        self.assertNotIn(
-            'id="commandPalette" aria-hidden="true" hidden', html
-        )
+        self.assertNotIn('id="modalBackdrop" aria-hidden="true" hidden', html)
+        self.assertNotIn('id="commandPalette" aria-hidden="true" hidden', html)
         self.assertIn("backdrop.hidden = false;", js)
         self.assertIn("backdrop.hidden = true;", js)
         self.assertIn("palette.hidden = false;", js)
@@ -156,10 +152,16 @@ class FrontendStaticQualityTests(unittest.TestCase):
     def test_frontend_toast_live_region_contracts(self) -> None:
         html = read(INDEX_HTML)
         js = read(APP_JS)
-        self.assertIn('id="toast" role="status" aria-live="polite" aria-atomic="true"', html)
-        self.assertIn('id="appStatus" role="status" aria-live="polite" aria-atomic="true"', html)
+        self.assertIn(
+            'id="toast" role="status" aria-live="polite" aria-atomic="true"', html
+        )
+        self.assertIn(
+            'id="appStatus" role="status" aria-live="polite" aria-atomic="true"', html
+        )
         self.assertIn('function toast(message, type = "info")', js)
-        self.assertIn('node.setAttribute("aria-live", isError ? "assertive" : "polite");', js)
+        self.assertIn(
+            'node.setAttribute("aria-live", isError ? "assertive" : "polite");', js
+        )
         self.assertIn('node.setAttribute("aria-atomic", "true");', js)
         self.assertIn('node.textContent = "";', js)
         self.assertNotIn('node.setAttribute("role", isError ? "alert" : "status");', js)
@@ -167,9 +169,14 @@ class FrontendStaticQualityTests(unittest.TestCase):
     def test_frontend_api_handles_empty_success_responses(self) -> None:
         js = read(APP_JS)
         self.assertIn("async function parseResponsePayload(response)", js)
-        self.assertIn("if (response.status === 204 || response.status === 205) return null;", js)
+        self.assertIn(
+            "if (response.status === 204 || response.status === 205) return null;", js
+        )
         self.assertIn("data = await parseResponsePayload(response);", js)
-        self.assertNotIn("data = contentType.includes(\"application/json\") ? await response.json() : await response.text();", js)
+        self.assertNotIn(
+            'data = contentType.includes("application/json") ? await response.json() : await response.text();',
+            js,
+        )
 
     def test_frontend_update_install_guards_stale_and_unsupported_states(self) -> None:
         js = read(APP_JS)
@@ -183,9 +190,13 @@ class FrontendStaticQualityTests(unittest.TestCase):
     def test_frontend_bootstrap_guards_and_order_route_filter_reload(self) -> None:
         js = read(APP_JS)
         self.assertIn('function ensureBootstrapReady(actionName = "действие")', js)
-        self.assertIn('function isBootstrapRequestPath(path)', js)
-        self.assertIn('isBootstrapRequestPath(path) ? withBootstrapToken(path) : path', js)
-        self.assertNotIn('path === "/api/bootstrap" ? withBootstrapToken(path) : path', js)
+        self.assertIn("function isBootstrapRequestPath(path)", js)
+        self.assertIn(
+            "isBootstrapRequestPath(path) ? withBootstrapToken(path) : path", js
+        )
+        self.assertNotIn(
+            'path === "/api/bootstrap" ? withBootstrapToken(path) : path', js
+        )
         for modal, label in [
             ("openAppointmentModal", "создание записи"),
             ("openCustomerModal", "создание клиента"),
@@ -201,31 +212,40 @@ class FrontendStaticQualityTests(unittest.TestCase):
         )
         self.assertIn('state.status = "all";', js)
 
-    def test_frontend_backup_status_uses_server_timestamp_without_path_leak(self) -> None:
+    def test_frontend_backup_status_uses_server_timestamp_without_path_leak(
+        self,
+    ) -> None:
         js = read(APP_JS)
-        self.assertIn('state.backupBusy = true;', js)
-        self.assertIn('state.backupBusy = false;', js)
+        self.assertIn("state.backupBusy = true;", js)
+        self.assertIn("state.backupBusy = false;", js)
         self.assertIn('backupBtn?.toggleAttribute("disabled", state.backupBusy);', js)
-        self.assertIn('backupWrap.setAttribute("aria-busy", state.backupBusy ? "true" : "false");', js)
-        self.assertIn('state.lastBackupAt = result.created_at || new Date().toISOString();', js)
-        self.assertIn('result.display_path || result.filename || "готово"', js)
-        self.assertNotIn("result.path", js)
-
-    def test_frontend_security_tokens_are_not_cached_and_are_sent_as_headers(self) -> None:
-        js = read(APP_JS)
-        self.assertIn('function initialBootstrapToken()', js)
-        self.assertIn('document.body?.dataset?.bootstrapToken', js)
-        self.assertIn('delete document.body.dataset.bootstrapToken;', js)
-        self.assertIn('accessToken: "",', js)
-        self.assertIn('state.bootstrapToken = "";', js)
-        self.assertIn('delete cached.app.csrf_token;', js)
-        self.assertIn('delete cached.app.access_token;', js)
         self.assertIn(
-            'if (state.data?.app?.csrf_token) data.app.csrf_token = state.data.app.csrf_token;',
+            'backupWrap.setAttribute("aria-busy", state.backupBusy ? "true" : "false");',
             js,
         )
         self.assertIn(
-            'if (state.data?.app?.access_token) data.app.access_token = state.data.app.access_token;',
+            "state.lastBackupAt = result.created_at || new Date().toISOString();", js
+        )
+        self.assertIn('result.display_path || result.filename || "готово"', js)
+        self.assertNotIn("result.path", js)
+
+    def test_frontend_security_tokens_are_not_cached_and_are_sent_as_headers(
+        self,
+    ) -> None:
+        js = read(APP_JS)
+        self.assertIn("function initialBootstrapToken()", js)
+        self.assertIn("document.body?.dataset?.bootstrapToken", js)
+        self.assertIn("delete document.body.dataset.bootstrapToken;", js)
+        self.assertIn('accessToken: "",', js)
+        self.assertIn('state.bootstrapToken = "";', js)
+        self.assertIn("delete cached.app.csrf_token;", js)
+        self.assertIn("delete cached.app.access_token;", js)
+        self.assertIn(
+            "if (state.data?.app?.csrf_token) data.app.csrf_token = state.data.app.csrf_token;",
+            js,
+        )
+        self.assertIn(
+            "if (state.data?.app?.access_token) data.app.access_token = state.data.app.access_token;",
             js,
         )
         self.assertIn('headers["X-CSRF-Token"] = state.data.app.csrf_token;', js)
@@ -243,8 +263,12 @@ class FrontendStaticQualityTests(unittest.TestCase):
             'readonlyField("Follow-up", readonlyValue(inputDateValue(order.follow_up_at)))',
             js,
         )
-        self.assertIn('hiddenInput("follow_up_at", inputDateValue(order.follow_up_at))', js)
-        self.assertIn('if (state.orderDraftReadOnly) return;\n        markModalDirty();', js)
+        self.assertIn(
+            'hiddenInput("follow_up_at", inputDateValue(order.follow_up_at))', js
+        )
+        self.assertIn(
+            "if (state.orderDraftReadOnly) return;\n        markModalDirty();", js
+        )
         self.assertIn(
             "function syncAllOrderItems() {\n    if (state.orderDraftReadOnly) return;",
             js,
@@ -263,7 +287,9 @@ class FrontendStaticQualityTests(unittest.TestCase):
             js,
         )
         self.assertIn("function closeTransientPanels(", js)
-        self.assertIn("closeTransientPanels();\n    const previousRoute = state.route;", js)
+        self.assertIn(
+            "closeTransientPanels();\n    const previousRoute = state.route;", js
+        )
 
     def test_frontend_lints_without_unused_variables_when_eslint_available(
         self,
@@ -329,18 +355,42 @@ class FrontendStaticQualityTests(unittest.TestCase):
         )
         self.assertIn(".search-clear,", css)
         self.assertIn(".search-clear[hidden] { display: none; }", css)
-        self.assertIn(".timeline.has-horizontal-overflow::after {\n    content: \"\";\n    position: absolute;", css)
-        self.assertNotIn(".timeline.has-horizontal-overflow::after {\n    content: \"\";\n    position: sticky;", css)
+        self.assertIn(
+            '.timeline.has-horizontal-overflow::after {\n    content: "";\n    position: absolute;',
+            css,
+        )
+        self.assertNotIn(
+            '.timeline.has-horizontal-overflow::after {\n    content: "";\n    position: sticky;',
+            css,
+        )
         self.assertIn('function stableElementId(element, prefix = "ui")', js)
         self.assertIn('srHint.id = stableElementId(container, "scrollHint");', js)
-        self.assertNotIn('srHint.id = `scrollHint${Math.random().toString(36).slice(2)}`;', js)
+        self.assertNotIn(
+            "srHint.id = `scrollHint${Math.random().toString(36).slice(2)}`;", js
+        )
         self.assertIn(".quick-tile,", css)
-        self.assertIn(".search input { min-height: calc(var(--interactive-min) - 2px); }", css)
-        self.assertIn(".sync-chip {\n    display: inline-flex; align-items: center; gap: 6px;\n    padding: 0 var(--space-3); min-height: var(--interactive-compact);", css)
-        self.assertIn(".order-row-actions .btn { min-height: var(--interactive-compact);", css)
-        self.assertIn(".order-row-actions .btn.icon-sm {\n    width: var(--interactive-compact); min-width: var(--interactive-compact);", css)
-        self.assertIn(".hint-dismiss {\n    position: static; justify-self: end; align-self: center;\n    width: var(--interactive-compact);", css)
-        self.assertNotIn(".sync-chip {\n    display: inline-flex; align-items: center; gap: 6px;\n    padding: 0 var(--space-3); height: 30px;", css)
+        self.assertIn(
+            ".search input { min-height: calc(var(--interactive-min) - 2px); }", css
+        )
+        self.assertIn(
+            ".sync-chip {\n    display: inline-flex; align-items: center; gap: 6px;\n    padding: 0 var(--space-3); min-height: var(--interactive-compact);",
+            css,
+        )
+        self.assertIn(
+            ".order-row-actions .btn { min-height: var(--interactive-compact);", css
+        )
+        self.assertIn(
+            ".order-row-actions .btn.icon-sm {\n    width: var(--interactive-compact); min-width: var(--interactive-compact);",
+            css,
+        )
+        self.assertIn(
+            ".hint-dismiss {\n    position: static; justify-self: end; align-self: center;\n    width: var(--interactive-compact);",
+            css,
+        )
+        self.assertNotIn(
+            ".sync-chip {\n    display: inline-flex; align-items: center; gap: 6px;\n    padding: 0 var(--space-3); height: 30px;",
+            css,
+        )
         self.assertNotIn(".order-row-actions .btn { height: 28px;", css)
         self.assertNotIn("width: 28px; height: 28px; border-radius: 999px;", css)
         self.assertIn("body.compact .btn.icon,", css)
@@ -350,7 +400,9 @@ class FrontendStaticQualityTests(unittest.TestCase):
         self.assertIn("align-items: stretch", css)
         self.assertIn(".business-hints > * { min-width: 0; }", css)
         self.assertIn("overflow-wrap: anywhere", css)
-        self.assertIn(".business-hints.has-dismiss { grid-template-columns: 1fr; }", css)
+        self.assertIn(
+            ".business-hints.has-dismiss { grid-template-columns: 1fr; }", css
+        )
         self.assertIn(".hint-dismiss {\n    position: static;", css)
         self.assertIn(".sidebar-collapse[data-tooltip]", css)
         self.assertIn(".bell-item {\n    display: grid;", css)
@@ -367,8 +419,8 @@ class FrontendStaticQualityTests(unittest.TestCase):
         self.assertIn('data-help-tip="true"', js)
         self.assertIn('$("#bellClose")?.addEventListener("click"', js)
         self.assertIn('class="panel-title-row"', js)
-        self.assertIn('.panel-title-row { display: inline-flex;', css)
-        self.assertNotIn('План смены ${helpTip', js)
+        self.assertIn(".panel-title-row { display: inline-flex;", css)
+        self.assertNotIn("План смены ${helpTip", js)
         self.assertNotIn("#commandBtn,\n    #refreshBtn,", css)
         self.assertNotIn("#refreshBtn,\n    #systemMenuBtn", css)
         self.assertIn("#commandBtn,\n    #refreshBtn { width: var(--icon-size);", css)
@@ -389,14 +441,21 @@ class FrontendStaticQualityTests(unittest.TestCase):
         self.assertIn('closeTransientPanels("cta")', js)
         self.assertIn('closeTransientPanels("bell")', js)
         self.assertIn('closeTransientPanels("system")', js)
-        self.assertIn("function bindTransientPanelFocusExit(panel, triggerButton, closePanel)", js)
-        self.assertIn("panel.addEventListener(\"focusout\", event =>", js)
+        self.assertIn(
+            "function bindTransientPanelFocusExit(panel, triggerButton, closePanel)", js
+        )
+        self.assertIn('panel.addEventListener("focusout", event =>', js)
         self.assertIn("bindTransientPanelFocusExit(ctaMenu, more, setCtaMenuOpen);", js)
-        self.assertIn("bindTransientPanelFocusExit(bellPanel, bellBtn, setBellPanelOpen);", js)
-        self.assertIn('bindTransientPanelFocusExit($("#systemMenu"), $("#systemMenuBtn"), setSystemMenuOpen);', js)
+        self.assertIn(
+            "bindTransientPanelFocusExit(bellPanel, bellBtn, setBellPanelOpen);", js
+        )
+        self.assertIn(
+            'bindTransientPanelFocusExit($("#systemMenu"), $("#systemMenuBtn"), setSystemMenuOpen);',
+            js,
+        )
         self.assertIn("closePanel(false, { restoreFocus: true });", js)
         self.assertIn("content?.focus({ preventScroll: true });", js)
-        self.assertIn('setMobileNavOpen(false, { restoreFocus: false });', js)
+        self.assertIn("setMobileNavOpen(false, { restoreFocus: false });", js)
 
 
 if __name__ == "__main__":

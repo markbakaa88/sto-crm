@@ -49,7 +49,7 @@ def create_customer(payload: dict[str, Any]) -> dict[str, Any]:
             """,
             {**data, "created_at": stamp, "updated_at": stamp},
         )
-        return get_customer(conn, int(cur.lastrowid))
+        return get_customer(conn, int(cur.lastrowid or 0))
 
 
 def update_customer(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
@@ -157,7 +157,7 @@ def create_vehicle(payload: dict[str, Any]) -> dict[str, Any]:
             """,
             {**data, "created_at": stamp, "updated_at": stamp},
         )
-        return get_vehicle(conn, int(cur.lastrowid))
+        return get_vehicle(conn, int(cur.lastrowid or 0))
 
 
 def update_vehicle(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
@@ -291,7 +291,7 @@ def create_appointment(payload: dict[str, Any]) -> dict[str, Any]:
             """,
             {**data, "created_at": stamp, "updated_at": stamp},
         )
-        return get_appointment(conn, int(cur.lastrowid))
+        return get_appointment(conn, int(cur.lastrowid or 0))
 
 
 def update_appointment(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
@@ -370,7 +370,7 @@ def create_inventory(payload: dict[str, Any]) -> dict[str, Any]:
             """,
             {**data, "created_at": stamp, "updated_at": stamp},
         )
-        return get_inventory(conn, int(cur.lastrowid))
+        return get_inventory(conn, int(cur.lastrowid or 0))
 
 
 def update_inventory(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
@@ -398,13 +398,17 @@ def update_inventory(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
             """,
             (record_id,),
         ).fetchone()
-        if closed_usage and abs(
-            parse_float(data["quantity"]) - parse_float(current["quantity"])
-        ) > 0.000001:
+        if (
+            closed_usage
+            and abs(parse_float(data["quantity"]) - parse_float(current["quantity"]))
+            > 0.000001
+        ):
             raise ValueError(
                 "Остаток позиции участвует в закрытых заказах. Создайте отдельную складскую корректировку или отмените связанный закрытый заказ без изменения его позиций."
             )
-        if parse_float(data["quantity"]) + 0.000001 < reserved_quantity(conn, record_id):
+        if parse_float(data["quantity"]) + 0.000001 < reserved_quantity(
+            conn, record_id
+        ):
             raise ValueError(
                 "Остаток позиции меньше уже зарезервированного количества в активных заказах. Сначала измените активные заказ-наряды."
             )
@@ -541,10 +545,7 @@ def reconcile_vehicle_mileage_after_order_change(
     max_order_id, max_order_odometer = vehicle_order_mileage_source(conn, vehicle_id)
     target_odometer = max(manual_odometer, max_order_odometer)
     target_order_id = max_order_id if max_order_odometer >= manual_odometer else None
-    if (
-        target_odometer == previous_odometer
-        and target_order_id == previous_order_id
-    ):
+    if target_odometer == previous_odometer and target_order_id == previous_order_id:
         return
     stamp = now_iso()
     conn.execute(
@@ -587,7 +588,7 @@ def create_order_tx(conn: sqlite3.Connection, payload: dict[str, Any]) -> int:
             "updated_at": stamp,
         },
     )
-    order_id = int(cur.lastrowid)
+    order_id = int(cur.lastrowid or 0)
     insert_order_items(conn, order_id, data["items"])
     if data["status"] != "cancelled":
         sync_vehicle_mileage_from_order(
@@ -610,10 +611,7 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
             for item in old_items
             if item.get("inventory_id")
             and item.get("inventory_deleted_at")
-            and (
-                str(old["closed_at"] or "")
-                or old_status in {"closed", "cancelled"}
-            )
+            and (str(old["closed_at"] or "") or old_status in {"closed", "cancelled"})
         }
         old_deleted_vehicle_id = (
             int(old["vehicle_id"] or 0) if old["vehicle_id"] else None

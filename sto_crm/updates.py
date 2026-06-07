@@ -444,10 +444,11 @@ def normalize_release_asset(
     sha256 = validate_sha256(
         asset.get("sha256") or asset.get("hash") or "", required=require_sha256
     )
-    raw_download_url = (
+    raw_download_url = str(
         asset.get("download_url")
         or asset.get("browser_download_url")
         or (manifest_asset or {}).get("browser_download_url")
+        or ""
     )
     download_url = (
         validate_manifest_asset_download_url(raw_download_url, repository, tag)
@@ -548,9 +549,8 @@ def update_status() -> dict[str, Any]:
     app_path = app_executable_path()
     try:
         release = latest_release_info()
-        release["is_newer"] = is_newer_version(
-            release.get("version") or release.get("tag"), APP_VERSION
-        )
+        version = str(release.get("version") or release.get("tag") or "")
+        release["is_newer"] = is_newer_version(version, APP_VERSION)
         release["has_asset"] = is_installable_update_asset(release.get("asset"))
         return {
             "ok": True,
@@ -809,7 +809,7 @@ def install_update_from_github() -> dict[str, Any]:
                 "message": "Стабильных обновлений нет.",
                 "release": release,
             }
-        version = release.get("version") or release.get("tag")
+        version = str(release.get("version") or release.get("tag") or "")
         if not is_newer_version(version, APP_VERSION):
             return {
                 "ok": True,
@@ -826,9 +826,7 @@ def install_update_from_github() -> dict[str, Any]:
         validate_update_download_url(str(asset.get("download_url") or ""))
         update_dir = user_data_dir() / "updates"
         update_dir.mkdir(parents=True, exist_ok=True)
-        safe_name = re.sub(
-            r"[^A-Za-z0-9_.-]+", "_", asset.get("name") or "STO_CRM.exe"
-        )
+        safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", asset.get("name") or "STO_CRM.exe")
         downloaded = (
             update_dir
             / f"download-{datetime.now().strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(8)}-{safe_name}"

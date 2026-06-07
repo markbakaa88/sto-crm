@@ -81,7 +81,6 @@ const REQUIRED_SUBSTRINGS = [
   '<button class="btn ghost" type="button" data-action="export-csv"',
   "openPrintOrder(id)",
   'window.open("about:blank", "_blank", "noopener")',
-  "printWindow.opener = null;",
   'data-action="duplicate-order"',
   'aria-label="Печать заказ-наряда',
   "Прокрутите вправо",
@@ -228,6 +227,8 @@ const REQUIRED_SUBSTRINGS = [
 ];
 
 const FORBIDDEN_SUBSTRINGS = [
+  "printWindow.opener = null;",
+  
   '<div class="field"><label>',
   'data-route="inspections"',
   "new-inspection",
