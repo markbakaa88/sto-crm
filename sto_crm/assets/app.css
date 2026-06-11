@@ -225,6 +225,22 @@ body.dark, [data-theme="dark"] {
 }
 
 /* 2. Обнуление и База ----------------------------------------------------- */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background-color: var(--line-strong);
+    border-radius: var(--radius-xl);
+}
+::-webkit-scrollbar-thumb:hover {
+    background-color: var(--ink-faint);
+}
+
+/* 2. Обнуление и База ----------------------------------------------------- */
     --badge-warning-ink: #fde68a;
     --badge-info-bg: rgba(96, 165, 250, 0.15);
     --badge-info-ink: #bfdbfe;
@@ -939,10 +955,14 @@ body.dark .context-pill.neutral { background: var(--surface); }
     background: var(--surface); border: 1px solid var(--line);
     border-radius: var(--radius-md); padding: var(--space-3);
     display: flex; flex-direction: column; gap: 6px; cursor: pointer;
-    transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+    transition: transform var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
     color: var(--ink);
 }
-.quick-tile:hover { background: var(--surface-subtle); border-color: var(--line-strong); }
+.quick-tile:hover {
+    background: var(--surface-subtle);
+    border-color: var(--line-strong);
+    transform: translateY(-2px);
+}
 .quick-tile[data-tooltip]::after { content: none; display: none; }
 .quick-tile strong { font-size: var(--font-size-sm); display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .quick-tile strong kbd {

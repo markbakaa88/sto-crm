@@ -1,9 +1,7 @@
 import pytest
 import sqlite3
 from sto_crm.validation import (
-    validate_customer, validate_vehicle, validate_inventory,
-    validate_order, validate_appointment, validate_order_item,
-    item_is_billable, ensure_unique_active_value
+    validate_customer, validate_vehicle
 )
 
 def test_validate_customer_missing_name():
@@ -20,6 +18,9 @@ def test_validate_customer_invalid_email():
 
 def test_validate_vehicle_missing_customer():
     conn = sqlite3.connect(":memory:")
-    with pytest.raises(ValueError, match="Выберите действующего клиента"):
-        validate_vehicle(conn, {})
+    try:
+        with pytest.raises(ValueError, match="Выберите действующего клиента"):
+            validate_vehicle(conn, {})
+    finally:
+        conn.close()
 

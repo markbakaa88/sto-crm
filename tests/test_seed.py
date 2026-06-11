@@ -1,4 +1,3 @@
-import pytest
 import sto_crm
 from sto_crm.seed import seed_demo_data
 
