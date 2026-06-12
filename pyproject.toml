@@ -17,3 +17,8 @@ skip_covered = true
 exclude_also = [
     "if __name__ == .__main__.:",
 ]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.17",
+]

@@ -68,14 +68,14 @@
     <main class="main">
         <header class="topbar">
             <button type="button" class="btn icon mobile-nav-toggle" id="mobileNavToggle" aria-label="Открыть навигацию" aria-expanded="false" aria-controls="appSidebar" title="Навигация" data-tooltip="Навигация">☰</button>
-            <div class="title-block">
+            <div class="title-block" style="animation: fade-in 0.3s ease-out;">
                 <h1 id="viewTitle">Панель</h1>
                 <div class="view-subtitle" id="viewSubtitle">Оперативная сводка автосервиса</div>
             </div>
-            <div class="search">
+            <div class="search shadow-sm rounded-lg">
                 <span aria-hidden="true">⌕</span>
                 <label class="sr-only" for="globalSearch">Поиск по клиентам, автомобилям, заказам и складу</label>
-                <input id="globalSearch" placeholder="Поиск по CRM" autocomplete="off" aria-label="Поиск по клиентам, автомобилям, заказам и складу" aria-keyshortcuts="/">
+                <input id="globalSearch" placeholder="🔍 Быстрый поиск..." autocomplete="off" aria-label="Поиск по клиентам, автомобилям, заказам и складу" aria-keyshortcuts="/">
                 <button class="search-clear" id="clearSearch" type="button" aria-label="Очистить поиск" title="Очистить поиск (Esc)" hidden>×</button>
                 <kbd class="search-hint" aria-hidden="true">/</kbd>
             </div>

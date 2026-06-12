@@ -1812,7 +1812,7 @@ async function createBackupFromUi() {
 
 function sectionIntro(title, text, options = {}) {
     const className = options.hero ? "section-card hero-card" : "section-card";
-    const eyebrow = options.eyebrow ? `<div class="hero-eyebrow">${esc(options.eyebrow)}</div>` : "";
+    const eyebrow = options.eyebrow ? `<div class="hero-eyebrow" style="opacity:0.8; font-weight:600; text-transform:uppercase;">${esc(options.eyebrow)}</div>` : "";
     const summary = (options.summary || []).length
         ? `<div class="hero-summary">${options.summary.map(item => `<span class="context-pill ${esc(semanticToneClass(item.tone || ""))}"><small>${esc(item.label)}</small><strong>${esc(item.value)}</strong></span>`).join("")}</div>`
         : "";
