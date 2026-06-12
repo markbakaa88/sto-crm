@@ -226,22 +226,6 @@ body.dark, [data-theme="dark"] {
 }
 
 /* 2. Обнуление и База ----------------------------------------------------- */
-::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-}
-::-webkit-scrollbar-track {
-    background: transparent;
-}
-::-webkit-scrollbar-thumb {
-    background-color: var(--line-strong);
-    border-radius: var(--radius-xl);
-}
-::-webkit-scrollbar-thumb:hover {
-    background-color: var(--ink-faint);
-}
-
-/* 2. Обнуление и База ----------------------------------------------------- */
     --badge-warning-ink: #fde68a;
     --badge-info-bg: rgba(96, 165, 250, 0.15);
     --badge-info-ink: #bfdbfe;
@@ -527,18 +511,19 @@ body.sidebar-collapsed .db-path { display: none; }
     padding: var(--space-1) 0;
 }
 
-.btn { transition: all 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+.btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
     padding: 0 var(--space-4); height: var(--control-h); min-height: var(--control-h);
     border-radius: var(--radius-md); border: 1px solid var(--line);
     background: var(--surface); color: var(--ink);
     cursor: pointer; font-size: var(--font-size-sm); font-weight: 500;
     white-space: nowrap;
+    letter-spacing: 0.2px;
     transition: background var(--dur-fast) var(--ease-out),
                 border-color var(--dur-fast) var(--ease-out),
                 transform var(--dur-fast) var(--ease-out),
                 box-shadow var(--dur-fast) var(--ease-out);
- border-radius: var(--radius-md); font-weight: 500; letter-spacing: 0.2px; transition: all var(--dur-fast) ease-in-out; }
+}
 .btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); background: var(--surface-subtle); border-color: var(--line-strong); }
 .btn:active { transform: scale(0.96) translateY(2px); transition: transform 0.05s; }
 .btn:disabled, .btn[aria-disabled="true"] {
