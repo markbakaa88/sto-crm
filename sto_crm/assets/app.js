@@ -439,10 +439,10 @@ function contextStripHtml() {
         ${contextPill("Воронка", moneyCompact(r.pipeline_value || 0), `${r.active_orders || 0} ${pluralRu(r.active_orders, "активный заказ", "активных заказа", "активных заказов")}`, "info")}
         ${contextPill("К оплате", moneyCompact(r.due_total || 0), "Дебиторская задолженность", dueTone(r))}
         ${contextPill(
-            "Обновлено",
-            formatClockTime(state.lastLoadedAt),
-            `${state.offlineMode ? "Кэш" : "Онлайн"} · ${state.data.app?.version || ""}`,
-            state.offlineMode ? "warning" : "success"
+            "План смены",
+            `${r.action_plan_total || 0} ${pluralRu(r.action_plan_total || 0, "задача", "задачи", "задач")}`,
+            "Важные действия смены",
+            r.risk_total ? "warning" : "success"
         )}
     </section>`;
 }
@@ -2508,17 +2508,13 @@ function renderInventory() {
                             </td>
                             <td class="money" data-label="Цена клиенту"><strong>${money(p.price)}</strong></td>
                             <td class="money" data-label="Себестоимость"><span class="text-secondary">${money(p.cost)}</span></td>
-                            <td data-label="Поставщик"><div class="cell-title">${esc(p.supplier) || "—"}<div class="muted text-sm">Контрагент</div></div></td>
+                            <td data-label="Поставщик"><div class="cell-title"><strong>${esc(p.supplier) || "—"}</strong></div></td>
                             <td data-label="Действия"><button class="btn ghost btn-sm" type="button" data-action="edit-inventory" data-id="${safeRecordId(p.id)}">Профиль</button></td>
                         </tr>`).join("");
     return `
-        ${viewHeading("Управление складом", "Учет автозапчастей и материалов. Контроль остатков, цен и закупка у поставщиков.", [
-            `${rows.length} номенклатур`,
-            `${lowCount} нужно купить`,
-            `${money(state.data.reports.inventory_value || 0)} капитал`
-        ], [
+        ${viewHeading("Управление складом", "Учет автозапчастей и материалов. Контроль остатков, цен и закупка у поставщиков.", [], [
             { label: "Экспорт прайса", action: "export-csv", export: "inventory", className: "ghost" },
-            { label: "+ Добавить деталь", action: "new-inventory", className: "primary shadow-btn" }
+            { label: "+ Добавить деталь", action: "new-inventory", className: "" }
         ])}
         <section class="insight-grid mb-5">
             ${insightCard("Всего позиций", rows.length, "Записей в номенклатуре", "▦")}

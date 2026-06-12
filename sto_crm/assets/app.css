@@ -2450,3 +2450,42 @@ body.dark .status-badge.success {
     color: #6ee7b7 !important;
     border: 1px solid rgba(52, 211, 153, 0.3);
 }
+
+/* 10. Доработки разметки и стилистики модальных окон (Modal Layout & A11y) */
+@media (min-width: 721px) {
+    .modal .form-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+    .modal .form-grid.three {
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    }
+}
+
+/* Настройка контрастности легенд fieldset (заголовков секций формы) */
+.form-fieldset > legend {
+    color: var(--brand-strong) !important;
+    font-weight: 700;
+    border-color: var(--brand-mid);
+    background: var(--surface-subtle);
+}
+body.dark .form-fieldset > legend {
+    color: var(--brand) !important;
+    border-color: rgba(90, 200, 189, 0.3);
+    background: var(--surface-subtle);
+}
+
+/* Исправление контрастности кнопки удаления в темной теме */
+body.dark .btn.danger {
+    background: rgba(251, 113, 133, 0.12) !important;
+    border-color: rgba(251, 113, 133, 0.3) !important;
+    color: #fda4af !important;
+}
+body.dark .btn.danger:hover {
+    background: #fb7185 !important;
+    color: #0c101b !important;
+}
+
+/* Улучшение читаемости подсказок полей */
+body.dark .field .field-hint {
+    color: var(--ink-soft) !important;
+}
