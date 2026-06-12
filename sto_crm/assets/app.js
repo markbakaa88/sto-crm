@@ -1851,7 +1851,7 @@ function noticeHtml(tone = "info", title = "", text = "", action = "") {
 }
 
 function insightCard(label, value, hint, options = {}) {
-    const icon = options.icon || String(label || "").trim().slice(0, 1).toLocaleUpperCase("ru-RU") || "•";
+    const icon = typeof options === 'string' ? options : (options.icon || String(label || "").trim().slice(0, 1).toLocaleUpperCase("ru-RU") || "•");
     const help = options.help ? helpTip(options.help) : "";
     return `<article class="insight-card" aria-label="${esc(`${label}: ${value}. ${hint}`)}"><div class="insight-head"><small>${esc(label)}${help}</small><span class="insight-icon" aria-hidden="true">${esc(icon)}</span></div><strong>${esc(value)}</strong><span class="muted">${esc(hint)}</span></article>`;
 }
