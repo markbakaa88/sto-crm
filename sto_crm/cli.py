@@ -5,13 +5,11 @@ from __future__ import annotations
 import argparse
 import secrets
 import signal
-import socket
 import sys
 import threading
 import time
 import webbrowser
 from collections.abc import Iterator
-from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -36,19 +34,6 @@ def candidate_ports(preferred: int, attempts: int = 50) -> Iterator[int]:
     if start > 0:
         yield from range(start, min(start + max(attempts, 1), 65_536))
     yield 0
-
-
-def find_free_port(preferred: int) -> int:
-    """Возвращает ближайший свободный порт для обратной совместимости тестов и CLI."""
-    for port in candidate_ports(preferred):
-        try:
-            with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                sock.bind(("127.0.0.1", port))
-                return int(sock.getsockname()[1])
-        except OSError:
-            continue
-    raise OSError("Не удалось найти свободный локальный порт.")
 
 
 def normalize_bind_host(host: str | None) -> str:
