@@ -4196,12 +4196,12 @@ class StoCrmTests(unittest.TestCase):
         script = script_path.read_text(encoding="utf-8-sig")
         self.assertIn(
             "$Current = 'C:/Users/Иван O''Connor/AppData/Local/STO CRM/STO_CRM.exe'",
-            script,
+            script.replace("\\", "/"),
         )
         self.assertIn("скачанное обновление.exe'", script)
         self.assertIn("backup O''Connor.exe'", script)
         self.assertNotIn("\\u0418", script)
-        self.assertNotIn('"C:/Users', script)
+        self.assertNotIn('"C:/Users', script.replace("\\", "/"))
         self.assertIn("$ExpectedSha256", script)
         self.assertIn(expected_sha256, script)
         self.assertIn("if (-not (Test-Path -LiteralPath $Downloaded))", script)

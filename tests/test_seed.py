@@ -1,20 +1,29 @@
+import unittest
 import sto_crm
 from sto_crm.seed import seed_demo_data
+from pathlib import Path
+import time
 
 
-def test_seed_demo_data(tmp_path):
-    import time
-    from pathlib import Path
-
-    sto_crm.RUNTIME = sto_crm.Runtime(
-        Path(tmp_path) / "test_seed.sqlite3",
-        time.time(),
-        "csrftoken",
-        "accesstoken",
-        "bootstraptoken",
-    )
-    sto_crm.init_db()
-    seed_demo_data()
-    # verify
-    with sto_crm.db() as conn:
-        assert conn.execute("SELECT COUNT(*) FROM customers").fetchone()[0] > 0
+class TestSeed(unittest.TestCase):
+    def test_seed_demo_data(self):
+        db_path = Path("test_seed_demo_unittest.sqlite3")
+        try:
+            sto_crm.RUNTIME = sto_crm.Runtime(
+                db_path,
+                time.time(),
+                "csrftoken",
+                "accesstoken",
+                "bootstraptoken",
+            )
+            sto_crm.init_db()
+            seed_demo_data()
+            with sto_crm.db() as conn:
+                count = conn.execute("SELECT COUNT(*) FROM customers").fetchone()[0]
+                self.assertGreater(count, 0)
+        finally:
+            if db_path.exists():
+                try:
+                    db_path.unlink()
+                except OSError:
+                    pass

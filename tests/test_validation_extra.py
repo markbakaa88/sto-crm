@@ -2,6 +2,7 @@ import unittest
 import sqlite3
 from sto_crm.validation import validate_customer, validate_vehicle
 
+
 class TestValidationExtra(unittest.TestCase):
     def test_validate_customer_missing_name(self):
         with self.assertRaisesRegex(ValueError, "имя клиента"):

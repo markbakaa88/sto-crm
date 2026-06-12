@@ -321,15 +321,19 @@ class CRMHandler(BaseHTTPRequestHandler):
             self.send_error_json(408, "Тело запроса не получено вовремя.")
         except OSError:
             if getattr(sys, "stderr", None):
-                
                 import logging
-                logging.getLogger("sto_crm").error("Unhandled Server Exception", exc_info=True)
+
+                logging.getLogger("sto_crm").error(
+                    "Unhandled Server Exception", exc_info=True
+                )
             self.send_error_json(500, INTERNAL_ERROR_MESSAGE)
         except Exception:
             if getattr(sys, "stderr", None):
-                
                 import logging
-                logging.getLogger("sto_crm").error("Unhandled Server Exception", exc_info=True)
+
+                logging.getLogger("sto_crm").error(
+                    "Unhandled Server Exception", exc_info=True
+                )
             self.send_error_json(500, INTERNAL_ERROR_MESSAGE)
         finally:
             if not trusted_request:

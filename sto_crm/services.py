@@ -33,6 +33,7 @@ from .validation import (
 
 logger = logging.getLogger("sto_crm")
 
+
 def _query_get_order(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
     # Lazy import разрывает цикл queries → services.
     from .queries import get_order
