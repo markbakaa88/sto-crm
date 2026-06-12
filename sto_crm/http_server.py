@@ -345,6 +345,7 @@ class CRMHandler(BaseHTTPRequestHandler):
         if cached is not None and now < float(
             _UPDATE_STATUS_CACHE.get("expires_at") or 0.0
         ):
+            assert isinstance(cached, dict)
             return cached
         with _UPDATE_STATUS_LOCK:
             now = time.monotonic()
@@ -352,10 +353,12 @@ class CRMHandler(BaseHTTPRequestHandler):
             if cached is not None and now < float(
                 _UPDATE_STATUS_CACHE.get("expires_at") or 0.0
             ):
+                assert isinstance(cached, dict)
                 return cached
             payload = update_status()
             _UPDATE_STATUS_CACHE["payload"] = payload
             _UPDATE_STATUS_CACHE["expires_at"] = now + UPDATE_STATUS_CACHE_SECONDS
+            assert isinstance(payload, dict)
             return payload
 
     def route_entity(

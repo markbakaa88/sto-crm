@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import sys
 import types
+from typing import Any
 
 from . import catalog as catalog
 from . import cli as cli
@@ -64,12 +65,12 @@ _publish_module_symbols()
 class _StoCrmFacade(types.ModuleType):
     """Module type that keeps legacy monkeypatching semantics intact."""
 
-    def __getattribute__(self, name: str):
+    def __getattribute__(self, name: str) -> Any:
         if name == "RUNTIME":
             return runtime.RUNTIME
         return super().__getattribute__(name)
 
-    def __setattr__(self, name: str, value) -> None:
+    def __setattr__(self, name: str, value: Any) -> None:
         if name == "RUNTIME":
             runtime.RUNTIME = value
         for module in _IMPLEMENTATION_MODULES:

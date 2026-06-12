@@ -796,7 +796,7 @@ def insert_order_items(
     order_id: int,
     items: list[dict[str, Any]],
     *,
-    preserved_timestamps: dict[tuple, str] | None = None,
+    preserved_timestamps: dict[tuple[Any, ...], str] | None = None,
 ) -> None:
     stamp = now_iso()
     preserved = preserved_timestamps or {}

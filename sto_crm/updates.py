@@ -359,6 +359,7 @@ def read_limited_response(response: Any, max_bytes: int, label: str) -> bytes:
     payload = response.read(max_bytes + 1)
     if len(payload) > max_bytes:
         raise RuntimeError(f"{label} слишком большой для безопасной обработки.")
+    assert isinstance(payload, bytes)
     return payload
 
 
