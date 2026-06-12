@@ -455,7 +455,7 @@ body.sidebar-collapsed .db-path { display: none; }
     gap: var(--space-3);
     align-items: center;
     padding: 0 var(--space-5);
-    -webkit-backdrop-filter: saturate(180%) blur(12px); backdrop-filter: saturate(180%) blur(12px); -webkit-backdrop-filter: saturate(180%) blur(12px);
+    -webkit-backdrop-filter: saturate(180%) blur(12px); backdrop-filter: saturate(180%) blur(12px);
     overflow: visible;
 }
 @media (max-width: 1280px) {
@@ -1423,7 +1423,7 @@ body:not(.sidebar-collapsed) .brand { padding-right: 20px; }
 .stack { display: flex; flex-direction: column; gap: var(--space-4); }
 
 /* Modal */
-.modal-backdrop, .command-palette-backdrop { opacity: 0; transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+.modal-backdrop, .command-palette-backdrop { opacity: 0; transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
     position: fixed; inset: 0;
     background: var(--overlay-backdrop);
     z-index: var(--z-overlay); display: grid;
