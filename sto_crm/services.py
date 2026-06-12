@@ -42,6 +42,7 @@ def _query_get_order(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]
 
 
 def create_customer(payload: dict[str, Any]) -> dict[str, Any]:
+    logger.info("Creating a new customer")
     data = validate_customer(payload)
     stamp = now_iso()
     with write_db() as conn:
@@ -134,6 +135,7 @@ def get_customer(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
 
 
 def create_vehicle(payload: dict[str, Any]) -> dict[str, Any]:
+    logger.info("Creating a new vehicle")
     with write_db() as conn:
         data = validate_vehicle(conn, payload)
         ensure_unique_active_value(
@@ -278,6 +280,7 @@ def get_vehicle(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
 
 
 def create_appointment(payload: dict[str, Any]) -> dict[str, Any]:
+    logger.info("Creating a new appointment")
     with write_db() as conn:
         data = validate_appointment(conn, payload)
         if data["status"] in APPOINTMENT_ACTIVE_STATUSES:
