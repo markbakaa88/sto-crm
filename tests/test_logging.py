@@ -1,6 +1,7 @@
 import logging
 import sys
 import unittest
+
 from sto_crm.logging_config import setup_logger
 
 
