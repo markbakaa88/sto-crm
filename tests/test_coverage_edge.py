@@ -51,13 +51,25 @@ class TestCoverageEdge(unittest.TestCase):
     def test_validate_manifest_asset_download_url_invalid(self):
         # Не github.com
         with self.assertRaises(RuntimeError):
-            validate_manifest_asset_download_url("https://objects.githubusercontent.com/file", "markbakaa88/sto-crm", "v1.0.0")
+            validate_manifest_asset_download_url(
+                "https://objects.githubusercontent.com/file",
+                "markbakaa88/sto-crm",
+                "v1.0.0",
+            )
         # Неправильный репозиторий
         with self.assertRaises(RuntimeError):
-            validate_manifest_asset_download_url("https://github.com/other/repo/releases/download/v1.0.0/STO_CRM.exe", "markbakaa88/sto-crm", "v1.0.0")
+            validate_manifest_asset_download_url(
+                "https://github.com/other/repo/releases/download/v1.0.0/STO_CRM.exe",
+                "markbakaa88/sto-crm",
+                "v1.0.0",
+            )
         # Не exe файл
         with self.assertRaises(RuntimeError):
-            validate_manifest_asset_download_url("https://github.com/markbakaa88/sto-crm/releases/download/v1.0.0/latest.json", "markbakaa88/sto-crm", "v1.0.0")
+            validate_manifest_asset_download_url(
+                "https://github.com/markbakaa88/sto-crm/releases/download/v1.0.0/latest.json",
+                "markbakaa88/sto-crm",
+                "v1.0.0",
+            )
 
     def test_validate_sha256_invalid(self):
         with self.assertRaises(RuntimeError):
@@ -70,14 +82,17 @@ class TestCoverageEdge(unittest.TestCase):
         class DummyResponse:
             def __init__(self) -> None:
                 self.headers = {"Content-Length": "not-a-number"}
+
         self.assertEqual(_content_length(DummyResponse()), 0)
 
     def test_read_limited_response_overflow(self):
         class DummyResponse:
             def __init__(self) -> None:
                 self.headers = {"Content-Length": "100"}
+
             def read(self, limit: int) -> bytes:
                 return b"a" * 105
+
         with self.assertRaises(RuntimeError):
             read_limited_response(DummyResponse(), 50, "test")
 
@@ -85,6 +100,7 @@ class TestCoverageEdge(unittest.TestCase):
         if not hasattr(os, "symlink"):
             self.skipTest("symlink не поддерживается на платформе")
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             real_dir = Path(tmpdir) / "real"
             real_dir.mkdir()
