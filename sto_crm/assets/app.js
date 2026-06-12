@@ -2160,35 +2160,29 @@ function renderAppointments() {
     const upcoming = state.data.reports?.appointments_upcoming || [];
     const body = rows.map(appointment => `
                         <tr>
-                            <td class="nowrap" data-label="Дата и время">${dateShort(appointment.scheduled_at)}</td>
-                            <td data-label="Клиент и авто"><div class="cell-title"><strong>${esc(appointment.customer_name)}</strong><div class="muted">${esc(appointment.customer_phone)} · ${esc(appointmentVehicle(appointment) || "Авто не выбрано")}</div></div></td>
-                            <td data-label="Статус">${appointmentStatusBadge(appointment.status)}</td>
-                            <td data-label="Длительность">${Number(appointment.duration_minutes || 0)} мин</td>
-                            <td data-label="Мастер">${esc(appointment.advisor || "")}</td>
-                            <td data-label="Причина"><div class="cell-title"><strong>${esc(appointment.reason || "")}</strong><div class="muted">${esc(appointment.notes || "")}</div></div></td>
-                            <td data-label="Действия"><div class="row-actions"><button class="btn" type="button" data-action="edit-appointment" data-id="${safeRecordId(appointment.id)}" aria-label="Открыть запись ${esc(appointment.customer_name || appointment.id)} на ${esc(dateShort(appointment.scheduled_at))}">Открыть</button></div></td>
+                            <td class="nowrap" data-label="Запланировано"><div class="cell-title"><strong>${dateShort(appointment.scheduled_at)}</strong><div class="muted" style="font-size:0.85em;">~${Number(appointment.duration_minutes || 0)} мин</div></div></td>
+                            <td data-label="О клиенте"><div class="cell-title"><strong>${esc(appointment.customer_name)}</strong><div class="muted d-flex align-items-center"><span class="icon-contact" aria-hidden="true">📱</span> ${esc(appointment.customer_phone)}</div></div></td>
+                            <td data-label="Транспорт"><strong>${esc(appointmentVehicle(appointment) || "—")}</strong></td>
+                            <td data-label="Статус визита">${appointmentStatusBadge(appointment.status)}</td>
+                            <td data-label="Приёмщик"><strong>${esc(appointment.advisor) || "—"}</strong></td>
+                            <td data-label="Повод обращения"><div class="cell-title"><strong>${esc(appointment.reason) || "—"}</strong><div class="muted truncate-text" style="max-width:200px" title="${esc(appointment.notes)}">${esc(appointment.notes)}</div></div></td>
+                            <td data-label="Действия"><button class="btn ghost btn-sm" type="button" data-action="edit-appointment" data-id="${safeRecordId(appointment.id)}">Профиль</button></td>
                         </tr>`).join("");
     return `
-        ${viewHeading("Календарь приёмки", "Планируйте визиты, подтверждения, прибытия и неявки в одном аккуратном рабочем списке.", [
-            `${rows.length} записей`,
+        ${viewHeading("Календарь и планирование", "Запланированные визиты, подтверждения и координация приёмки на СТО.", [
+            `${rows.length} в списке`,
             `${upcoming.length} ближайших`,
-            `${state.data.reports.appointments_today_count || 0} сегодня`
+            `${state.data.reports.appointments_today_count || 0} на сегодня`
         ], [
-            { label: "CSV", action: "export-csv", export: "appointments", className: "ghost" },
-            { label: "Новая запись", action: "new-appointment", className: "primary" }
+            { label: "Выгрузить CSV", action: "export-csv", export: "appointments", className: "ghost" },
+            { label: "+ Новая запись", action: "new-appointment", className: "primary shadow-btn" }
         ])}
-        <section class="kpi-grid">
-            ${metric("Записей сегодня", state.data.reports.appointments_today_count || 0, "Подтверждения, приёмка и прибытия")}
-            ${metric("Ближайшие записи", upcoming.length, "Активные записи в календаре")}
-            ${metric("Клиентов в базе", state.data.lookups.customers.length, "Можно быстро поставить в календарь")}
-            ${metric("CRM задачи", state.data.reports.crm_tasks_count, "Напоминания, follow-up и отложенные работы")}
-        </section>
         ${rows.length ? `<div class="table-wrap responsive-table-wrap">
-            <table class="responsive-table" aria-label="Таблица записей клиентов">
-                <thead>${tableHead(["Дата и время", "Клиент и авто", "Статус", "Длительность", "Мастер", "Причина", ""])}</thead>
+            <table class="responsive-table modern-hover" aria-label="Таблица календаря визитов">
+                <thead>${tableHead(["Запланировано", "О клиенте", "Транспорт", "Статус визита", "Приёмщик", "Повод обращения", ""])}</thead>
                 <tbody>${body}</tbody>
             </table>
-        </div>` : emptyState("Записей пока нет", "Создайте запись клиента в календаре — и она появится здесь.", `<button class="btn primary" type="button" data-action="new-appointment">+ Новая запись</button>`)}
+        </div>` : emptyState("Нет записей в календаре", "Запланируйте первую встречу с клиентом, чтобы запустить бизнес-процесс.", `<button class="btn primary shadow-btn" type="button" data-action="new-appointment">+ Создать запись</button>`)}
     `;
 }
 
@@ -2268,7 +2262,7 @@ function ordersTable(orders, compact) {
         </div>`;
     }
     return `<div class="table-wrap responsive-table-wrap">
-        <table class="responsive-table" aria-label="Таблица заказ-нарядов">
+        <table class="responsive-table modern-hover" aria-label="Таблица заказ-нарядов">
             <thead>${tableHead(["Номер", "Клиент и авто", "Статус", "Срок", "Мастер", {text: "Итого", className: "money"}, {text: "К оплате", className: "money"}, ""])}</thead>
             <tbody>
                 ${orders.map(order => `
@@ -2296,39 +2290,39 @@ function renderCustomers() {
     const pageSize = state.customerPageSize || 50;
     const maxPage = Math.max(1, Math.ceil(total / pageSize));
     state.customerPage = Math.min(Math.max(1, state.customerPage || 1), maxPage);
-    const startIndex = (state.customerPage - 1) * pageSize;
-    const pageRows = rows.slice(startIndex, startIndex + pageSize);
-    const rangeText = total ? `${startIndex + 1}–${Math.min(total, startIndex + pageRows.length)} показаны` : "0 показано";
+    const offset = (state.customerPage - 1) * pageSize;
+    const sorted = [...rows].sort((a, b) => b.id - a.id);
+    const paged = sorted.slice(offset, offset + pageSize);
+
+    const body = paged.length ? paged.map(c => `
+        <tr class="customer-row">
+            <td data-label="ID"><div class="muted">#${c.id}</div></td>
+            <td data-label="Клиент"><div class="cell-title"><strong>${esc(c.name)}</strong><div class="muted d-flex align-items-center"><span class="icon-contact" aria-hidden="true">📱</span> ${esc(c.phone)}</div></div></td>
+            <td data-label="Email"><a href="mailto:${esc(c.email)}" class="link-muted">${esc(c.email) || "—"}</a></td>
+            <td data-label="Предпочитает">${esc(channelLabel(c.preferred_channel))}</td>
+            <td data-label="Согласие">${c.reminder_consent ? '<span class="status-badge success">Да</span>' : '<span class="status-badge danger">Нет</span>'}</td>
+            <td data-label="Заметки"><div class="truncate-text" title="${esc(c.notes)}">${esc(c.notes)}</div></td>
+            <td data-label="Действия"><button class="btn" type="button" data-action="edit-customer" data-id="${c.id}">Открыть</button></td>
+        </tr>
+    `).join("") : emptyState("Клиентов не найдено", "Создайте первого клиента или измените поиск.", `<button class="btn primary" type="button" data-action="new-customer">Новый клиент</button>`);
+
+    const table = paged.length ? `<div class="table-wrap responsive-table-wrap">
+        <table class="responsive-table">
+            <thead>${tableHead(["ID", "Клиент", "Email", "Канал связи", "Уведомления", "Заметки", ""])}</thead>
+            <tbody>${body}</tbody>
+        </table>
+    </div>
+    ${paginationControls("customer", state.customerPage, maxPage, total)}` : body;
+
     return `
-        ${viewHeading("Клиенты", "Единая клиентская база с каналами связи, согласием на напоминания, автомобилями и историей заказов.", [
-            `${total} найдено`,
-            rangeText,
-            `${state.data.reports.customers_total ?? state.data.lookups.customers.length} всего`,
+        ${viewHeading("База клиентов", "Управляйте контактами, историей ремонтов и предпочтениями.", [
+            `${total} всего`,
             `${state.data.reports.vip_customers?.length || 0} VIP`
         ], [
             { label: "CSV", action: "export-csv", export: "customers", className: "ghost" },
             { label: "Новый клиент", action: "new-customer", className: "primary" }
         ])}
-        ${paginationControls("customers", state.customerPage, maxPage, total, pageSize, "клиентов")}
-        <div class="table-wrap responsive-table-wrap">
-            <table class="responsive-table" aria-label="Таблица клиентов">
-                <thead>${tableHead(["Клиент", "Телефон", "Email", "Канал", "Источник", "Авто", "Заказы", ""])}</thead>
-                <tbody>
-                    ${pageRows.map(c => `
-                        <tr>
-                            <td data-label="Клиент"><div class="cell-title"><strong>${esc(c.name)}</strong><div class="muted">${textOrDash(c.notes)}</div></div></td>
-                            <td data-label="Телефон">${textOrDash(c.phone, "Нет телефона")}</td>
-                            <td data-label="Email">${textOrDash(c.email, "Нет email")}</td>
-                            <td data-label="Канал">${esc(channelLabel(c.preferred_channel))}${Number(c.reminder_consent) ? "" : `<div><span class="count-pill" data-tone="warning" title="Клиент отказался от напоминаний" aria-label="Без напоминаний">без напоминаний</span></div>`}</td>
-                            <td data-label="Источник">${textOrDash(c.source)}</td>
-                            <td data-label="Авто">${c.vehicles_count}</td>
-                            <td data-label="Заказы"><div class="cell-title"><strong>${c.orders_count}</strong><div class="muted">${c.last_order_at ? `посл. ${dateShort(c.last_order_at)}` : "нет заказов"}</div></div></td>
-                            <td data-label="Действия"><div class="row-actions"><button class="btn" type="button" data-action="edit-customer" data-id="${safeRecordId(c.id)}" aria-label="Открыть клиента ${esc(c.name || c.id)}">Открыть</button></div></td>
-                        </tr>`).join("") || `<tr><td colspan="8"><div class="empty table-empty"><strong>Клиентов не найдено</strong><span>Добавьте клиента или измените поиск.</span></div></td></tr>`}
-                </tbody>
-            </table>
-        </div>
-        ${paginationControls("customers", state.customerPage, maxPage, total, pageSize, "клиентов")}
+        ${table}
     `;
 }
 
@@ -2337,30 +2331,30 @@ function renderVehicles() {
     const catalog = state.data.car_catalog?.stats || { makes: 0, models: 0 };
     const body = rows.map(v => `
                         <tr>
-                            <td data-label="Автомобиль"><div class="cell-title"><strong>${esc(vehicleName(v))}</strong><div class="muted">${esc(v.notes)}</div></div></td>
-                            <td data-label="Госномер">${v.plate ? `<span class="plate">${esc(v.plate)}</span>` : ""}</td>
-                            <td data-label="VIN">${esc(v.vin)}</td>
-                            <td data-label="Клиент"><div class="cell-title">${esc(v.customer_name)}<div class="muted">${esc(v.customer_phone)}</div></div></td>
-                            <td data-label="Пробег">${num(v.mileage).toLocaleString("ru-RU")} км</td>
-                            <td data-label="Следующий сервис"><div class="cell-title">${esc(v.next_service_at || "")}<div class="muted">${v.next_service_mileage ? `${num(v.next_service_mileage).toLocaleString("ru-RU")} км` : ""}</div></div></td>
-                            <td data-label="Действия"><div class="row-actions"><button class="btn" type="button" data-action="edit-vehicle" data-id="${safeRecordId(v.id)}" aria-label="Открыть автомобиль ${esc(vehicleName(v) || v.plate || v.id)}">Открыть</button></div></td>
+                            <td data-label="Автомобиль"><div class="cell-title"><strong class="vehicle-name-highlight">${esc(vehicleName(v))}</strong><div class="muted truncate-text" style="max-width:250px" title="${esc(v.notes)}">${esc(v.notes)}</div></div></td>
+                            <td data-label="Госномер">${v.plate ? `<span class="plate plate-modern">${esc(v.plate)}</span>` : '<span class="muted">—</span>'}</td>
+                            <td data-label="VIN"><span class="vin-mono">${esc(v.vin) || "—"}</span></td>
+                            <td data-label="Владелец"><div class="cell-title"><strong>${esc(v.customer_name)}</strong><div class="muted d-flex align-items-center"><span class="icon-contact" aria-hidden="true">📱</span> ${esc(v.customer_phone)}</div></div></td>
+                            <td data-label="Пробег"><strong class="mileage-badge">${num(v.mileage).toLocaleString("ru-RU")} км</strong></td>
+                            <td data-label="Следующий ТО"><div class="cell-title"><strong>${esc(v.next_service_at || "—")}</strong><div class="muted text-warning">${v.next_service_mileage ? `${num(v.next_service_mileage).toLocaleString("ru-RU")} км` : "Нет данных"}</div></div></td>
+                            <td data-label="Действия"><button class="btn ghost btn-sm" type="button" data-action="edit-vehicle" data-id="${safeRecordId(v.id)}">Изменить</button></td>
                         </tr>`).join("");
     return `
-        ${viewHeading("Автомобили", "Паспорт автомобиля, VIN, пробег, сервисный план и быстрый доступ к офлайн-каталогу марок и моделей.", [
+        ${viewHeading("Автопарк клиентов", "Учет сервисного обслуживания, пробега и VIN-номеров.", [
             `${rows.length} авто`,
             `${catalog.makes} марок`,
-            `${state.data.reports.service_reminders?.length || 0} напоминаний`
+            `${state.data.reports.service_reminders?.length || 0} напоминаний ТО`
         ], [
-            { label: "Каталог", action: "open-catalog", className: "ghost" },
-            { label: "CSV", action: "export-csv", export: "vehicles", className: "ghost" },
-            { label: "Новый автомобиль", action: "new-vehicle", className: "primary" }
+            { label: "Справочник ТС", action: "open-catalog", className: "ghost" },
+            { label: "Экспорт CSV", action: "export-csv", export: "vehicles", className: "ghost" },
+            { label: "+ Новый автомобиль", action: "new-vehicle", className: "primary shadow-btn" }
         ])}
         ${rows.length ? `<div class="table-wrap responsive-table-wrap">
-            <table class="responsive-table" aria-label="Таблица автомобилей">
-                <thead>${tableHead(["Автомобиль", "Госномер", "VIN", "Клиент", "Пробег", "Следующий сервис", ""])}</thead>
+            <table class="responsive-table modern-hover" aria-label="Таблица автомобилей">
+                <thead>${tableHead(["Автомобиль", "Госномер", "VIN", "Владелец", "Пробег", "Следующий ТО", ""])}</thead>
                 <tbody>${body}</tbody>
             </table>
-        </div>` : emptyState("Автомобилей пока нет", "Заведите карточку авто клиента — она свяжется с VIN, пробегом и сервисным планом.", `<button class="btn primary" type="button" data-action="new-vehicle">+ Новый автомобиль</button>`)}
+        </div>` : emptyState("Автомобилей не найдено", "Добавьте автомобиль для учёта заказ-нарядов и пробега.", `<button class="btn primary shadow-btn" type="button" data-action="new-vehicle">+ Новый автомобиль</button>`)}
     `;
 }
 
@@ -2491,35 +2485,38 @@ function renderInventory() {
     const lowCount = rows.filter(part => Number(part.is_low)).length;
     const body = rows.map(p => `
                         <tr>
-                            <td data-label="Позиция"><div class="cell-title"><strong>${esc(p.name)}</strong>${Number(p.is_low) ? `<div><span class="count-pill" data-tone="danger" title="Остаток ниже минимального" aria-label="Ниже минимума">ниже минимума</span></div>` : ""}</div></td>
-                            <td data-label="Артикул">${esc(p.sku)}</td>
-                            <td data-label="Бренд">${esc(p.brand)}</td>
-                            <td data-label="Остаток">${qty(p.quantity)} ${esc(p.unit)}<div class="muted">мин. ${qty(p.min_quantity)}</div></td>
-                            <td class="money" data-label="Цена">${money(p.price)}</td>
-                            <td class="money" data-label="Себестоимость">${money(p.cost)}</td>
-                            <td data-label="Поставщик">${esc(p.supplier)}</td>
-                            <td data-label="Действия"><div class="row-actions"><button class="btn" type="button" data-action="edit-inventory" data-id="${safeRecordId(p.id)}" aria-label="Открыть складскую позицию ${esc(p.name || p.sku || p.id)}">Открыть</button></div></td>
+                            <td data-label="Номенклатура"><div class="cell-title"><strong class="inventory-name">${esc(p.name)}</strong>${Number(p.is_low) ? `<div style="margin-top:4px;"><span class="status-badge danger" title="Остаток ниже минимального">Требуется закупка</span></div>` : ""}</div></td>
+                            <td data-label="Артикул"><span class="sku-badge">${esc(p.sku) || "—"}</span></td>
+                            <td data-label="Бренд"><strong>${esc(p.brand) || "—"}</strong></td>
+                            <td data-label="Наличие">
+                                <span class="qty-highlight ${Number(p.is_low) ? "qty-low" : (p.quantity > 0 ? "qty-good" : "qty-empty")}">${qty(p.quantity)} ${esc(p.unit)}</span>
+                                <div class="muted" style="font-size:0.85em; margin-top:2px;">Мин: ${qty(p.min_quantity)}</div>
+                            </td>
+                            <td class="money" data-label="Цена клиенту"><strong>${money(p.price)}</strong></td>
+                            <td class="money" data-label="Себестоимость"><span class="text-secondary">${money(p.cost)}</span></td>
+                            <td data-label="Поставщик"><div class="cell-title">${esc(p.supplier) || "—"}<div class="muted" style="font-size:0.85em;">Контрагент</div></div></td>
+                            <td data-label="Действия"><button class="btn ghost btn-sm" type="button" data-action="edit-inventory" data-id="${safeRecordId(p.id)}">Профиль</button></td>
                         </tr>`).join("");
     return `
-        ${viewHeading("Склад", "Следите за остатками, себестоимостью, поставщиками и закупкой до остановки ремонта.", [
-            `${rows.length} позиций`,
-            `${lowCount} ниже минимума`,
-            `${money(state.data.reports.inventory_value || 0)} себестоимость`
+        ${viewHeading("Управление складом", "Учет автозапчастей и материалов. Контроль остатков, цен и закупка у поставщиков.", [
+            `${rows.length} номенклатур`,
+            `${lowCount} нужно купить`,
+            `${money(state.data.reports.inventory_value || 0)} капитал`
         ], [
-            { label: "CSV", action: "export-csv", export: "inventory", className: "ghost" },
-            { label: "Новая позиция", action: "new-inventory", className: "primary" }
+            { label: "Экспорт прайса", action: "export-csv", export: "inventory", className: "ghost" },
+            { label: "+ Добавить деталь", action: "new-inventory", className: "primary shadow-btn" }
         ])}
-        <section class="insight-grid">
-            ${insightCard("Активных позиций", rows.length, "Складские остатки в базе")}
-            ${insightCard("Ниже минимума", lowCount, "Позиции для закупки")}
-            ${insightCard("Стоимость склада", money(state.data.reports.inventory_value || 0), "По себестоимости остатков")}
+        <section class="insight-grid" style="margin-bottom: var(--space-5);">
+            ${insightCard("Всего позиций", rows.length, "Записей в номенклатуре", "▦")}
+            ${insightCard("Дефицит", lowCount, "Позиций ниже минимального запаса", "⚠")}
+            ${insightCard("Активы склада", money(state.data.reports.inventory_value || 0), "Общая сумма по себестоимости", "₽")}
         </section>
         ${rows.length ? `<div class="table-wrap responsive-table-wrap">
-            <table class="responsive-table" aria-label="Таблица складских позиций">
-                <thead>${tableHead(["Позиция", "Артикул", "Бренд", "Остаток", {text: "Цена", className: "money"}, {text: "Себестоимость", className: "money"}, "Поставщик", ""])}</thead>
+            <table class="responsive-table modern-hover" aria-label="Таблица складских позиций">
+                <thead>${tableHead(["Номенклатура", "Артикул", "Бренд", "Наличие", {text: "Цена клиенту", className: "money"}, {text: "Себестоимость", className: "money"}, "Поставщик", ""])}</thead>
                 <tbody>${body}</tbody>
             </table>
-        </div>` : emptyState("Склад пока пуст", "Добавьте первую позицию, и она появится в таблице с остатками и минимумом.", `<button class="btn primary" type="button" data-action="new-inventory">+ Новая позиция</button>`)}
+        </div>` : emptyState("Номенклатура пуста", "Добавьте запчасти или материалы, чтобы списывать их в заказ-нарядах.", `<button class="btn primary shadow-btn" type="button" data-action="new-inventory">+ Оприходовать деталь</button>`)}
     `;
 }
 
@@ -2527,72 +2524,61 @@ function renderReports() {
     const r = state.data.reports || {};
     const statusCounts = r.status_counts || {};
     const topServices = r.top_services || [];
-    const maxStatus = Math.max(...Object.values(statusCounts), 1);
-    const maxService = Math.max(...topServices.map(x => Number(x.total || 0)), 1);
+    
     return `
-        ${viewHeading("Отчёты и аналитика", "Финансы, маржа, загрузка, закупки и удержание клиентов для управленческих решений.", [
-            `${money(r.revenue_month)} выручка`,
-            `${num(r.margin_percent_month).toFixed(1)}% маржа`,
-            `${r.low_stock_count || 0} складских рисков`
+        ${viewHeading("Аналитика и Финансы", "Глубокий анализ показателей СТО, отчет о выручке, загрузке постов и популярным услугам.", [
+            `Данные актуальны`
         ], [
-            { label: "Открыть заказы", action: "open-orders", className: "ghost" },
-            { label: "Склад", action: "open-inventory", className: "ghost" }
+            { label: "Обновить", action: "refresh", className: "ghost" }
         ])}
-        <div class="report-group-heading"><h3>Финансы и маржа</h3><small>Выручка, маржа и воронка</small></div>
-        <section class="kpi-grid">
-            ${healthMetric(r)}
-            ${metric("Средний чек", money(r.avg_check), "Закрытые заказы текущего месяца")}
-            ${metric("Выручка месяца", money(r.revenue_month), "Факт по закрытым")}
-            ${metric("Низкий склад", r.low_stock_count, "Требуют закупки")}
+        <section class="insight-grid" style="margin-bottom: var(--space-5);">
+            ${insightCard("Общая выручка", money(r.revenue_month || 0), "Закрытые заказы в этом месяце", "📈")}
+            ${insightCard("Средний чек", money(r.average_check || 0), "Сумма по закрытым заказам", "💰")}
+            ${insightCard("В работе", money(r.pipeline_value || 0), "Денег в активных заказах", "⚙️")}
+            ${insightCard("Ожидает оплаты", money(r.pipeline_due || 0), "Долги клиентов по ремонтам", "⏳")}
         </section>
-        <section class="insight-grid">
-            ${insightCard("К оплате", money(r.due_total), "Все незакрытые долги")}
-            ${insightCard("Маржа месяца", money(r.gross_margin_month || 0), `${num(r.margin_percent_month).toFixed(1)}% валовой маржи`)}
-            ${insightCard("Конверсия смет", `${num(r.conversion_rate).toFixed(1)}%`, "Согласование → работа")}
-            ${insightCard("Активная воронка", money(r.pipeline_value || 0), `${money(r.pipeline_due || 0)} ожидает оплаты`)}
-            ${insightCard("Стоимость склада", money(r.inventory_value || 0), "Себестоимость остатков")}
-            ${insightCard("Просрочено", r.overdue_orders_count || 0, "Заказы со сроком раньше текущего времени")}
-        </section>
-        <div class="report-group-heading"><h3>Операции</h3><small>Загрузка, структура заказов и топ работ</small></div>
-        <section class="grid-2">
-            <div class="panel">
-                <div class="panel-head"><h3>Статусы заказов</h3></div>
-                <div class="panel-body bars">
-                    ${Object.entries(state.data.statuses).map(([key, label]) => `
-                        <div class="bar">
-                            <span>${esc(label)}</span>
-                            <div class="bar-track" role="img" aria-label="${esc(label)}: ${statusCounts[key] || 0}"><div class="bar-fill ${widthClassFromPercent((statusCounts[key] || 0) / maxStatus * 100)}"></div></div>
-                            <strong>${statusCounts[key] || 0}</strong>
-                        </div>`).join("")}
+        
+        <div class="workspace-grid" style="grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: var(--space-5);">
+            <div class="panel shadow-sm" style="border-radius: var(--radius-lg);">
+                <div class="panel-head" style="border-bottom: 1px solid var(--line-subtle); padding-bottom: var(--space-3);">
+                    <h3>🚀 Воронка ремонтов</h3>
+                </div>
+                <div class="panel-body">
+                    <ul class="stats-list" style="list-style:none; padding:10px 0; margin:0; display:flex; flex-direction:column; gap:12px;">
+                        ${[["new", "Новые"], ["diagnostics", "Диагностика"], ["estimate", "Дефектовка"], ["approved", "В работе (согласовано)"], ["in_progress", "На посту"], ["done", "Готово"], ["closed", "Закрыто"]].map(([k, label]) => {
+                            const c = statusCounts[k] || 0;
+                            return `
+                            <li style="display:flex; justify-content:space-between; align-items:center; padding-bottom:8px; border-bottom:1px dashed var(--line-subtle);">
+                                <span>${statusBadge(k)}</span>
+                                <strong style="font-size:1.1em">${c} шт.</strong>
+                            </li>
+                            `;
+                        }).join("")}
+                    </ul>
                 </div>
             </div>
-            <div class="panel">
-                <div class="panel-head"><h3>Топ работ</h3></div>
-                <div class="panel-body bars">
-                    ${topServices.map(item => `
-                        <div class="bar">
-                            <span>${esc(item.title)}</span>
-                            <div class="bar-track" role="img" aria-label="${esc(item.title)}: ${money(item.total)}"><div class="bar-fill ${widthClassFromPercent(item.total / maxService * 100)}"></div></div>
-                            <strong>${money(item.total)}</strong>
-                        </div>`).join("") || `<div class="muted">Нет данных по работам.</div>`}
+            
+            <div class="panel shadow-sm" style="border-radius: var(--radius-lg);">
+                <div class="panel-head" style="border-bottom: 1px solid var(--line-subtle); padding-bottom: var(--space-3);">
+                    <h3>⭐ Популярные работы</h3>
+                </div>
+                <div class="panel-body">
+                    ${topServices.length ? `
+                    <ul class="stats-list" style="list-style:none; padding:10px 0; margin:0; display:flex; flex-direction:column; gap:12px;">
+                        ${topServices.map(ts => `
+                            <li style="display:flex; justify-content:space-between; align-items:center; padding-bottom:8px; border-bottom:1px dashed var(--line-subtle);">
+                                <span class="truncate-text" style="max-width:60%; font-weight:500;" title="${esc(ts.title)}">${esc(ts.title)}</span>
+                                <div style="text-align:right;">
+                                    <strong>${ts.count} раз</strong>
+                                    <div class="text-success" style="font-size:0.85em;">${money(ts.revenue)}</div>
+                                </div>
+                            </li>
+                        `).join("")}
+                    </ul>
+                    ` : `<div class="muted" style="padding:20px; text-align:center;">Пока нет достаточной статистики закрытых заказ-нарядов.</div>`}
                 </div>
             </div>
-        </section>
-        <section class="grid-2">
-            <div class="panel">
-                <div class="panel-head"><h3>План закупки</h3><button class="btn" type="button" data-action="open-inventory">Склад</button></div>
-                <div class="panel-body">${procurementList(r.procurement_plan || [])}</div>
-            </div>
-            <div class="panel">
-                <div class="panel-head"><h3>Загрузка ответственных</h3></div>
-                <div class="panel-body">${workloadList(r.workload_by_responsible || [])}</div>
-            </div>
-        </section>
-        <div class="report-group-heading"><h3>Клиенты</h3><small>Удержание и VIP-сегмент</small></div>
-        <section class="panel">
-            <div class="panel-head"><h3>VIP и удержание клиентов</h3></div>
-            <div class="panel-body">${vipCustomerList(r.vip_customers)}</div>
-        </section>
+        </div>
     `;
 }
 
