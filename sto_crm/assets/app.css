@@ -301,6 +301,9 @@ html:focus-within { scroll-behavior: smooth; }
     border-radius: var(--radius-xs);
 }
 
+.d-flex { display: flex !important; }
+.align-items-center { align-items: center !important; }
+
 /* 3. Оболочка приложения --------------------------------------------------- */
 .app {
     display: grid;
