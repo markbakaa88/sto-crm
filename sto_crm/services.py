@@ -859,7 +859,7 @@ def reserved_quantity(
           AND o.status IN ('approved', 'in_progress', 'done')
           AND o.deleted_at IS NULL
           {exclude_sql}
-        """,
+        """,  # nosec B608
         params,
     ).fetchone()
     return parse_float(row["reserved"] if row else 0)

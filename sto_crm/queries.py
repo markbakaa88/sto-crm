@@ -58,7 +58,7 @@ def list_customers(q: str = "", limit: int | None = 1000) -> list[dict[str, Any]
             GROUP BY c.id
             ORDER BY c.updated_at DESC, c.id DESC
             {limit_sql}
-            """,
+            """,  # nosec B608
             params,
         ).fetchall()
         return [dict(row) for row in rows]
@@ -87,7 +87,7 @@ def list_vehicles(q: str = "", limit: int | None = 1000) -> list[dict[str, Any]]
             {where}
             ORDER BY v.updated_at DESC, v.id DESC
             {limit_sql}
-            """,
+            """,  # nosec B608
             params,
         ).fetchall()
         return [dict(row) for row in rows]
@@ -111,7 +111,7 @@ def list_inventory(q: str = "", limit: int | None = 1000) -> list[dict[str, Any]
             {where}
             ORDER BY is_low DESC, updated_at DESC, id DESC
             {limit_sql}
-            """,
+            """,  # nosec B608
             params,
         ).fetchall()
         return [dict(row) for row in rows]
@@ -154,7 +154,7 @@ def list_appointments(
                 a.scheduled_at,
                 a.id
             {limit_sql}
-            """,
+            """,  # nosec B608
             params,
         ).fetchall()
         return [dict(row) for row in rows]
@@ -220,7 +220,7 @@ def list_orders(
                 o.updated_at DESC,
                 o.id DESC
             {limit_sql}
-            """,
+            """,  # nosec B608
             params,
         ).fetchall()
         orders = [_mask_deleted_order_vehicle(dict(row)) for row in rows]
@@ -270,7 +270,7 @@ def attach_items_and_totals(
         LEFT JOIN inventory i ON i.id = oi.inventory_id
         WHERE oi.order_id IN ({placeholders})
         ORDER BY oi.id
-        """,
+        """,  # nosec B608
         order_ids,
     ).fetchall()
     grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)

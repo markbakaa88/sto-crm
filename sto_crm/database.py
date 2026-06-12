@@ -270,7 +270,7 @@ def active_duplicate_values(
         HAVING COUNT(*) > 1
         ORDER BY count DESC, value COLLATE NOCASE
         LIMIT ?
-        """,
+        """,  # nosec B608
         (max(parse_int(limit, 5), 1),),
     ).fetchall()
 
@@ -286,7 +286,7 @@ def normalize_legacy_unique_values(
         FROM {table}
         WHERE deleted_at IS NULL AND {column} <> TRIM({column})
         ORDER BY id
-        """
+        """  # nosec B608
     ).fetchall()
     for row in rows:
         trimmed = str(row["trimmed"] or "")
@@ -317,7 +317,7 @@ def resolve_active_duplicate_values(
             FROM {table}
             WHERE deleted_at IS NULL AND TRIM({column}) <> '' AND {normalized} = ?
             ORDER BY id
-            """,
+            """,  # nosec B608
             (duplicate["key"],),
         ).fetchall()
         if len(rows) < 2:

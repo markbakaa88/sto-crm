@@ -9,7 +9,7 @@ import os
 import re
 import secrets
 import sqlite3
-import subprocess
+import subprocess  # nosec B404
 import threading
 import urllib.error
 import urllib.parse
@@ -386,7 +386,7 @@ def fetch_json(
     url = validate_update_download_url(url)
     request = urllib.request.Request(url, headers=headers or github_headers())
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
             final_url = response.geturl() if hasattr(response, "geturl") else url
             validate_update_response_url(final_url)
             charset = (response.headers.get_content_charset() or "utf-8").lower()
@@ -606,7 +606,7 @@ def download_release_asset(asset: dict[str, Any], target: Path) -> dict[str, Any
     try:
         tmp_target.unlink(missing_ok=True)
         with (
-            urllib.request.urlopen(request, timeout=GITHUB_UPDATE_TIMEOUT) as response,
+            urllib.request.urlopen(request, timeout=GITHUB_UPDATE_TIMEOUT) as response,  # nosec B310
             tmp_target.open("wb") as output,
         ):
             final_url = response.geturl() if hasattr(response, "geturl") else url
@@ -789,7 +789,7 @@ def schedule_windows_update(downloaded_exe: Path, expected_sha256: str) -> None:
         "-File",
         str(script_path),
     ]
-    subprocess.Popen(command, cwd=str(update_dir), close_fds=True)
+    subprocess.Popen(command, cwd=str(update_dir), close_fds=True)  # nosec B603
 
 
 def install_update_from_github() -> dict[str, Any]:

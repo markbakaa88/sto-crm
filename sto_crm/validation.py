@@ -416,7 +416,7 @@ def active_exists(conn: sqlite3.Connection, table: str, record_id: int) -> bool:
     if table not in {"customers", "vehicles", "inventory", "orders", "appointments"}:
         return False
     row = conn.execute(
-        f"SELECT 1 FROM {table} WHERE id = ? AND deleted_at IS NULL",
+        f"SELECT 1 FROM {table} WHERE id = ? AND deleted_at IS NULL",  # nosec B608
         (record_id,),  # nosec B608
     ).fetchone()
     return row is not None

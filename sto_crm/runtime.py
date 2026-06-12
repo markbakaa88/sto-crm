@@ -447,7 +447,7 @@ def safe_log(message: str) -> None:
         stream.write(text + "\n")
         stream.flush()
     # Логгер не должен ронять приложение, если stdout закрыт/перенаправлен в сломанное состояние.
-    except Exception:
+    except Exception:  # nosec B110
         pass
 
 
