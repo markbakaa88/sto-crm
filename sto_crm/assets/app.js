@@ -1946,7 +1946,7 @@ function renderDashboard() {
     const procurement = r.procurement_plan || [];
     return `
         ${viewHeading("Рабочая смена", "Главный фокус — ближайшие действия. Смотрите план смены, риски и закупку в одном месте.", [], [
-            { label: "Новый заказ", action: "new-order", className: "primary" },
+            { label: "Новый заказ", action: "new-order", className: "" },
             { label: "Запись", action: "new-appointment", className: "ghost" }
         ])}
         ${sectionIntro("Смена под контролем", "Профессиональная панель мастера-приёмщика: индекс смены, деньги, риски, воронка и календарь на одном экране.", {
@@ -2188,7 +2188,7 @@ function renderAppointments() {
             `${state.data.reports.appointments_today_count || 0} на сегодня`
         ], [
             { label: "Выгрузить CSV", action: "export-csv", export: "appointments", className: "ghost" },
-            { label: "+ Новая запись", action: "new-appointment", className: "primary shadow-btn" }
+            { label: "+ Новая запись", action: "new-appointment", className: "" }
         ])}
         ${rows.length ? `<div class="table-wrap responsive-table-wrap">
             <table class="responsive-table modern-hover" aria-label="Таблица календаря визитов">
@@ -2223,7 +2223,7 @@ function renderOrders() {
             `${money(state.data.reports.pipeline_value || 0)} в работе`
         ], [
             { label: "CSV", action: "export-csv", export: "orders", className: "ghost" },
-            { label: "Новый заказ", action: "new-order", className: "primary" }
+            { label: "Новый заказ", action: "new-order", className: "" }
         ])}
         <div class="workspace-toolbar">
             <div class="segmented" role="group" aria-label="Фильтр заказов по статусу">
@@ -2334,7 +2334,7 @@ function renderCustomers() {
             `${state.data.reports.vip_customers?.length || 0} VIP`
         ], [
             { label: "CSV", action: "export-csv", export: "customers", className: "ghost" },
-            { label: "Новый клиент", action: "new-customer", className: "primary" }
+            { label: "Новый клиент", action: "new-customer", className: "" }
         ])}
         ${table}
     `;

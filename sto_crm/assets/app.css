@@ -2412,3 +2412,41 @@ html[data-initial-theme="dark"] .modern-hover tbody tr:hover {
 /* Custom styles for components migrated from inline styles */
 .title-block { animation: fadeIn 0.3s ease-out; }
 .system-menu-button { border-radius: var(--radius-xl); }
+
+/* 9. Тонкие UI-доработки и повышение доступности (A11y & Alignment) */
+.table-wrap th.money,
+.table-wrap td.money {
+    text-align: right !important;
+}
+
+/* Изменяем отступы таблиц для исключения горизонтального прокручивания на 1440px */
+.table-wrap th, 
+.table-wrap td {
+    padding: 10px var(--space-3);
+}
+
+/* Индивидуальные цветовые схемы для статусов заказ-нарядов */
+.status.s-in_progress {
+    background: var(--brand-soft) !important;
+    color: var(--brand-strong) !important;
+}
+.status.s-estimate {
+    background: rgba(147, 51, 234, 0.12) !important;
+    color: rgb(147, 51, 234) !important;
+}
+body.dark .status.s-estimate {
+    background: rgba(168, 85, 247, 0.16) !important;
+    color: rgb(192, 132, 252) !important;
+}
+
+/* Улучшение контрастности бейджей оплаты в темном режиме */
+body.dark .status-badge.danger {
+    background: rgba(251, 113, 133, 0.15) !important;
+    color: #fda4af !important;
+    border: 1px solid rgba(251, 113, 133, 0.3);
+}
+body.dark .status-badge.success {
+    background: rgba(52, 211, 153, 0.15) !important;
+    color: #6ee7b7 !important;
+    border: 1px solid rgba(52, 211, 153, 0.3);
+}
