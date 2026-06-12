@@ -2685,3 +2685,51 @@ body.dark .muted-pill {
     background: rgba(255, 255, 255, 0.02) !important;
     border-color: rgba(255, 255, 255, 0.06) !important;
 }
+
+/* 16. Стилизация аналитической шкалы популярности услуг */
+.report-service-item {
+    display: flex !important;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 10px !important;
+    border-bottom: 1px solid var(--line-subtle) !important;
+    position: relative;
+}
+.report-service-info {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 4px !important;
+    flex: 1;
+    min-width: 0;
+    margin-right: var(--space-4) !important;
+}
+.report-service-title {
+    font-weight: 600 !important;
+    color: var(--ink) !important;
+    font-size: var(--font-size-sm) !important;
+}
+.report-progress {
+    width: 80% !important;
+    height: 4px !important;
+    border-radius: var(--radius-xs) !important;
+    border: none !important;
+    background: var(--surface-muted) !important;
+    overflow: hidden;
+}
+.report-progress::-webkit-progress-bar {
+    background: var(--surface-muted) !important;
+}
+.report-progress::-webkit-progress-value {
+    background: linear-gradient(90deg, var(--brand-mid), var(--brand)) !important;
+    border-radius: var(--radius-xs) !important;
+}
+.report-progress::-moz-progress-bar {
+    background: linear-gradient(90deg, var(--brand-mid), var(--brand)) !important;
+    border-radius: var(--radius-xs) !important;
+}
+body.dark .report-progress {
+    background: rgba(255, 255, 255, 0.05) !important;
+}
+body.dark .report-progress::-webkit-progress-bar {
+    background: rgba(255, 255, 255, 0.05) !important;
+}

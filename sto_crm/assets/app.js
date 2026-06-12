@@ -2573,19 +2573,26 @@ function renderReports() {
                     <h3>⭐ Популярные работы</h3>
                 </div>
                 <div class="panel-body">
-                    ${topServices.length ? `
-                    <ul class="stats-list panel-list">
-                        ${topServices.map(ts => `
-                            <li class="panel-list-item">
-                                <span class="truncate-text max-w-60p" title="${esc(ts.title)}">${esc(ts.title)}</span>
-                                <div class="text-right">
-                                    <strong>${ts.count} раз</strong>
-                                    <div class="text-success text-sm">${money(ts.revenue)}</div>
-                                </div>
-                            </li>
-                        `).join("")}
-                    </ul>
-                    ` : `<div class="muted p-20-center">Пока нет достаточной статистики закрытых заказ-нарядов.</div>`}
+                    ${(() => {
+                        if (!topServices.length) return `<div class="muted p-20-center">Пока нет достаточной статистики закрытых заказ-нарядов.</div>`;
+                        const maxCount = Math.max(1, ...topServices.map(t => Number(t.count || 0)));
+                        return `
+                        <ul class="stats-list panel-list">
+                            ${topServices.map(ts => `
+                                <li class="panel-list-item report-service-item">
+                                    <div class="report-service-info">
+                                        <span class="truncate-text max-w-60p report-service-title" title="${esc(ts.title)}">${esc(ts.title)}</span>
+                                        <progress class="report-progress" max="${maxCount}" value="${Number(ts.count || 0)}"></progress>
+                                    </div>
+                                    <div class="text-right report-service-meta">
+                                        <strong>${ts.count} ${pluralRu(ts.count, "раз", "раза", "раз")}</strong>
+                                        <div class="text-success text-sm">${money(ts.revenue)}</div>
+                                    </div>
+                                </li>
+                            `).join("")}
+                        </ul>
+                        `;
+                    })()}
                 </div>
             </div>
             
