@@ -41,6 +41,8 @@ def connect() -> sqlite3.Connection:
     conn.execute("PRAGMA busy_timeout = 30000")
     conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA temp_store = MEMORY")
+    conn.execute("PRAGMA mmap_size = 30000000000")
+    conn.execute("PRAGMA page_size = 4096")
     ensure_private_file(_runtime.RUNTIME.db_path)
     return conn
 
