@@ -1,6 +1,7 @@
 import tempfile
 import time
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from sto_crm import runtime as _runtime
@@ -66,7 +67,7 @@ class TestServicesExtra(unittest.TestCase):
         vid = v["id"]
         
         # Создадим заказ-наряд на ЭТОГО КЛИЕНТА напрямую через sqlite
-        with connect() as conn:
+        with closing(connect()) as conn:
             conn.execute(
                 """
                 INSERT INTO orders(customer_id, vehicle_id, status, priority, number, created_at, updated_at)
@@ -102,7 +103,7 @@ class TestServicesExtra(unittest.TestCase):
         vid = v["id"]
 
         # Но заказ оформлен на c2!
-        with connect() as conn:
+        with closing(connect()) as conn:
             conn.execute(
                 """
                 INSERT INTO orders(customer_id, vehicle_id, status, priority, number, created_at, updated_at)
@@ -168,15 +169,15 @@ class TestServicesExtra(unittest.TestCase):
         vid = v["id"]
 
         # Но запись в календаре оформлена на c2 и машину c1! Вставим напрямую через БД
-        with connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO appointments(customer_id, vehicle_id, scheduled_at, duration_minutes, status, created_at, updated_at)
-                VALUES (?, ?, '2026-06-16T10:00', 60, 'scheduled', '2026-06-12T10:00', '2026-06-12T10:00')
-                """,
-                (cid2, vid)
-            )
-            conn.commit()
+        with closing(connect()) as conn:
+             conn.execute(
+                 """
+                 INSERT INTO appointments(customer_id, vehicle_id, scheduled_at, duration_minutes, status, created_at, updated_at)
+                 VALUES (?, ?, '2026-06-16T10:00', 60, 'scheduled', '2026-06-12T10:00', '2026-06-12T10:00')
+                 """,
+                 (cid2, vid)
+             )
+             conn.commit()
 
         # Проверим строку 110:
         # У клиента c1 лично нет active_appointment, но его машина vid имеет встречу!
@@ -232,16 +233,16 @@ class TestServicesExtra(unittest.TestCase):
             delete_appointment(9999)
 
     def test_get_appointment_not_found(self):
-        with connect() as conn:
+        with closing(connect()) as conn:
             with self.assertRaises(KeyError):
                 get_appointment(conn, 9999)
 
     def test_get_customer_not_found(self):
-        with connect() as conn:
+        with closing(connect()) as conn:
             with self.assertRaises(KeyError):
                 get_customer(conn, 9999)
 
     def test_get_vehicle_not_found(self):
-        with connect() as conn:
+        with closing(connect()) as conn:
             with self.assertRaises(KeyError):
                 get_vehicle(conn, 9999)

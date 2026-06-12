@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 import unittest
 
 from sto_crm.validation import (
@@ -28,13 +29,10 @@ class TestValidationExtra(unittest.TestCase):
             validate_customer({"name": "Test", "email": "not-an-email"})
 
     def test_validate_vehicle_missing_customer(self):
-        conn = sqlite3.connect(":memory:")
-        conn.row_factory = sqlite3.Row
-        try:
+        with closing(sqlite3.connect(":memory:")) as conn:
+            conn.row_factory = sqlite3.Row
             with self.assertRaisesRegex(ValueError, "Выберите действующего клиента"):
                 validate_vehicle(conn, {})
-        finally:
-            conn.close()
 
     def test_require_non_negative_int_negative(self):
         with self.assertRaisesRegex(ValueError, "не может быть отрицательным"):

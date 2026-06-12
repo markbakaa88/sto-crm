@@ -245,12 +245,16 @@ function exportUrl(entity) {
 }
 
 function safeDownloadFilename(value, fallback = "export.csv") {
-    const filename = String(value || "")
+    const rawFilename = String(value || "")
         .split(/[\\/]/)
         .pop()
-        // eslint-disable-next-line no-control-regex
-        .replace(/[\x00-\x1f\x7f]/g, "")
         .trim();
+    const filename = Array.from(rawFilename)
+        .filter(c => {
+            const code = c.charCodeAt(0);
+            return code >= 32 && code !== 127;
+        })
+        .join("");
     return filename && !/[<>:"|?*]/.test(filename) ? filename : fallback;
 }
 
@@ -393,13 +397,6 @@ function paginationControls(kind, page, maxPage, total, pageSize, noun = "зап
         <span class="count-pill">${page}/${maxPage}</span>
         <button class="btn" type="button" data-action="page-${esc(kind)}" data-page="${page + 1}" ${page >= maxPage ? "disabled" : ""}>Вперёд</button>
     </nav>`;
-}
-
-function formatClockTime(value) {
-    if (!value) return "—";
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return "—";
-    return parsed.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
 }
 
 function localDateKey(value = new Date()) {
