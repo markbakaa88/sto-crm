@@ -2,6 +2,9 @@ import js from "@eslint/js";
 import globals from "globals";
 
 export default [
+    {
+        ignores: [".venv/**", "node_modules/**", "tests/**", "dist/**", "build/**"]
+    },
     js.configs.recommended,
     {
         languageOptions: {
