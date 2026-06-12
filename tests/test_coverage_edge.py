@@ -273,9 +273,9 @@ class TestCoverageEdge(unittest.TestCase):
             csv_export("unknown_entity")
 
     def test_csv_export_valid_entities(self):
-        from sto_crm.export import csv_export
         from sto_crm import runtime as _runtime
         from sto_crm.database import init_db
+        from sto_crm.export import csv_export
         from sto_crm.runtime import Runtime
         current_runtime = _runtime.RUNTIME
         import tempfile
@@ -309,16 +309,15 @@ class TestCoverageEdge(unittest.TestCase):
             crm_web.is_frozen = orig_frozen
 
     def test_http_server_unsupported_methods_and_errors(self):
-        from sto_crm.cli import create_server
-        from sto_crm import http_server as crm_http
-        from sto_crm import runtime as _runtime
-        from sto_crm.runtime import Runtime
         import tempfile
-        import socket
         import threading
         import time
-        import urllib.request
         import urllib.error
+        import urllib.request
+
+        from sto_crm import runtime as _runtime
+        from sto_crm.cli import create_server
+        from sto_crm.runtime import Runtime
 
         current_runtime = _runtime.RUNTIME
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -333,6 +332,20 @@ class TestCoverageEdge(unittest.TestCase):
             from sto_crm.database import init_db
             init_db(seed_demo=True)
             
+            # Подменяем latest_release_info, чтобы избежать обращения к сети
+            from unittest.mock import patch
+            patcher = patch("sto_crm.updates.latest_release_info")
+            mock_latest = patcher.start()
+            mock_latest.return_value = {
+                "version": "1.17.2",
+                "tag": "v1.17.2",
+                "name": "СТО CRM 1.17.2",
+                "is_newer": False,
+                "has_asset": False,
+                "asset": None,
+                "manifest": None,
+            }
+
             server = create_server(0)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -499,6 +512,7 @@ class TestCoverageEdge(unittest.TestCase):
                 thread.join(timeout=5)
 
             finally:
+                patcher.stop()
                 server.shutdown()
                 server.server_close()
                 _runtime.RUNTIME = current_runtime
