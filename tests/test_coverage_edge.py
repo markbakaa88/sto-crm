@@ -1,6 +1,7 @@
 import os
 import unittest
 from pathlib import Path
+from typing import Any
 
 from sto_crm.updates import (
     _content_length,
@@ -258,7 +259,9 @@ class TestCoverageEdge(unittest.TestCase):
         class CustomFloat(float):
             def __format__(self, format_spec):
                 return "-"
-        sto_crm.printing.parse_float = lambda val: CustomFloat(val)
+        def mock_parse_float(val: Any) -> float:
+            return CustomFloat(val)
+        sto_crm.printing.parse_float = mock_parse_float
         try:
             self.assertEqual(sto_crm.printing._format_quantity(1.0), "0")
         finally:
