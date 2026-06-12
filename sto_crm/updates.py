@@ -80,7 +80,7 @@ def is_installable_update_asset(asset: dict[str, Any] | None) -> bool:
 
 
 def _begin_update_install() -> None:
-    global _UPDATE_INSTALL_IN_PROGRESS, _UPDATE_INSTALL_SCHEDULED
+    global _UPDATE_INSTALL_IN_PROGRESS
     with _UPDATE_INSTALL_LOCK:
         if _UPDATE_INSTALL_IN_PROGRESS or _UPDATE_INSTALL_SCHEDULED:
             raise RuntimeError(

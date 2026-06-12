@@ -2307,7 +2307,7 @@ function renderCustomers() {
     `).join("") : emptyState("Клиентов не найдено", "Создайте первого клиента или измените поиск.", `<button class="btn primary" type="button" data-action="new-customer">Новый клиент</button>`);
 
     const table = paged.length ? `<div class="table-wrap responsive-table-wrap">
-        <table class="responsive-table">
+        <table class="responsive-table modern-hover" aria-label="Таблица клиентов">
             <thead>${tableHead(["ID", "Клиент", "Email", "Канал связи", "Уведомления", "Заметки", ""])}</thead>
             <tbody>${body}</tbody>
         </table>
