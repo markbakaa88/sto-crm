@@ -2117,3 +2117,55 @@ main.rendered .section-card:nth-child(3) { animation-delay: 0.15s; }
 .toast {
     animation: popIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
+
+/* Fix Checkbox/Radios */
+input[type="checkbox"], input[type="radio"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border: 1px solid var(--line-strong);
+    background-color: var(--surface);
+    display: inline-grid;
+    place-content: center;
+    margin: 0;
+}
+input[type="checkbox"]::before {
+    content: "";
+    width: 10px;
+    height: 10px;
+    clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+    background-color: transparent;
+    transform: scale(0);
+    transition: 120ms transform ease-in-out;
+    box-shadow: inset 1em 1em var(--surface);
+}
+input[type="checkbox"]:checked::before {
+    transform: scale(1);
+    background-color: white;
+}
+input[type="checkbox"]:checked {
+    background-color: var(--brand);
+    border-color: var(--brand);
+}
+
+input[type="radio"] {
+    border-radius: 50%;
+}
+input[type="radio"]::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    transform: scale(0);
+    transition: 120ms transform ease-in-out;
+    background-color: transparent;
+}
+input[type="radio"]:checked::before {
+    transform: scale(1);
+    background-color: white;
+}
+input[type="radio"]:checked {
+    background-color: var(--brand);
+    border-color: var(--brand);
+}
