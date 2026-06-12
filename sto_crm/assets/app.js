@@ -2302,7 +2302,7 @@ function renderCustomers() {
             <td data-label="Предпочитает">${esc(channelLabel(c.preferred_channel))}</td>
             <td data-label="Согласие">${c.reminder_consent ? '<span class="status-badge success">Да</span>' : '<span class="status-badge danger">Нет</span>'}</td>
             <td data-label="Заметки"><div class="truncate-text" title="${esc(c.notes)}">${esc(c.notes)}</div></td>
-            <td data-label="Действия"><button class="btn" type="button" data-action="edit-customer" data-id="${c.id}">Открыть</button></td>
+            <td data-label="Действия"><button class="btn" type="button" data-action="edit-customer" data-id="${c.id}" aria-label="Открыть клиента ${esc(c.name || c.id)}">Открыть</button></td>
         </tr>
     `).join("") : emptyState("Клиентов не найдено", "Создайте первого клиента или измените поиск.", `<button class="btn primary" type="button" data-action="new-customer">Новый клиент</button>`);
 
@@ -2526,7 +2526,7 @@ function renderReports() {
     const topServices = r.top_services || [];
     
     return `
-        ${viewHeading("Аналитика и Финансы", "Глубокий анализ показателей СТО, отчет о выручке, загрузке постов и популярным услугам.", [
+        ${viewHeading("Отчёты и аналитика", "Глубокий анализ показателей СТО, отчет о выручке, загрузке постов и популярным услугам.", [
             `Данные актуальны`
         ], [
             { label: "Обновить", action: "refresh", className: "ghost" }
