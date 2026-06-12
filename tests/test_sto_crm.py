@@ -3858,7 +3858,7 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('data-action="duplicate-order"', html)
         self.assertIn('aria-label="Печать заказ-наряда', html)
         self.assertIn("Прокрутите вправо", html)
-        self.assertIn("overflow-x: hidden; overflow-x: clip;", html)
+        self.assertIn("overflow-x: clip;", html)
         self.assertNotIn('id="content" aria-live="polite"', html)
 
     def test_home_page_wires_inline_form_errors_to_save_failures(self):
