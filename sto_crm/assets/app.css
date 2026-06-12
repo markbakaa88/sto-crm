@@ -2637,3 +2637,51 @@ body.dark .action-priority {
     color: var(--ink-soft) !important;
     border-color: rgba(255, 255, 255, 0.1) !important;
 }
+
+/* 15. Улучшение стилистики справочника марок и моделей (Car Catalog Layout Enhancement) */
+.catalog-make {
+    transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out) !important;
+    border-color: var(--line) !important;
+}
+.catalog-make:hover {
+    transform: translateY(-2px) scale(1.01) !important;
+    border-color: var(--brand-mid) !important;
+    box-shadow: var(--shadow-md) !important;
+}
+
+.model-pill {
+    background: var(--surface-subtle) !important;
+    border: 1px solid var(--line) !important;
+    color: var(--ink-soft) !important;
+    font-weight: 500 !important;
+    transition: all var(--dur-fast) var(--ease-out) !important;
+}
+.model-pill:hover {
+    background: var(--brand-soft) !important;
+    border-color: var(--brand-mid) !important;
+    color: var(--brand-strong) !important;
+    transform: translateY(-1px) !important;
+    filter: none !important;
+}
+
+body.dark .model-pill {
+    background: rgba(255, 255, 255, 0.03) !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    color: var(--ink-soft) !important;
+}
+body.dark .model-pill:hover {
+    background: rgba(90, 200, 189, 0.1) !important;
+    border-color: var(--brand) !important;
+    color: var(--brand) !important;
+}
+
+.muted-pill {
+    background: var(--surface-muted) !important;
+    border: 1px dashed var(--line) !important;
+    color: var(--ink-muted) !important;
+    font-style: italic !important;
+}
+body.dark .muted-pill {
+    background: rgba(255, 255, 255, 0.02) !important;
+    border-color: rgba(255, 255, 255, 0.06) !important;
+}
