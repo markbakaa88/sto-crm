@@ -353,7 +353,7 @@ body.sidebar-collapsed .app { grid-template-columns: var(--sidebar-w-collapsed) 
 .brand-mark:hover { transform: translateY(-1px) scale(1.05); box-shadow: var(--shadow-lg); }
 .brand-mark:active { transform: scale(0.95); }
 .brand-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.brand-title { font-weight: 600; letter-spacing: 0.2px; color: var(--sidebar-active); }
+.brand-title { font-weight: 800; letter-spacing: 0.2px; background: linear-gradient(135deg, var(--brand-end), var(--brand-strong)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 .brand-subtitle { font-size: var(--font-size-xs); color: var(--sidebar-muted); text-transform: uppercase; letter-spacing: 0.8px; }
 body.sidebar-collapsed .brand-copy { display: none; }
 
@@ -2209,3 +2209,53 @@ input[type="radio"]:checked {
     box-shadow: 0 1px 2px rgba(0,0,0,0.02) inset;
 }
 
+
+.modal-backdrop:not([hidden]) {
+    animation: fadeIn 0.2s ease-out forwards;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.modal {
+    transform: translateY(20px) scale(0.95);
+    opacity: 0;
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s ease-out;
+}
+
+.modal-backdrop:not([hidden]) .modal {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+}
+
+/* Beautiful custom scrollbars */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: var(--line-strong);
+    border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--brand-mid);
+}
+
+/* Enhancing active navigation item */
+.nav-section button.active {
+    background: var(--brand-soft);
+    color: var(--brand-strong);
+    border-right: 3px solid var(--brand);
+}
+
+
+.topbar.sticky {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-topbar);
+}
