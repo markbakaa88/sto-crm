@@ -1805,7 +1805,7 @@ body.compact .bell-count { top: -4px; right: -4px; }
     body { --header-h: 104px; }
     body.compact { --header-h: 96px; }
     .app { grid-template-columns: 1fr; }
-    .sidebar { position: fixed; top: 0; left: 0; width: 260px; max-width: calc(100vw - var(--space-7)); height: 100vh; height: 100dvh; transform: translateX(-100%); transition: transform var(--dur-base) var(--ease-out);  background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(16px); }
+    .sidebar { position: fixed; top: 0; left: 0; width: 260px; max-width: calc(100vw - var(--space-7)); height: 100dvh; transform: translateX(-100%); transition: transform var(--dur-base) var(--ease-out);  background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(16px); }
     .sidebar-collapse,
     .sidebar-collapse[data-tooltip] { display: none; }
     body.mobile-nav-open .sidebar { transform: translateX(0); box-shadow: var(--shadow-lg);  background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(16px); }
