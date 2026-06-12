@@ -4352,3 +4352,12 @@ window.addEventListener("popstate", () => setRoute(routeFromLocation(), false));
 window.addEventListener("hashchange", () => setRoute(routeFromLocation(), false));
 setRoute(state.route, false);
 loadData().catch(showError);
+
+
+window.addEventListener("beforeunload", event => {
+    if (state.modalDirty || state.saving) {
+        event.preventDefault();
+        event.returnValue = "В закрываемом окне остались несохраненные изменения.";
+        return event.returnValue;
+    }
+});
