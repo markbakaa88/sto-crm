@@ -247,3 +247,11 @@ class TestCoverageEdge(unittest.TestCase):
             sto_crm.catalog.CAR_CATALOG = orig_catalog
             sto_crm.catalog._CAR_CATALOG_CACHE = orig_cache
 
+    def test_format_quantity_edge(self):
+        from sto_crm.printing import _format_quantity
+        self.assertEqual(_format_quantity(-0.00001), "-0")
+        self.assertEqual(_format_quantity(0.0), "0")
+        self.assertEqual(_format_quantity(1.5), "1,5")
+
+
+
