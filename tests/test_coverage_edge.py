@@ -660,6 +660,52 @@ class TestCoverageEdge(unittest.TestCase):
             ensure_private_file(f)
             ensure_private_file_created(f)
 
+    def test_fetch_json_edge_cases(self):
+        import urllib.error
+        from unittest.mock import MagicMock, patch
+
+        from sto_crm.updates import fetch_json
+
+        # 1. Successful fetch but not a dict (e.g. returns a list)
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = b"[]"
+            mock_resp.headers.get_content_charset.return_value = "utf-8"
+            mock_resp.geturl.return_value = "https://github.com/abc/def"
+            mock_open.return_value.__enter__.return_value = mock_resp
+            with self.assertRaises(RuntimeError) as ctx:
+                fetch_json("https://github.com/abc/def")
+            self.assertIn("GitHub вернул неожиданный ответ", str(ctx.exception))
+
+        # 2. HTTPError 404
+        with patch("urllib.request.urlopen") as mock_open:
+            from email.message import Message
+            mock_open.side_effect = urllib.error.HTTPError(
+                "https://github.com/abc/def", 404, "Not Found", Message(), None
+            )
+            with self.assertRaises(RuntimeError) as ctx:
+                fetch_json("https://github.com/abc/def")
+            self.assertIn("Релиз GitHub не найден", str(ctx.exception))
+
+        # 3. HTTPError 403
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_open.side_effect = urllib.error.HTTPError(
+                "https://github.com/abc/def", 403, "Forbidden", Message(), None
+            )
+            with self.assertRaises(RuntimeError) as ctx:
+                fetch_json("https://github.com/abc/def")
+            self.assertIn("GitHub отклонил запрос", str(ctx.exception))
+
+        # 4. HTTPError 500
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_open.side_effect = urllib.error.HTTPError(
+                "https://github.com/abc/def", 500, "Internal Server Error", Message(), None
+            )
+            with self.assertRaises(RuntimeError) as ctx:
+                fetch_json("https://github.com/abc/def")
+            self.assertIn("GitHub недоступен: HTTP 500", str(ctx.exception))
+
+
 
 
 
