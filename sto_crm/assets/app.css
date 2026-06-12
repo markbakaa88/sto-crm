@@ -845,14 +845,21 @@ a.count-pill:hover { filter: brightness(0.96); transform: scale(1.05); text-deco
     display: grid; gap: var(--space-4);
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
 }
-.metric { transition:  all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+.metric {
     background: var(--surface); border: 1px solid var(--line);
     border-radius: var(--radius-lg); padding: var(--space-5);
     display: flex; flex-direction: column; gap: 6px;
     position: relative; overflow: hidden;
-    transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
- border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
-.metric:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: var(--brand-mid); }
+    box-shadow: var(--shadow-sm);
+    transition: border-color var(--dur-base) var(--ease-out),
+                box-shadow var(--dur-base) var(--ease-out),
+                transform var(--dur-base) cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.metric:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-md);
+    border-color: var(--brand-mid);
+}
 .metric::before {
     content: "";
     position: absolute;
@@ -861,7 +868,6 @@ a.count-pill:hover { filter: brightness(0.96); transform: scale(1.05); text-deco
     background: var(--brand);
     opacity: 0.28;
 }
-.metric:hover { border-color: var(--focus-ring); box-shadow: var(--shadow-md); transform: translateY(-3px); }
 .metric .metric-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: var(--font-size-xs); color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.8px; }
 .metric .metric-icon {
     width: 32px; height: 32px; border-radius: 8px;
@@ -936,10 +942,11 @@ a.count-pill:hover { filter: brightness(0.96); transform: scale(1.05); text-deco
     background: var(--surface); position: relative; overflow: hidden;
     transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
-.action-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: var(--focus-ring); transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+.action-card:hover {
     border-color: var(--line-strong);
-    transform: translateX(2px);
-    box-shadow: var(--shadow-sm);
+    transform: translateX(2px) translateY(-2px);
+    box-shadow: var(--shadow-md);
+    transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .action-card::before {
     content: "";
@@ -1474,15 +1481,21 @@ body:not(.sidebar-collapsed) .brand { padding-right: 20px; }
 .command-item kbd { margin-left: 6px; }
 
 /* Toast */
-.toast { transition: opacity 0.3s var(--ease-out), transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+.toast {
     position: fixed; left: 50%; bottom: var(--space-6); transform: translateX(-50%) translateY(20px);
-    background: var(--inverse-bg); color: var(--inverse-ink); padding: 10px 16px;
-    border-radius: var(--radius-md); box-shadow: var(--shadow-lg);
-    font-size: var(--font-size-sm); z-index: var(--z-toast);
+    background: var(--inverse-bg); color: var(--inverse-ink);
+    z-index: var(--z-toast);
     opacity: 0; pointer-events: none;
-    transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out);
     max-width: min(90vw, 520px);
- display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: var(--font-size-sm); border-radius: var(--radius-md); box-shadow: var(--shadow-lg), 0 0 0 1px inset rgba(255,255,255,0.1); padding: 12px 18px; }
+    display: inline-flex; align-items: center; gap: 8px;
+    font-weight: 500; font-size: var(--font-size-sm);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg), 0 0 0 1px inset rgba(255,255,255,0.1);
+    padding: 12px 18px;
+    transition: opacity var(--dur-base) var(--ease-out),
+                transform var(--dur-base) cubic-bezier(0.34, 1.56, 0.64, 1),
+                box-shadow var(--dur-base) var(--ease-out);
+}
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
 .toast.error { background: var(--toast-error-bg); color: var(--toast-error-ink); }
 
