@@ -2564,3 +2564,46 @@ body.dark .totals .grand {
 body.dark .totals .grand strong {
     color: var(--brand) !important;
 }
+
+/* 14. Премиальная стилизация карточек задач и индикаторов приоритета */
+.action-card {
+    transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out) !important;
+}
+.action-card[data-tone="danger"] { border-left-width: 4px !important; }
+.action-card[data-tone="warning"] { border-left-width: 4px !important; }
+.action-card[data-tone="success"] { border-left-width: 4px !important; }
+.action-card[data-tone="info"] { border-left-width: 4px !important; }
+
+.action-card[data-tone="danger"]::before,
+.action-card[data-tone="warning"]::before,
+.action-card[data-tone="success"]::before,
+.action-card[data-tone="info"]::before {
+    display: none !important; /* Убираем наложенную полосу в пользу border-left для нативной поддержки CSP и производительности */
+}
+
+.action-card[data-tone="danger"] { border-color: rgba(239, 68, 68, 0.4) !important; border-left-color: var(--danger) !important; }
+.action-card[data-tone="warning"] { border-color: rgba(245, 158, 11, 0.4) !important; border-left-color: var(--warn) !important; }
+.action-card[data-tone="success"] { border-color: rgba(16, 185, 129, 0.4) !important; border-left-color: var(--ok) !important; }
+.action-card[data-tone="info"] { border-color: rgba(59, 130, 246, 0.4) !important; border-left-color: var(--info) !important; }
+
+.action-card[data-tone="danger"]:hover { border-color: var(--danger) !important; background: rgba(239, 68, 68, 0.03) !important; }
+.action-card[data-tone="warning"]:hover { border-color: var(--warn) !important; background: rgba(245, 158, 11, 0.03) !important; }
+.action-card[data-tone="success"]:hover { border-color: var(--ok) !important; background: rgba(16, 185, 129, 0.03) !important; }
+.action-card[data-tone="info"]:hover { border-color: var(--info) !important; background: rgba(59, 130, 246, 0.03) !important; }
+
+body.dark .action-card[data-tone="danger"]:hover { background: rgba(239, 68, 68, 0.06) !important; }
+body.dark .action-card[data-tone="warning"]:hover { background: rgba(245, 158, 11, 0.06) !important; }
+body.dark .action-card[data-tone="success"]:hover { background: rgba(16, 185, 129, 0.06) !important; }
+body.dark .action-card[data-tone="info"]:hover { background: rgba(59, 130, 246, 0.06) !important; }
+
+.action-priority {
+    font-weight: 600 !important;
+    background: var(--surface-muted) !important;
+    color: var(--ink-soft) !important;
+    border: 1px solid var(--line) !important;
+}
+body.dark .action-priority {
+    background: rgba(255, 255, 255, 0.06) !important;
+    color: var(--ink-soft) !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+}
