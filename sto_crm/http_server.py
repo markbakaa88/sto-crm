@@ -10,7 +10,6 @@ import sqlite3
 import sys
 import threading
 import time
-import traceback
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -322,11 +321,15 @@ class CRMHandler(BaseHTTPRequestHandler):
             self.send_error_json(408, "Тело запроса не получено вовремя.")
         except OSError:
             if getattr(sys, "stderr", None):
-                import logging; logging.getLogger("sto_crm").error("Unhandled Server Exception", exc_info=True)
+                
+                import logging
+                logging.getLogger("sto_crm").error("Unhandled Server Exception", exc_info=True)
             self.send_error_json(500, INTERNAL_ERROR_MESSAGE)
         except Exception:
             if getattr(sys, "stderr", None):
-                import logging; logging.getLogger("sto_crm").error("Unhandled Server Exception", exc_info=True)
+                
+                import logging
+                logging.getLogger("sto_crm").error("Unhandled Server Exception", exc_info=True)
             self.send_error_json(500, INTERNAL_ERROR_MESSAGE)
         finally:
             if not trusted_request:

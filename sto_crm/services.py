@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import logging
-logger = logging.getLogger("sto_crm")
-
 import sqlite3
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -33,6 +31,7 @@ from .validation import (
     validate_vehicle,
 )
 
+logger = logging.getLogger("sto_crm")
 
 def _query_get_order(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
     # Lazy import разрывает цикл queries → services.
@@ -565,7 +564,7 @@ def reconcile_vehicle_mileage_after_order_change(
 
 
 def create_order_tx(conn: sqlite3.Connection, payload: dict[str, Any]) -> int:
-    logger.info(f"Creating new order transaction")
+    logger.info("Creating new order transaction")
     data = validate_order(conn, payload)
     stamp = now_iso()
     number = generate_order_number(conn)

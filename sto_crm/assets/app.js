@@ -491,17 +491,25 @@ function toast(message, type = "info") {
         announce(message, isError);
         return;
     }
-    node.textContent = message;
+    // Professional icon injection based on type
+    const icon = isError ? "⚠️ " : "✅ ";
+    node.innerHTML = `<strong>${icon}</strong> <span>${esc(message)}</span>`;
     node.classList.toggle("error", isError);
     node.setAttribute("aria-live", isError ? "assertive" : "polite");
     node.setAttribute("aria-atomic", "true");
     node.classList.add("show");
+    
+    // Provide tactile animation reset
+    node.style.animation = 'none';
+    node.offsetHeight; /* trigger reflow */
+    node.style.animation = null;
+    
     announce(message, isError);
     clearTimeout(node.timer);
     node.timer = setTimeout(() => {
         node.classList.remove("show");
-        node.textContent = "";
-    }, isError ? 5200 : 3200);
+        node.innerHTML = "";
+    }, isError ? 6000 : 3500);
 }
 
 function clearAllFormErrors(form) {

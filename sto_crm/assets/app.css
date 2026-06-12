@@ -1493,7 +1493,7 @@ body:not(.sidebar-collapsed) .brand { padding-right: 20px; }
     opacity: 0; pointer-events: none;
     transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out);
     max-width: min(90vw, 520px);
-}
+ display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: var(--font-size-sm); border-radius: var(--radius-md); box-shadow: var(--shadow-lg), 0 0 0 1px inset rgba(255,255,255,0.1); padding: 12px 18px; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
 .toast.error { background: var(--toast-error-bg); color: var(--toast-error-ink); }
 
@@ -2120,7 +2120,7 @@ main.rendered .section-card:nth-child(3) { animation-delay: 0.15s; }
 }
 .toast {
     animation: popIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
+ display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: var(--font-size-sm); border-radius: var(--radius-md); box-shadow: var(--shadow-lg), 0 0 0 1px inset rgba(255,255,255,0.1); padding: 12px 18px; }
 
 /* Fix Checkbox/Radios */
 input[type="checkbox"], input[type="radio"] {
