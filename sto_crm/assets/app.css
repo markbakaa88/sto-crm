@@ -106,6 +106,7 @@
     --ink-faint: #64748b;
     --line: #e2e8f0;
     --line-strong: #cbd5e1;
+    --line-subtle: #f1f5f9;
     --line-inverse: rgba(255, 255, 255, 0.1);
     --table-row-hover: var(--surface-subtle);
     --focus-ring: rgba(14, 116, 144, 0.35);
@@ -184,6 +185,7 @@ body.dark, [data-theme="dark"] {
     --ink-faint: #94a3b8;
     --line: rgba(255, 255, 255, 0.08);
     --line-strong: rgba(255, 255, 255, 0.14);
+    --line-subtle: rgba(255, 255, 255, 0.04);
     --table-row-hover: rgba(148, 163, 184, 0.08);
     --focus-ring: rgba(90, 200, 189, 0.3);
 
