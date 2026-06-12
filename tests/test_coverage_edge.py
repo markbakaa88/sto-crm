@@ -296,6 +296,20 @@ class TestCoverageEdge(unittest.TestCase):
             finally:
                 _runtime.RUNTIME = current_runtime
 
+    def test_web_read_asset_frozen_edge(self):
+        from sto_crm import web as crm_web
+        orig_frozen = crm_web.is_frozen
+        # Подменяем is_frozen на True прямо в пространстве имен модуля web
+        crm_web.is_frozen = lambda: True
+        try:
+            # Вызов_read_asset должен пойти по ветке resources.files
+            content = crm_web._read_asset("index.html")
+            self.assertIn("СТО CRM", content)
+        finally:
+            crm_web.is_frozen = orig_frozen
+
+
+
 
 
 
