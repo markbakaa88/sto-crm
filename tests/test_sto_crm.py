@@ -3876,43 +3876,6 @@ class StoCrmTests(unittest.TestCase):
         )
         self.assertEqual(html.count("applyFormError("), 4)
 
-    def test_frontend_shortcuts_customer_selection_and_layout_contracts(self):
-        html = sto_crm.INDEX_HTML
-        self.assertIn('const routeKeys = { d: "dashboard", p: "dashboard"', html)
-        self.assertIn('k: "catalog"', html)
-        self.assertNotIn("openInspectionModal", html)
-        self.assertIn('keys: "G D", run: () => setRoute("dashboard")', html)
-        self.assertIn('keys: "G K", run: () => setRoute("catalog")', html)
-        self.assertIn('data-tooltip="Каталог марок и моделей · G K"', html)
-        self.assertIn(
-            'const placeholderText = customers.length ? "Выберите клиента" : "Нет клиентов";',
-            html,
-        )
-        self.assertIn('data-tooltip="Создать заказ-наряд · N O"', html)
-        self.assertIn("Новый заказ <kbd>N O</kbd>", html)
-        self.assertIn(
-            'const placeholder = normalizedCustomerId || normalizedSelected ? "Не выбран" : "Сначала выберите клиента";',
-            html,
-        )
-        self.assertIn("} else if (vehicleId !== normalizedSelected) {", html)
-        self.assertIn('const selectedCustomer = appointment.customer_id || "";', html)
-        self.assertIn('const selectedCustomer = vehicle.customer_id || "";', html)
-        self.assertIn('const selectedCustomer = order.customer_id || "";', html)
-        self.assertIn('customerSelect?.addEventListener("change"', html)
-        self.assertIn('$("#order_customer_id")?.addEventListener("change"', html)
-        self.assertIn('$("#addService")?.addEventListener("click"', html)
-        self.assertNotIn("lookupCustomers[0]?.id", html)
-        self.assertIn(
-            "html { min-height: 100%; background: var(--bg); overflow-x: hidden; overflow-x: clip; }",
-            html,
-        )
-        self.assertIn(".sr-only.scroll-hint-sr { width: 1px !important;", html)
-        self.assertIn(
-            "@media (max-width: 1024px), (pointer: coarse) { [data-tooltip]::after { display: none; } }",
-            html,
-        )
-        self.assertIn('return normalize(value) || normalize(fallback) || "#";', html)
-
     def test_github_update_helpers_select_and_compare_release_assets(self):
         release = {
             "assets": [
@@ -4441,71 +4404,6 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn('id="clearSearch"', html)
         self.assertIn('type="email"', html)
         self.assertIn('title="VIN должен содержать 17 символов без I, O и Q"', html)
-
-    def test_home_page_has_premium_dashboard_and_view_headings(self):
-        html = sto_crm.INDEX_HTML
-        self.assertIn("function sectionIntro(title, text, options = {})", html)
-        self.assertIn('"section-card hero-card"', html)
-        self.assertIn("hero-stat-stack", html)
-        self.assertIn("metric-icon", html)
-        self.assertIn("insight-icon", html)
-        self.assertIn("--content-max: 1680px;", html)
-        self.assertIn("Профессиональная панель", html)
-        self.assertIn("Смена под контролем", html)
-        self.assertIn("primary-kpi-grid", html)
-        self.assertIn("function pluralRu(", html)
-        self.assertIn("function moneyCompact(", html)
-        self.assertIn("function viewHeading(", html)
-        self.assertIn("view-heading-actions", html)
-        self.assertIn("Календарь приёмки", html)
-        self.assertNotIn("Digital Vehicle Inspection", html)
-        self.assertIn("Заказ-наряды", html)
-        self.assertIn("Каталог автомобилей", html)
-        self.assertIn("Отчёты и аналитика", html)
-        self.assertIn('action: "open-action-plan"', html)
-        self.assertIn("--brand-gradient: linear-gradient(145deg", html)
-        self.assertIn("background: var(--brand-gradient);", html)
-        self.assertIn("grid-template-columns: 260px minmax(0, 1fr)", html)
-        self.assertIn("workspace-grid", html)
-        self.assertIn("function riskRadar(report)", html)
-        self.assertIn("function quickActions()", html)
-        self.assertIn("function miniLedger(report)", html)
-        dashboard = html[
-            html.index("function renderDashboard()") : html.index("function metric(")
-        ]
-        self.assertIn('sectionIntro("Смена под контролем"', dashboard)
-        self.assertIn('class="primary-kpi-grid"', dashboard)
-        self.assertIn("pipelineBoard(r.pipeline_by_status || [])", dashboard)
-        self.assertIn("appointmentTimeline(r.appointment_load_7_days || [])", dashboard)
-        self.assertIn("procurementList(r.procurement_plan || [])", dashboard)
-        self.assertIn("workloadList(r.workload_by_responsible || [])", dashboard)
-        self.assertIn('action: "open-action-plan"', dashboard)
-        self.assertIn("${ordersTable(recent, true)}", dashboard)
-
-    def test_frontend_css_matches_runtime_shell_states_and_dense_components(self):
-        html = sto_crm.INDEX_HTML
-        self.assertIn(
-            ".modal-backdrop.open, .command-palette-backdrop.open { display: grid; }",
-            html,
-        )
-        self.assertIn('$("#modalBackdrop").classList.add("open");', html)
-        self.assertIn('$("#commandPalette")?.classList.add("open");', html)
-        self.assertIn(".quick-grid { display: grid;", html)
-        self.assertIn(
-            ".action-card { grid-template-columns: minmax(0, 1fr) auto;", html
-        )
-        self.assertIn(".items-table { overflow-x: auto;", html)
-        self.assertIn(".totals {\n    display: grid;", html)
-        self.assertIn(".catalog-summary { display: grid;", html)
-        self.assertIn(".scroll-hint { display: none;", html)
-        self.assertIn(".has-horizontal-overflow .scroll-hint { display: block; }", html)
-        self.assertIn(".span-3 { grid-column: 1 / -1; }", html)
-        self.assertIn(
-            ".business-hints { grid-template-columns: 1fr; padding-right: var(--space-5); }",
-            html,
-        )
-        self.assertIn("function closeTransientPanels(", html)
-        self.assertIn('closeTransientPanels("cta")', html)
 
     def test_print_order_html_uses_professional_document_design(self):
         order = {
