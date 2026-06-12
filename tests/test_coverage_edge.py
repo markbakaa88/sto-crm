@@ -705,6 +705,16 @@ class TestCoverageEdge(unittest.TestCase):
                 fetch_json("https://github.com/abc/def")
             self.assertIn("GitHub недоступен: HTTP 500", str(ctx.exception))
 
+    def test_schedule_windows_update_non_windows(self):
+        import os
+
+        from sto_crm.updates import schedule_windows_update
+        if os.name != "nt":
+            with self.assertRaises(RuntimeError) as ctx:
+                schedule_windows_update(Path("dummy"), "dummy_sha")
+            self.assertIn("Автоустановка доступна только в Windows", str(ctx.exception))
+
+
 
 
 
