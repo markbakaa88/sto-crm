@@ -1,17 +1,5 @@
 
 
-function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-    };
-}
-
 const state = {
     route: "dashboard",
     q: "",
@@ -2567,7 +2555,7 @@ function renderReports() {
                 </div>
                 <div class="panel-body">
                     <ul class="stats-list" style="list-style:none; padding:10px 0; margin:0; display:flex; flex-direction:column; gap:12px;">
-                        ${[["new", "Новые"], ["diagnostics", "Диагностика"], ["estimate", "Дефектовка"], ["approved", "В работе (согласовано)"], ["in_progress", "На посту"], ["done", "Готово"], ["closed", "Закрыто"]].map(([k, label]) => {
+                        ${[["new", "Новые"], ["diagnostics", "Диагностика"], ["estimate", "Дефектовка"], ["approved", "В работе (согласовано)"], ["in_progress", "На посту"], ["done", "Готово"], ["closed", "Закрыто"]].map(([k]) => {
                             const c = statusCounts[k] || 0;
                             return `
                             <li style="display:flex; justify-content:space-between; align-items:center; padding-bottom:8px; border-bottom:1px dashed var(--line-subtle);">
@@ -2598,6 +2586,15 @@ function renderReports() {
                         `).join("")}
                     </ul>
                     ` : `<div class="muted" style="padding:20px; text-align:center;">Пока нет достаточной статистики закрытых заказ-нарядов.</div>`}
+                </div>
+            </div>
+            
+            <div class="panel shadow-sm" style="border-radius: var(--radius-lg);">
+                <div class="panel-head" style="border-bottom: 1px solid var(--line-subtle); padding-bottom: var(--space-3);">
+                    <h3>💎 VIP-клиенты</h3>
+                </div>
+                <div class="panel-body" style="padding-top: var(--space-3);">
+                    ${vipCustomerList(r.vip_customers || [])}
                 </div>
             </div>
         </div>
