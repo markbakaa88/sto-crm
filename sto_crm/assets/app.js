@@ -1825,7 +1825,7 @@ async function createBackupFromUi() {
 
 function sectionIntro(title, text, options = {}) {
     const className = options.hero ? "section-card hero-card" : "section-card";
-    const eyebrow = options.eyebrow ? `<div class="hero-eyebrow" style="opacity:0.8; font-weight:600; text-transform:uppercase;">${esc(options.eyebrow)}</div>` : "";
+    const eyebrow = options.eyebrow ? `<div class="hero-eyebrow">${esc(options.eyebrow)}</div>` : "";
     const summary = (options.summary || []).length
         ? `<div class="hero-summary">${options.summary.map(item => `<span class="context-pill ${esc(semanticToneClass(item.tone || ""))}"><small>${esc(item.label)}</small><strong>${esc(item.value)}</strong></span>`).join("")}</div>`
         : "";
@@ -1953,7 +1953,7 @@ function renderDashboard() {
             hero: true,
             eyebrow: "Профессиональная панель",
             summary: [
-                { label: "План", value: `${r.action_plan_total || 0} задач`, tone: r.risk_total ? "warning" : "info" },
+                { label: "План", value: `${r.action_plan_total || 0} ${pluralRu(r.action_plan_total || 0, "задача", "задачи", "задач")}`, tone: r.risk_total ? "warning" : "info" },
                 { label: "Выручка", value: moneyCompact(r.revenue_month || 0), tone: "success" },
                 { label: "Риски", value: r.risk_total || 0, tone: r.risk_total ? "warning" : "success" }
             ],
@@ -1962,9 +1962,9 @@ function renderDashboard() {
                 { label: "Отчёты", action: "open-reports", className: "ghost" }
             ],
             stats: [
-                { label: "Активных заказов", value: r.active_orders || 0 },
-                { label: "Записей сегодня", value: r.appointments_today_count || 0 },
-                { label: "Закупка", value: procurement.length }
+                { label: pluralRu(r.active_orders || 0, "Активный заказ", "Активных заказа", "Активных заказов"), value: r.active_orders || 0 },
+                { label: pluralRu(r.appointments_today_count || 0, "Запись сегодня", "Записи сегодня", "Записей сегодня"), value: r.appointments_today_count || 0 },
+                { label: pluralRu(procurement.length, "Дефицитная позиция", "Дефицитные позиции", "Дефицитных позиций"), value: procurement.length }
             ]
         })}
         <section class="primary-kpi-grid" aria-label="Ключевые показатели смены">
@@ -2173,12 +2173,12 @@ function renderAppointments() {
     const upcoming = state.data.reports?.appointments_upcoming || [];
     const body = rows.map(appointment => `
                         <tr>
-                            <td class="nowrap" data-label="Запланировано"><div class="cell-title"><strong>${dateShort(appointment.scheduled_at)}</strong><div class="muted" style="font-size:0.85em;">~${Number(appointment.duration_minutes || 0)} мин</div></div></td>
+                            <td class="nowrap" data-label="Запланировано"><div class="cell-title"><strong>${dateShort(appointment.scheduled_at)}</strong><div class="muted text-sm">~${Number(appointment.duration_minutes || 0)} мин</div></div></td>
                             <td data-label="О клиенте"><div class="cell-title"><strong>${esc(appointment.customer_name)}</strong><div class="muted d-flex align-items-center"><span class="icon-contact" aria-hidden="true">📱</span> ${esc(appointment.customer_phone)}</div></div></td>
                             <td data-label="Транспорт"><strong>${esc(appointmentVehicle(appointment) || "—")}</strong></td>
                             <td data-label="Статус визита">${appointmentStatusBadge(appointment.status)}</td>
                             <td data-label="Приёмщик"><strong>${esc(appointment.advisor) || "—"}</strong></td>
-                            <td data-label="Повод обращения"><div class="cell-title"><strong>${esc(appointment.reason) || "—"}</strong><div class="muted truncate-text" style="max-width:200px" title="${esc(appointment.notes)}">${esc(appointment.notes)}</div></div></td>
+                            <td data-label="Повод обращения"><div class="cell-title"><strong>${esc(appointment.reason) || "—"}</strong><div class="muted truncate-text" title="${esc(appointment.notes)}">${esc(appointment.notes)}</div></div></td>
                             <td data-label="Действия"><button class="btn ghost btn-sm" type="button" data-action="edit-appointment" data-id="${safeRecordId(appointment.id)}">Профиль</button></td>
                         </tr>`).join("");
     return `
@@ -2280,13 +2280,13 @@ function ordersTable(orders, compact) {
                 ${orders.map(order => `
                     <tr>
                         <td data-label="Номер"><div class="cell-title"><strong>${esc(order.number)}</strong><span class="priority-dot" data-priority="${esc(order.priority)}">${esc(priorityLabels[order.priority] || order.priority)}</span></div></td>
-                        <td data-label="Клиент и авто"><div class="cell-title"><strong>${esc(order.customer_name)}</strong><div class="muted d-flex"><span aria-hidden="true" style="margin-right:4px;">🚗</span> ${esc(orderVehicle(order) || "Авто не выбрано")}</div></div></td>
+                        <td data-label="Клиент и авто"><div class="cell-title"><strong>${esc(order.customer_name)}</strong><div class="muted d-flex"><span aria-hidden="true" class="mr-1">🚗</span> ${esc(orderVehicle(order) || "Авто не выбрано")}</div></div></td>
                         <td data-label="Статус">${statusBadge(order.status)}</td>
                         <td class="nowrap" data-label="Срок"><strong>${dateOrDash(order.promised_at)}</strong></td>
-                        <td data-label="Мастер"><div class="cell-title"><strong>${textOrDash(order.mechanic || order.advisor, "Не назначен")}</strong><div class="muted" style="font-size:0.85em;">Исполнитель</div></div></td>
-                        <td class="money" data-label="Итого"><strong style="font-size: 1.1em;">${money(order.total)}</strong></td>
+                        <td data-label="Мастер"><div class="cell-title"><strong>${textOrDash(order.mechanic || order.advisor, "Не назначен")}</strong><div class="muted text-sm">Исполнитель</div></div></td>
+                        <td class="money" data-label="Итого"><strong class="text-lg">${money(order.total)}</strong></td>
                         <td class="money" data-label="К оплате">
-                            <span class="${order.due > 0 ? 'status-badge danger' : 'status-badge success'}" style="font-size:0.9em;">
+                            <span class="${order.due > 0 ? 'status-badge danger' : 'status-badge success'}">
                                 ${order.due > 0 ? money(order.due) : 'Оплачен'}
                             </span>
                         </td>
@@ -2345,7 +2345,7 @@ function renderVehicles() {
     const catalog = state.data.car_catalog?.stats || { makes: 0, models: 0 };
     const body = rows.map(v => `
                         <tr>
-                            <td data-label="Автомобиль"><div class="cell-title"><strong class="vehicle-name-highlight">${esc(vehicleName(v))}</strong><div class="muted truncate-text" style="max-width:250px" title="${esc(v.notes)}">${esc(v.notes)}</div></div></td>
+                            <td data-label="Автомобиль"><div class="cell-title"><strong class="vehicle-name-highlight">${esc(vehicleName(v))}</strong><div class="muted truncate-w-250" title="${esc(v.notes)}">${esc(v.notes)}</div></div></td>
                             <td data-label="Госномер">${v.plate ? `<span class="plate plate-modern">${esc(v.plate)}</span>` : '<span class="muted">—</span>'}</td>
                             <td data-label="VIN"><span class="vin-mono">${esc(v.vin) || "—"}</span></td>
                             <td data-label="Владелец"><div class="cell-title"><strong>${esc(v.customer_name)}</strong><div class="muted d-flex align-items-center"><span class="icon-contact" aria-hidden="true">📱</span> ${esc(v.customer_phone)}</div></div></td>
@@ -2499,16 +2499,16 @@ function renderInventory() {
     const lowCount = rows.filter(part => Number(part.is_low)).length;
     const body = rows.map(p => `
                         <tr>
-                            <td data-label="Номенклатура"><div class="cell-title"><strong class="inventory-name">${esc(p.name)}</strong>${Number(p.is_low) ? `<div style="margin-top:4px;"><span class="status-badge danger" title="Остаток ниже минимального">Требуется закупка</span></div>` : ""}</div></td>
+                            <td data-label="Номенклатура"><div class="cell-title"><strong class="inventory-name">${esc(p.name)}</strong>${Number(p.is_low) ? `<div class="mt-1"><span class="status-badge danger" title="Остаток ниже минимального">Требуется закупка</span></div>` : ""}</div></td>
                             <td data-label="Артикул"><span class="sku-badge">${esc(p.sku) || "—"}</span></td>
                             <td data-label="Бренд"><strong>${esc(p.brand) || "—"}</strong></td>
                             <td data-label="Наличие">
                                 <span class="qty-highlight ${Number(p.is_low) ? "qty-low" : (p.quantity > 0 ? "qty-good" : "qty-empty")}">${qty(p.quantity)} ${esc(p.unit)}</span>
-                                <div class="muted" style="font-size:0.85em; margin-top:2px;">Мин: ${qty(p.min_quantity)}</div>
+                                <div class="muted min-qty-hint">Мин: ${qty(p.min_quantity)}</div>
                             </td>
                             <td class="money" data-label="Цена клиенту"><strong>${money(p.price)}</strong></td>
                             <td class="money" data-label="Себестоимость"><span class="text-secondary">${money(p.cost)}</span></td>
-                            <td data-label="Поставщик"><div class="cell-title">${esc(p.supplier) || "—"}<div class="muted" style="font-size:0.85em;">Контрагент</div></div></td>
+                            <td data-label="Поставщик"><div class="cell-title">${esc(p.supplier) || "—"}<div class="muted text-sm">Контрагент</div></div></td>
                             <td data-label="Действия"><button class="btn ghost btn-sm" type="button" data-action="edit-inventory" data-id="${safeRecordId(p.id)}">Профиль</button></td>
                         </tr>`).join("");
     return `
@@ -2520,7 +2520,7 @@ function renderInventory() {
             { label: "Экспорт прайса", action: "export-csv", export: "inventory", className: "ghost" },
             { label: "+ Добавить деталь", action: "new-inventory", className: "primary shadow-btn" }
         ])}
-        <section class="insight-grid" style="margin-bottom: var(--space-5);">
+        <section class="insight-grid mb-5">
             ${insightCard("Всего позиций", rows.length, "Записей в номенклатуре", "▦")}
             ${insightCard("Дефицит", lowCount, "Позиций ниже минимального запаса", "⚠")}
             ${insightCard("Активы склада", money(state.data.reports.inventory_value || 0), "Общая сумма по себестоимости", "₽")}
@@ -2545,26 +2545,26 @@ function renderReports() {
         ], [
             { label: "Обновить", action: "refresh", className: "ghost" }
         ])}
-        <section class="insight-grid" style="margin-bottom: var(--space-5);">
+        <section class="insight-grid mb-5">
             ${insightCard("Общая выручка", money(r.revenue_month || 0), "Закрытые заказы в этом месяце", "📈")}
             ${insightCard("Средний чек", money(r.average_check || 0), "Сумма по закрытым заказам", "💰")}
             ${insightCard("В работе", money(r.pipeline_value || 0), "Денег в активных заказах", "⚙️")}
             ${insightCard("Ожидает оплаты", money(r.pipeline_due || 0), "Долги клиентов по ремонтам", "⏳")}
         </section>
         
-        <div class="workspace-grid" style="grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: var(--space-5);">
-            <div class="panel shadow-sm" style="border-radius: var(--radius-lg);">
-                <div class="panel-head" style="border-bottom: 1px solid var(--line-subtle); padding-bottom: var(--space-3);">
+        <div class="workspace-grid dashboard-grid">
+            <div class="panel shadow-sm">
+                <div class="panel-head panel-border-subtle">
                     <h3>🚀 Воронка ремонтов</h3>
                 </div>
                 <div class="panel-body">
-                    <ul class="stats-list" style="list-style:none; padding:10px 0; margin:0; display:flex; flex-direction:column; gap:12px;">
+                    <ul class="stats-list panel-list">
                         ${[["new", "Новые"], ["diagnostics", "Диагностика"], ["estimate", "Дефектовка"], ["approved", "В работе (согласовано)"], ["in_progress", "На посту"], ["done", "Готово"], ["closed", "Закрыто"]].map(([k]) => {
                             const c = statusCounts[k] || 0;
                             return `
-                            <li style="display:flex; justify-content:space-between; align-items:center; padding-bottom:8px; border-bottom:1px dashed var(--line-subtle);">
+                            <li class="panel-list-item">
                                 <span>${statusBadge(k)}</span>
-                                <strong style="font-size:1.1em">${c} шт.</strong>
+                                <strong class="text-lg">${c} шт.</strong>
                             </li>
                             `;
                         }).join("")}
@@ -2572,32 +2572,32 @@ function renderReports() {
                 </div>
             </div>
             
-            <div class="panel shadow-sm" style="border-radius: var(--radius-lg);">
-                <div class="panel-head" style="border-bottom: 1px solid var(--line-subtle); padding-bottom: var(--space-3);">
+            <div class="panel shadow-sm">
+                <div class="panel-head panel-border-subtle">
                     <h3>⭐ Популярные работы</h3>
                 </div>
                 <div class="panel-body">
                     ${topServices.length ? `
-                    <ul class="stats-list" style="list-style:none; padding:10px 0; margin:0; display:flex; flex-direction:column; gap:12px;">
+                    <ul class="stats-list panel-list">
                         ${topServices.map(ts => `
-                            <li style="display:flex; justify-content:space-between; align-items:center; padding-bottom:8px; border-bottom:1px dashed var(--line-subtle);">
-                                <span class="truncate-text" style="max-width:60%; font-weight:500;" title="${esc(ts.title)}">${esc(ts.title)}</span>
-                                <div style="text-align:right;">
+                            <li class="panel-list-item">
+                                <span class="truncate-text max-w-60p" title="${esc(ts.title)}">${esc(ts.title)}</span>
+                                <div class="text-right">
                                     <strong>${ts.count} раз</strong>
-                                    <div class="text-success" style="font-size:0.85em;">${money(ts.revenue)}</div>
+                                    <div class="text-success text-sm">${money(ts.revenue)}</div>
                                 </div>
                             </li>
                         `).join("")}
                     </ul>
-                    ` : `<div class="muted" style="padding:20px; text-align:center;">Пока нет достаточной статистики закрытых заказ-нарядов.</div>`}
+                    ` : `<div class="muted p-20-center">Пока нет достаточной статистики закрытых заказ-нарядов.</div>`}
                 </div>
             </div>
             
-            <div class="panel shadow-sm" style="border-radius: var(--radius-lg);">
-                <div class="panel-head" style="border-bottom: 1px solid var(--line-subtle); padding-bottom: var(--space-3);">
+            <div class="panel shadow-sm">
+                <div class="panel-head panel-border-subtle">
                     <h3>💎 VIP-клиенты</h3>
                 </div>
-                <div class="panel-body" style="padding-top: var(--space-3);">
+                <div class="panel-body pt-3">
                     ${vipCustomerList(r.vip_customers || [])}
                 </div>
             </div>

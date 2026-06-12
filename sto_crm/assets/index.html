@@ -32,7 +32,7 @@
 <body data-bootstrap-token="__STO_CRM_BOOTSTRAP_TOKEN__">
 <a class="skip-link" href="#content">К основному содержанию</a>
 
-<div class="app-progress" id="appProgress" aria-hidden="true" style="height: 3px; background: linear-gradient(90deg, var(--brand-mid), var(--brand-end)); transition: width 0.3s ease;"></div>
+<div class="app-progress" id="appProgress" aria-hidden="true"></div>
 
 <div class="app">
     <aside class="sidebar" id="appSidebar" aria-label="Навигация CRM">
@@ -70,7 +70,7 @@
     <main class="main">
         <header class="topbar sticky">
             <button type="button" class="btn icon mobile-nav-toggle" id="mobileNavToggle" aria-label="Открыть навигацию" aria-expanded="false" aria-controls="appSidebar" title="Навигация" data-tooltip="Навигация">☰</button>
-            <div class="title-block" style="animation: fade-in 0.3s ease-out;">
+            <div class="title-block">
                 <h1 id="viewTitle">Панель</h1>
                 <div class="view-subtitle" id="viewSubtitle">Оперативная сводка автосервиса</div>
             </div>
@@ -106,7 +106,7 @@
                 <button type="button" class="btn ghost" id="commandBtn" title="Командная палитра Ctrl+K" aria-label="Открыть командную палитру" aria-keyshortcuts="Control+K Meta+K" data-tooltip="Командная палитра · Ctrl+K">⌘K</button>
                 <button type="button" class="btn icon" id="refreshBtn" title="Обновить" aria-label="Обновить данные" data-tooltip="Обновить · R">↻</button>
                 <div class="system-menu" id="systemMenuRoot">
-                    <button type="button" class="btn ghost system-menu-button" style="border-radius:var(--radius-xl);" id="systemMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="systemMenu" aria-label="Системные действия CRM" title="Системные действия CRM" data-tooltip="Система и настройки"><span>Система</span><span class="system-menu-icon" aria-hidden="true">⚙</span></button>
+                    <button type="button" class="btn ghost system-menu-button" id="systemMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="systemMenu" aria-label="Системные действия CRM" title="Системные действия CRM" data-tooltip="Система и настройки"><span>Система</span><span class="system-menu-icon" aria-hidden="true">⚙</span></button>
                     <div class="system-menu-panel" id="systemMenu" role="menu" aria-label="Системные действия CRM" hidden>
                         <button type="button" role="menuitem" class="system-menu-item" id="themeToggle" title="Тёмная/светлая тема" aria-label="Переключить тёмную или светлую тему" aria-pressed="false"><span data-menu-icon aria-hidden="true">◐</span><span data-menu-label>Тема</span></button>
                         <button type="button" role="menuitem" class="system-menu-item" id="densityToggle" title="Плотность интерфейса" aria-label="Переключить плотность интерфейса" aria-pressed="false"><span data-menu-icon aria-hidden="true">↕</span><span data-menu-label>Плотность</span></button>
@@ -117,7 +117,7 @@
                 </div>
             </div>
         </header>
-        <nav class="breadcrumbs" style="background: var(--surface-subtle); padding: var(--space-2) var(--space-4); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); margin: var(--space-3);" id="breadcrumbs" aria-label="Хлебные крошки" hidden></nav>
+        <nav class="breadcrumbs" id="breadcrumbs" aria-label="Хлебные крошки" hidden></nav>
         <section class="content" id="content" tabindex="-1">
             <div class="loading-state" role="status" aria-label="Загрузка данных CRM">
                 <div class="loading-mark" aria-hidden="true"></div>
