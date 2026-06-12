@@ -2489,3 +2489,78 @@ body.dark .btn.danger:hover {
 body.dark .field .field-hint {
     color: var(--ink-soft) !important;
 }
+
+/* 11. Кастомные скроллбары для потрясающей плавности */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: var(--line);
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--ink-faint);
+}
+body.dark ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12);
+}
+body.dark ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.24);
+}
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
+}
+body.dark * {
+    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+}
+
+/* 12. Плавная кинетическая анимация перехода между разделами CRM */
+@keyframes contentFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+.content {
+    animation: contentFadeIn 0.26s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* 13. Премиальный блок итоговых показателей заказа (Order Totals Redesign) */
+.totals .grand {
+    grid-column: 1 / -1;
+    background: var(--brand-soft) !important;
+    border: 1px solid rgba(10, 147, 150, 0.25) !important;
+    padding: calc(var(--space-2) + 2px) var(--space-4) !important;
+    border-radius: var(--radius-md) !important;
+    display: flex !important;
+    flex-direction: row !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    margin-top: var(--space-2) !important;
+}
+body.dark .totals .grand {
+    background: rgba(90, 200, 189, 0.08) !important;
+    border-color: rgba(90, 200, 189, 0.25) !important;
+}
+.totals .grand small {
+    margin-bottom: 0 !important;
+    font-weight: 600 !important;
+    color: var(--ink-soft) !important;
+    letter-spacing: 0.8px !important;
+}
+.totals .grand strong {
+    font-size: var(--font-size-lg) !important;
+    color: var(--brand-strong) !important;
+}
+body.dark .totals .grand strong {
+    color: var(--brand) !important;
+}
