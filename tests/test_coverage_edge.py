@@ -267,6 +267,39 @@ class TestCoverageEdge(unittest.TestCase):
         finally:
             sto_crm.printing.parse_float = orig
 
+    def test_csv_export_key_error_edge(self):
+        from sto_crm.export import csv_export
+        with self.assertRaises(KeyError):
+            csv_export("unknown_entity")
+
+    def test_csv_export_valid_entities(self):
+        from sto_crm.export import csv_export
+        from sto_crm import runtime as _runtime
+        from sto_crm.database import init_db
+        from sto_crm.runtime import Runtime
+        current_runtime = _runtime.RUNTIME
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _runtime.RUNTIME = Runtime(
+                db_path=Path(tmpdir) / "test_export.sqlite3",
+                start_time=0.0,
+                csrf_token="",
+                access_token="",
+                bootstrap_token=""
+            )
+            try:
+                init_db(seed_demo=True)
+                for entity in ("customers", "vehicles", "inventory", "appointments", "orders", "catalog"):
+                    filename, content = csv_export(entity)
+                    self.assertTrue(filename.endswith(".csv"))
+                    self.assertTrue(content.startswith("\ufeff"))
+            finally:
+                _runtime.RUNTIME = current_runtime
+
+
+
+
+
 
 
 
