@@ -1652,7 +1652,11 @@ function bindShellShortcuts() {
             resetSequence();
             return;
         }
-        const lower = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+        const ruToEnMap = {
+            "п": "g", "т": "n", "к": "r", "в": "d", "з": "p", "ф": "a", "щ": "o", "с": "c", "м": "v", "л": "k", "ы": "s", "г": "u"
+        };
+        const rawKey = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+        const lower = ruToEnMap[rawKey] || rawKey;
         if (keySequence === "g" && routeKeys[lower]) {
             event.preventDefault();
             setRoute(routeKeys[lower]);
@@ -3040,7 +3044,7 @@ function handleCommandPaletteTab(event) {
 
 function handleModalKeydown(event) {
     const commandPaletteOpen = $("#commandPalette")?.classList.contains("open");
-    if ((event.ctrlKey || event.metaKey) && (event.code === "KeyK" || event.key.toLocaleLowerCase("ru-RU") === "k") && !commandPaletteOpen) {
+    if ((event.ctrlKey || event.metaKey) && (event.code === "KeyK" || event.key.toLowerCase() === "k" || event.key.toLowerCase() === "л") && !commandPaletteOpen) {
         event.preventDefault();
         if (!$("#modalBackdrop")?.classList.contains("open")) openCommandPalette();
         return;
