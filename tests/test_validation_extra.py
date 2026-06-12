@@ -1,5 +1,6 @@
-import unittest
 import sqlite3
+import unittest
+
 from sto_crm.validation import validate_customer, validate_vehicle
 
 

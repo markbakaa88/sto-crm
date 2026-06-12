@@ -1,4 +1,5 @@
 import unittest
+
 from sto_crm.validation import item_is_billable, require_non_negative_float
 
 

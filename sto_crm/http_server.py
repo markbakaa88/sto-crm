@@ -627,9 +627,9 @@ class CRMHandler(BaseHTTPRequestHandler):
             self.end_headers()
             if write_body:
                 self.wfile.write(body)
-        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError) as err:
             self.close_connection = True
-            raise BrokenPipeError
+            raise BrokenPipeError from err
 
 
 class CRMServer(ThreadingHTTPServer):

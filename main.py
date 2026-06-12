@@ -8,6 +8,5 @@ existing commands, build scripts and PyInstaller continue to use
 
 from sto_crm.cli import main
 
-
 if __name__ == "__main__":
     raise SystemExit(main())

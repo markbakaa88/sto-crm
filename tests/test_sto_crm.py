@@ -5,8 +5,8 @@ import io
 import json
 import math
 import os
-import sqlite3
 import socket
+import sqlite3
 import tempfile
 import threading
 import time
@@ -36,7 +36,7 @@ def recv_http_response(client, limit=65536):
     while True:
         try:
             chunk = client.recv(4096)
-        except socket.timeout:
+        except TimeoutError:
             break
         if not chunk:
             break
@@ -1737,7 +1737,7 @@ class StoCrmTests(unittest.TestCase):
                 self.assertEqual(response.status, 200)
                 self.assertTrue(body.startswith(codecs.BOM_UTF8))
                 self.assertFalse(body.startswith(codecs.BOM_UTF8 + codecs.BOM_UTF8))
-                self.assertIn("Toyota;Camry".encode("utf-8"), body)
+                self.assertIn(b"Toyota;Camry", body)
 
             with urllib.request.urlopen(f"{base}/api/catalog", timeout=5) as response:
                 catalog = json.loads(response.read().decode("utf-8"))

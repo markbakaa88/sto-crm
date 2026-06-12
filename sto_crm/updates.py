@@ -55,7 +55,6 @@ from .runtime import (
     user_data_dir,
 )
 
-
 _UPDATE_INSTALL_LOCK = threading.Lock()
 _UPDATE_INSTALL_IN_PROGRESS = False
 _UPDATE_INSTALL_SCHEDULED = False

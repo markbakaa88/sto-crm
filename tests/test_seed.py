@@ -1,8 +1,9 @@
+import time
 import unittest
+from pathlib import Path
+
 import sto_crm
 from sto_crm.seed import seed_demo_data
-from pathlib import Path
-import time
 
 
 class TestSeed(unittest.TestCase):
