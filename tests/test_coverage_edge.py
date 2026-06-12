@@ -108,3 +108,64 @@ class TestCoverageEdge(unittest.TestCase):
             os.symlink(real_dir, sym_dir)
             with self.assertRaises(OSError):
                 ensure_real_backup_dir(sym_dir)
+
+    def test_is_installable_update_asset_valid(self):
+        asset = {
+            "download_url": "https://github.com/markbakaa88/sto-crm/releases/download/v1.0.0/STO_CRM.exe",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+        self.assertTrue(is_installable_update_asset(asset))
+
+    def test_prune_backups_empty_or_symlink_dir(self):
+        from sto_crm.updates import prune_backups
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backup_dir = Path(tmpdir) / "backups"
+            backup_dir.mkdir()
+            if hasattr(os, "symlink"):
+                sym_dir = Path(tmpdir) / "sym_backups"
+                os.symlink(backup_dir, sym_dir)
+                with self.assertRaises(OSError):
+                    prune_backups(sym_dir)
+
+    def test_prune_backups_limit_file_rotation(self):
+        from sto_crm.updates import prune_backups
+        import tempfile
+        import time
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backup_dir = Path(tmpdir)
+            # Создаем 3 файла резервной копии
+            f1 = backup_dir / "sto_crm_backup_1.sqlite3"
+            f2 = backup_dir / "sto_crm_backup_2.sqlite3"
+            f3 = backup_dir / "sto_crm_backup_3.sqlite3"
+            
+            f1.write_text("backup1")
+            # Задаем разное время модификации
+            os.utime(f1, (time.time() - 100, time.time() - 100))
+            
+            f2.write_text("backup2")
+            os.utime(f2, (time.time() - 10, time.time() - 10))
+            
+            f3.write_text("backup3")
+            os.utime(f3, (time.time(), time.time()))
+            
+            # Подменяем конфиг для лимита в тесте
+            import sto_crm.updates
+            orig_max_files = sto_crm.updates.MAX_BACKUP_FILES
+            orig_max_bytes = sto_crm.updates.MAX_BACKUP_TOTAL_BYTES
+            try:
+                sto_crm.updates.MAX_BACKUP_FILES = 2
+                sto_crm.updates.MAX_BACKUP_TOTAL_BYTES = 1000
+                
+                # Запускаем prune_backups с сохранением f1
+                prune_backups(backup_dir, keep_path=f1)
+                
+                # Должны остаться f1 (потому что keep_path) и f3 (самый новый среди остальных)
+                # Файл f2 должен быть удален (так как превышен лимит 2 файлов)
+                self.assertTrue(f1.exists())
+                self.assertTrue(f3.exists())
+                self.assertFalse(f2.exists())
+            finally:
+                sto_crm.updates.MAX_BACKUP_FILES = orig_max_files
+                sto_crm.updates.MAX_BACKUP_TOTAL_BYTES = orig_max_bytes
+
