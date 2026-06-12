@@ -919,7 +919,7 @@ a.count-pill:hover { filter: brightness(0.96); transform: scale(1.05); text-deco
 /* Workspace & dashboard layouts */
 .workspace-grid { display: grid; gap: var(--space-5); min-width: 0; }
 .dashboard-focus-grid { grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); }
-.dashboard-main-stack { display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; overflow-x: hidden; overflow-x: clip; }
+.dashboard-main-stack { display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; overflow-x: clip; }
 .dashboard-rail { display: flex; flex-direction: column; gap: var(--space-4); align-self: start; position: sticky; top: calc(var(--header-h) + var(--space-4)); }
 .dashboard-support .panel { padding: var(--space-4); }
 @media (max-width: 1400px) {
