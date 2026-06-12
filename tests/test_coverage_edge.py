@@ -308,6 +308,202 @@ class TestCoverageEdge(unittest.TestCase):
         finally:
             crm_web.is_frozen = orig_frozen
 
+    def test_http_server_unsupported_methods_and_errors(self):
+        from sto_crm.cli import create_server
+        from sto_crm import http_server as crm_http
+        from sto_crm import runtime as _runtime
+        from sto_crm.runtime import Runtime
+        import tempfile
+        import socket
+        import threading
+        import time
+        import urllib.request
+        import urllib.error
+
+        current_runtime = _runtime.RUNTIME
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _runtime.RUNTIME = Runtime(
+                db_path=Path(tmpdir) / "test_http.sqlite3",
+                start_time=time.time(),
+                csrf_token="test_csrf",
+                access_token="test_access",
+                bootstrap_token="test_bootstrap"
+            )
+            # Инициализируем БД
+            from sto_crm.database import init_db
+            init_db(seed_demo=True)
+            
+            server = create_server(0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://127.0.0.1:{server.server_port}"
+            
+            try:
+                # 1. do_DELETE без токена -> 403
+                delete_req = urllib.request.Request(f"{base}/api/customers/1", method="DELETE")
+                with self.assertRaises(urllib.error.HTTPError) as err:
+                    urllib.request.urlopen(delete_req, timeout=5)
+                self.assertEqual(err.exception.code, 403)
+
+                # 2. X-CSRF-Token неверный при DELETE -> 403
+                delete_req = urllib.request.Request(
+                    f"{base}/api/customers/1",
+                    method="DELETE",
+                    headers={"X-CRM-Access-Token": "test_access", "X-CSRF-Token": "wrong_csrf"}
+                )
+                with self.assertRaises(urllib.error.HTTPError) as err:
+                    urllib.request.urlopen(delete_req, timeout=5)
+                self.assertEqual(err.exception.code, 403)
+
+                # 3. OPTIONS запрос без токенов -> 204
+                options_req = urllib.request.Request(f"{base}/", method="OPTIONS")
+                with urllib.request.urlopen(options_req, timeout=5) as response:
+                    self.assertEqual(response.status, 204)
+
+                # 4. do_TRACE -> 405 Метод не поддерживается.
+                trace_req = urllib.request.Request(f"{base}/", method="TRACE")
+                with self.assertRaises(urllib.error.HTTPError) as err:
+                    urllib.request.urlopen(trace_req, timeout=5)
+                self.assertEqual(err.exception.code, 405)
+
+                # 5. do_CONNECT -> 405 Метод не поддерживается.
+                connect_req = urllib.request.Request(f"{base}/", method="CONNECT")
+                with self.assertRaises(urllib.error.HTTPError) as err:
+                    urllib.request.urlopen(connect_req, timeout=5)
+                self.assertEqual(err.exception.code, 405)
+
+                # 6. /print/order/1 GET без csrf -> 403
+                print_req = urllib.request.Request(
+                    f"{base}/print/order/1",
+                    headers={"X-CRM-Access-Token": "test_access"}
+                )
+                with self.assertRaises(urllib.error.HTTPError) as err:
+                    urllib.request.urlopen(print_req, timeout=5)
+                self.assertEqual(err.exception.code, 403)
+
+                # 7. /api/export/customers.csv GET без csrf -> 403
+                export_req = urllib.request.Request(
+                    f"{base}/api/export/customers.csv",
+                    headers={"X-CRM-Access-Token": "test_access"}
+                )
+                with self.assertRaises(urllib.error.HTTPError) as err:
+                    urllib.request.urlopen(export_req, timeout=5)
+                self.assertEqual(err.exception.code, 403)
+
+                # 8. POST /api/backup без токена доступа -> 403
+                backup_req = urllib.request.Request(
+                    f"{base}/api/backup",
+                    method="POST",
+                    headers={
+                        "Content-Type": "application/json",
+                        "Content-Length": "2",
+                        "X-CSRF-Token": "test_csrf"
+                    },
+                    data=b"{}"
+                )
+                with self.assertRaises(urllib.error.HTTPError) as err:
+                    urllib.request.urlopen(backup_req, timeout=5)
+                self.assertEqual(err.exception.code, 403)
+
+                # 8a. do_TRACE с плохим Origin -> 403 (validate_local_request_context failure)
+                trace_req = urllib.request.Request(
+                    f"{base}/",
+                    method="TRACE",
+                    headers={"Origin": "http://evil.example.com"}
+                )
+                with self.assertRaises(urllib.error.HTTPError) as err:
+                    urllib.request.urlopen(trace_req, timeout=5)
+                self.assertEqual(err.exception.code, 403)
+
+                # 8b. GET HEAD / и /app
+                head_req = urllib.request.Request(f"{base}/", method="HEAD")
+                with urllib.request.urlopen(head_req, timeout=5) as response:
+                    self.assertEqual(response.status, 200)
+
+                # 8c. GET /api/health
+                health_req = urllib.request.Request(f"{base}/api/health")
+                with urllib.request.urlopen(health_req, timeout=5) as response:
+                    self.assertEqual(response.status, 200)
+
+                # 8d. GET /api/update/status дважды для кэша
+                update_req = urllib.request.Request(
+                    f"{base}/api/update/status",
+                    headers={"X-CRM-Access-Token": "test_access"}
+                )
+                with urllib.request.urlopen(update_req, timeout=5) as response:
+                    self.assertEqual(response.status, 200)
+                with urllib.request.urlopen(update_req, timeout=5) as response:
+                    self.assertEqual(response.status, 200)
+
+                # 8e. PUT без record_id (некорректный маршрут)
+                put_req = urllib.request.Request(
+                    f"{base}/api/customers",
+                    method="PUT",
+                    headers={
+                        "X-CRM-Access-Token": "test_access",
+                        "X-CSRF-Token": "test_csrf",
+                        "Content-Type": "application/json"
+                    },
+                    data=b"{}"
+                )
+                with self.assertRaises(urllib.error.HTTPError) as err:
+                    urllib.request.urlopen(put_req, timeout=5)
+                self.assertEqual(err.exception.code, 404)
+
+                # 8f. DELETE без record_id (некорректный маршрут)
+                delete_req2 = urllib.request.Request(
+                    f"{base}/api/customers",
+                    method="DELETE",
+                    headers={
+                        "X-CRM-Access-Token": "test_access",
+                        "X-CSRF-Token": "test_csrf"
+                    }
+                )
+                with self.assertRaises(urllib.error.HTTPError) as err:
+                    urllib.request.urlopen(delete_req2, timeout=5)
+                self.assertEqual(err.exception.code, 404)
+
+
+
+                # 9. GET /api/update/status
+                update_req = urllib.request.Request(
+                    f"{base}/api/update/status",
+                    headers={"X-CRM-Access-Token": "test_access"}
+                )
+                with urllib.request.urlopen(update_req, timeout=5) as response:
+                    self.assertEqual(response.status, 200)
+
+                # 10. GET /api/bootstrap без bootstrap_token но с access_token -> 200
+                bootstrap_req = urllib.request.Request(
+                    f"{base}/api/bootstrap",
+                    headers={"X-CRM-Access-Token": "test_access"}
+                )
+                with urllib.request.urlopen(bootstrap_req, timeout=5) as response:
+                    self.assertEqual(response.status, 200)
+
+                # 11. POST /api/shutdown -> 200 и сервер выключается
+                shutdown_req = urllib.request.Request(
+                    f"{base}/api/shutdown",
+                    method="POST",
+                    headers={
+                        "X-CRM-Access-Token": "test_access",
+                        "X-CSRF-Token": "test_csrf",
+                        "Content-Type": "application/json"
+                    },
+                    data=b"{}"
+                )
+                with urllib.request.urlopen(shutdown_req, timeout=5) as response:
+                    self.assertEqual(response.status, 200)
+
+                # Ждем выключения сервера
+                thread.join(timeout=5)
+
+            finally:
+                server.shutdown()
+                server.server_close()
+                _runtime.RUNTIME = current_runtime
+
+
 
 
 
