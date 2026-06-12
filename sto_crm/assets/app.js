@@ -4041,6 +4041,7 @@ function showError(error) {
     if (error?.name === "AbortError") return;
     if (error?.networkError) setOnlineState(false, { rerenderContent: true });
     const message = error.message || String(error);
+    console.error(error);
     state.lastError = message;
     applyFormError(error);
     const modalOpen = $("#modalBackdrop")?.classList.contains("open");
