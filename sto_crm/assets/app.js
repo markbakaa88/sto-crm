@@ -897,6 +897,14 @@ function routeFromLocation() {
 }
 
 function render() {
+    const mainEl = document.querySelector('main');
+    if (mainEl && !mainEl.classList.contains('rendered')) {
+        mainEl.classList.add('rendered');
+        // Restart animation on route change
+        mainEl.style.animation = 'none';
+        mainEl.offsetHeight; /* trigger reflow */
+        mainEl.style.animation = null;
+    }
     if (!state.data) return;
     const content = $("#content");
     if (!content) return;
