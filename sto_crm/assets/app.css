@@ -2365,3 +2365,6 @@ html[data-initial-theme="dark"] .modern-hover tbody tr:hover {
     0% { transform: scale(0.8); opacity: 0.5; }
     100% { transform: scale(1.2); opacity: 1; }
 }
+
+.status-badge.danger { background: var(--danger-soft); color: var(--danger); font-weight: 700; }
+.status-badge.success { background: var(--ok-soft); color: var(--ok); font-weight: 700; }

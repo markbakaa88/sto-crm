@@ -1,4 +1,17 @@
 
+
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
 const state = {
     route: "dashboard",
     q: "",
@@ -2240,10 +2253,11 @@ function orderRowActions(order) {
 }
 
 function ordersTable(orders, compact) {
-    if (!orders.length) return emptyState("Заказ-нарядов не найдено", "Создайте первый заказ или измените поиск/фильтр.", `<button class="btn primary" type="button" data-action="new-order">Новый заказ</button>`);
+    if (!orders.length) return emptyState("Заказ-нарядов не найдено", "Создайте первый заказ или измените поиск.", `<button class="btn primary" type="button" data-action="new-order">Новый заказ</button>`);
+    
     if (compact) {
         return `<div class="table-wrap responsive-table-wrap">
-            <table class="compact-table responsive-table" aria-label="Таблица последних заказ-нарядов">
+            <table class="compact-table responsive-table modern-hover" aria-label="Таблица последних заказ-нарядов">
                 <thead>${tableHead(["Номер", "Клиент и авто", "Статус", {text: "Итого", className: "money"}, ""])}</thead>
                 <tbody>
                     ${orders.map(order => `
@@ -2251,10 +2265,8 @@ function ordersTable(orders, compact) {
                             <td data-label="Номер"><div class="cell-title"><strong>${esc(order.number)}</strong><span class="priority-dot" data-priority="${esc(order.priority)}">${esc(priorityLabels[order.priority] || order.priority)}</span></div></td>
                             <td data-label="Клиент и авто"><div class="cell-title"><strong>${esc(order.customer_name)}</strong><div class="muted">${esc(orderVehicle(order) || "Авто не выбрано")}</div></div></td>
                             <td data-label="Статус">${statusBadge(order.status)}</td>
-                            <td class="money" data-label="Итого">${money(order.total)}</td>
-                            <td data-label="Действия">
-                                ${orderRowActions(order)}
-                            </td>
+                            <td class="money" data-label="Итого"><strong>${money(order.total)}</strong></td>
+                            <td data-label="Действия">${orderRowActions(order)}</td>
                         </tr>
                     `).join("")}
                 </tbody>
@@ -2268,15 +2280,17 @@ function ordersTable(orders, compact) {
                 ${orders.map(order => `
                     <tr>
                         <td data-label="Номер"><div class="cell-title"><strong>${esc(order.number)}</strong><span class="priority-dot" data-priority="${esc(order.priority)}">${esc(priorityLabels[order.priority] || order.priority)}</span></div></td>
-                        <td data-label="Клиент и авто"><div class="cell-title"><strong>${esc(order.customer_name)}</strong><div class="muted">${esc(orderVehicle(order) || "Авто не выбрано")}</div></div></td>
+                        <td data-label="Клиент и авто"><div class="cell-title"><strong>${esc(order.customer_name)}</strong><div class="muted d-flex"><span aria-hidden="true" style="margin-right:4px;">🚗</span> ${esc(orderVehicle(order) || "Авто не выбрано")}</div></div></td>
                         <td data-label="Статус">${statusBadge(order.status)}</td>
-                        <td class="nowrap" data-label="Срок">${dateOrDash(order.promised_at)}</td>
-                        <td data-label="Мастер">${textOrDash(order.mechanic || order.advisor, "Не назначен")}</td>
-                        <td class="money" data-label="Итого">${money(order.total)}</td>
-                        <td class="money" data-label="К оплате">${money(order.due)}</td>
-                        <td data-label="Действия">
-                            ${orderRowActions(order)}
+                        <td class="nowrap" data-label="Срок"><strong>${dateOrDash(order.promised_at)}</strong></td>
+                        <td data-label="Мастер"><div class="cell-title"><strong>${textOrDash(order.mechanic || order.advisor, "Не назначен")}</strong><div class="muted" style="font-size:0.85em;">Исполнитель</div></div></td>
+                        <td class="money" data-label="Итого"><strong style="font-size: 1.1em;">${money(order.total)}</strong></td>
+                        <td class="money" data-label="К оплате">
+                            <span class="${order.due > 0 ? 'status-badge danger' : 'status-badge success'}" style="font-size:0.9em;">
+                                ${order.due > 0 ? money(order.due) : 'Оплачен'}
+                            </span>
                         </td>
+                        <td data-label="Действия">${orderRowActions(order)}</td>
                     </tr>
                 `).join("")}
             </tbody>
@@ -4082,7 +4096,7 @@ $("#globalSearch")?.addEventListener("input", event => {
     state.customerPage = 1;
     updateSearchClear();
     clearTimeout(state.searchTimer);
-    state.searchTimer = setTimeout(() => loadData().catch(showError), 260);
+    state.searchTimer = setTimeout(() => loadData().catch(showError), 450);
 });
 $("#globalSearch")?.addEventListener("keydown", event => {
     if (event.key === "Escape" && state.q) {
