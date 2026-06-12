@@ -517,6 +517,53 @@ class TestCoverageEdge(unittest.TestCase):
                 server.server_close()
                 _runtime.RUNTIME = current_runtime
 
+    def test_cli_parse_args(self):
+        from sto_crm.cli import candidate_ports, parse_args, server_class_for_host
+        args = parse_args(["--port", "9000", "--host", "127.0.0.1", "--db", "/tmp/crm_test.sqlite3", "--demo", "--no-browser"])
+        self.assertEqual(args.port, 9000)
+        self.assertEqual(args.host, "127.0.0.1")
+        self.assertEqual(Path(args.db).name, "crm_test.sqlite3")
+        self.assertTrue(args.demo)
+        self.assertTrue(args.no_browser)
+
+        ports = list(candidate_ports(8765, attempts=2))
+        self.assertEqual(ports, [8765, 8766, 0])
+
+        with self.assertRaises(SystemExit):
+            parse_args(["--port", "-1"])
+        with self.assertRaises(SystemExit):
+            parse_args(["--port", "70000"])
+        with self.assertRaises(SystemExit):
+            parse_args(["--host", "evil.com"])
+
+        self.assertEqual(server_class_for_host("127.0.0.1").__name__, "CRMServer")
+        self.assertEqual(server_class_for_host("::1").__name__, "CRMServerV6")
+
+    def test_cli_main_execution(self):
+        from unittest.mock import MagicMock, patch
+
+        from sto_crm import cli
+        with patch("sto_crm.cli.create_server") as mock_create_server, \
+             patch("sto_crm.cli.init_db") as mock_init_db, \
+             patch("webbrowser.open"):
+            mock_server = MagicMock()
+            mock_server.server_address = ("127.0.0.1", 8765)
+            mock_server.server_port = 8765
+            mock_create_server.return_value = mock_server
+
+            res = cli.main(["--port", "8765", "--no-browser"])
+            self.assertEqual(res, 0)
+            mock_init_db.assert_called_once()
+            mock_server.serve_forever.assert_called_once()
+            mock_server.server_close.assert_called_once()
+
+    def test_database_normalized_unique_sql_invalid(self):
+        from sto_crm.database import normalized_unique_sql
+        with self.assertRaises(ValueError):
+            normalized_unique_sql("invalid_table", "sku")
+
+
+
 
 
 
