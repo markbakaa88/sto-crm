@@ -562,6 +562,105 @@ class TestCoverageEdge(unittest.TestCase):
         with self.assertRaises(ValueError):
             normalized_unique_sql("invalid_table", "sku")
 
+    def test_package_main_loader(self):
+        import importlib.util
+        import sys
+        from unittest.mock import patch
+        
+        spec = importlib.util.spec_from_file_location("__main__", "sto_crm/__main__.py")
+        self.assertIsNotNone(spec)
+        assert spec is not None
+        assert spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        module.__name__ = "__main__"
+        module.__package__ = "sto_crm"
+        sys.modules["__main__"] = module
+        try:
+            with patch("sto_crm.cli.main") as mock_cli_main:
+                mock_cli_main.return_value = 0
+                with self.assertRaises(SystemExit) as exit_err:
+                    spec.loader.exec_module(module)
+                self.assertEqual(exit_err.exception.code, 0)
+                mock_cli_main.assert_called_once()
+        finally:
+            sys.modules.pop("__main__", None)
+            sys.modules.pop("sto_crm.__main__", None)
+
+    def test_runtime_helpers(self):
+        import os
+        import sys
+        from pathlib import Path
+
+        from sto_crm.runtime import (
+            app_dir,
+            directory_writable,
+            ensure_private_dir,
+            ensure_private_file,
+            ensure_private_file_created,
+            is_frozen,
+            normalize_github_repository,
+            parse_float,
+            parse_int,
+        )
+
+        # 1. normalize_github_repository edge cases
+        self.assertEqual(normalize_github_repository("https://github.com/abc/def.git"), "abc/def")
+        self.assertEqual(normalize_github_repository("https://github.com/abc/def/issues"), "abc/def")
+        self.assertEqual(normalize_github_repository("invalid_format"), "markbakaa88/sto-crm")
+        self.assertEqual(normalize_github_repository(None), "markbakaa88/sto-crm")
+        
+        # Override env
+        os.environ["STO_CRM_UPDATE_REPOSITORY"] = "custom/repo"
+        self.assertEqual(normalize_github_repository(None), "custom/repo")
+        os.environ.pop("STO_CRM_UPDATE_REPOSITORY")
+
+        # 2. parse_float & parse_int
+        self.assertEqual(parse_float("1 234,56"), 1234.56)
+        self.assertEqual(parse_float(None), 0.0)
+        self.assertEqual(parse_float(""), 0.0)
+        self.assertEqual(parse_float("nan"), 0.0)
+        self.assertEqual(parse_float("inf"), 0.0)
+        self.assertEqual(parse_float("invalid"), 0.0)
+
+        self.assertEqual(parse_int("1 234"), 1234)
+        self.assertEqual(parse_int(None), 0)
+        self.assertEqual(parse_int(""), 0)
+        self.assertEqual(parse_int(True), 1)
+        self.assertEqual(parse_int(False), 0)
+        self.assertEqual(parse_int(123.45), 123)
+        self.assertEqual(parse_int("invalid"), 0)
+
+        # 3. is_frozen / app_dir / user_data_dir / private permissions
+        self.assertFalse(is_frozen())
+        orig_frozen = getattr(sys, "frozen", None)
+        try:
+            sys.frozen = True
+            self.assertTrue(is_frozen())
+            # check frozen paths
+            # Sys.executable is usually Python executable or a temp name
+            self.assertEqual(app_dir(), Path(sys.executable).resolve().parent)
+        finally:
+            if orig_frozen is not None:
+                sys.frozen = orig_frozen
+            else:
+                try:
+                    delattr(sys, "frozen")
+                except AttributeError:
+                    pass
+
+        # writable, directories, chmod permissions
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p = Path(tmpdir) / "sub"
+            self.assertTrue(directory_writable(p))
+            ensure_private_dir(p)
+            
+            f = p / "sensitive.txt"
+            f.write_text("sens")
+            ensure_private_file(f)
+            ensure_private_file_created(f)
+
+
 
 
 

@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['sto_crm.py'],
+    ['main.py'],
     pathex=[],
     binaries=[],
     datas=[

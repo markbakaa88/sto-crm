@@ -123,7 +123,7 @@ def app_executable_path() -> Path:
     """Возвращает путь к текущему исполняемому артефакту приложения."""
     if is_frozen():
         return Path(sys.executable).resolve()
-    return (Path(__file__).resolve().parent.parent / "sto_crm.py").resolve()
+    return (Path(__file__).resolve().parent.parent / "main.py").resolve()
 
 
 def updater_log_path() -> Path:

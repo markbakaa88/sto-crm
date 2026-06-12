@@ -2,7 +2,7 @@
 
 Локальная CRM для автосервиса: один `.exe` запускает сервер на `127.0.0.1`, открывает браузер и хранит данные в SQLite в профиле пользователя.
 
-Исходный код разделен на пакет `sto_crm/` по зонам ответственности (runtime, SQLite, валидация, бизнес-операции, отчеты, HTTP, обновления и frontend-assets), а корневой `sto_crm.py` оставлен тонким совместимым launcher для запуска и PyInstaller.
+Исходный код разделен на пакет `sto_crm/` по зонам ответственности (runtime, SQLite, валидация, бизнес-операции, отчеты, HTTP, обновления и frontend-assets), а корневой `main.py` оставлен тонким совместимым launcher для запуска и PyInstaller.
 
 ## Готовый запуск
 
@@ -36,7 +36,7 @@
 setx STO_CRM_UPDATE_REPOSITORY "owner/repo"
 ```
 
-При запуске из исходников автоустановка недоступна — используйте `git pull --ff-only`, затем перезапустите `python .\sto_crm.py`.
+При запуске из исходников автоустановка недоступна — используйте `git pull --ff-only`, затем перезапустите `python .\main.py`.
 
 ## Возможности
 
@@ -67,19 +67,19 @@ setx STO_CRM_UPDATE_REPOSITORY "owner/repo"
 ## Запуск из исходника
 
 ```powershell
-python .\sto_crm.py
+python .\main.py
 ```
 
 Дополнительные параметры:
 
 ```powershell
-python .\sto_crm.py --host 127.0.0.1 --port 8780 --db .\my_service.sqlite3 --no-browser
+python .\main.py --host 127.0.0.1 --port 8780 --db .\my_service.sqlite3 --no-browser
 ```
 
 Для демонстрационной базы:
 
 ```powershell
-python .\sto_crm.py --demo
+python .\main.py --demo
 ```
 
 ## Пересборка `.exe`
@@ -109,7 +109,7 @@ python -m PyInstaller --clean .\STO_CRM.spec
 Coverage настроен на исходный пакет `sto_crm`, поэтому порог не завышается покрытием самих тестов. Текущий честный baseline для source-only покрытия — 80%; повышайте его вместе с добавлением тестов для CLI/update/HTTP/seed.
 
 ```powershell
-python -m compileall -q .\sto_crm.py .\sto_crm .\tests
+python -m compileall -q .\main.py .\sto_crm .\tests
 python -m unittest discover -v
 python -m coverage run --source=sto_crm -m pytest -q
 python -m coverage report --fail-under=80

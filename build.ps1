@@ -245,7 +245,7 @@ function Invoke-ReleaseSmokeTest {
 Push-Location $ProjectRoot
 try {
     $python = Resolve-Python
-    $sourcePath = Join-Path $ProjectRoot "sto_crm.py"
+    $sourcePath = Join-Path $ProjectRoot "main.py"
     $specPath = Join-Path $ProjectRoot "STO_CRM.spec"
     $buildDir = Join-Path $ProjectRoot "build"
     $distDir = Join-Path $ProjectRoot "dist"
