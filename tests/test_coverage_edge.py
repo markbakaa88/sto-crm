@@ -253,5 +253,17 @@ class TestCoverageEdge(unittest.TestCase):
         self.assertEqual(_format_quantity(0.0), "0")
         self.assertEqual(_format_quantity(1.5), "1,5")
 
+        import sto_crm.printing
+        orig = sto_crm.printing.parse_float
+        class CustomFloat(float):
+            def __format__(self, format_spec):
+                return "-"
+        sto_crm.printing.parse_float = lambda val: CustomFloat(val)
+        try:
+            self.assertEqual(sto_crm.printing._format_quantity(1.0), "0")
+        finally:
+            sto_crm.printing.parse_float = orig
+
+
 
 
