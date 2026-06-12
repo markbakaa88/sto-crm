@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+logger = logging.getLogger("sto_crm")
+
 import sqlite3
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -559,6 +562,7 @@ def reconcile_vehicle_mileage_after_order_change(
 
 
 def create_order_tx(conn: sqlite3.Connection, payload: dict[str, Any]) -> int:
+    logger.info(f"Creating new order transaction")
     data = validate_order(conn, payload)
     stamp = now_iso()
     number = generate_order_number(conn)
@@ -598,6 +602,7 @@ def create_order_tx(conn: sqlite3.Connection, payload: dict[str, Any]) -> int:
 
 
 def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    logger.info(f"Updating order {record_id}")
     with write_db() as conn:
         old = conn.execute(
             "SELECT * FROM orders WHERE id=? AND deleted_at IS NULL", (record_id,)
@@ -750,6 +755,7 @@ def compute_closed_at(old_status: str, old_closed_at: str, new_status: str) -> s
 
 
 def delete_order(record_id: int) -> dict[str, Any]:
+    logger.info(f"Deleting order {record_id}")
     with write_db() as conn:
         old = conn.execute(
             "SELECT * FROM orders WHERE id=? AND deleted_at IS NULL", (record_id,)
