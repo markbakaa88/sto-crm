@@ -104,11 +104,16 @@ def _safe_unlink(path: Path) -> None:
 
 def ensure_real_backup_dir(backup_dir: Path) -> None:
     """Create and validate the backup directory without following link attacks."""
-    if backup_dir.exists() and backup_dir.is_symlink():
-        raise OSError("Каталог резервных копий не может быть символической ссылкой.")
+    if backup_dir.exists():
+        if backup_dir.is_symlink():
+            raise OSError("Каталог резервных копий не может быть символической ссылкой.")
+        if not backup_dir.is_dir():
+            raise OSError("Путь к каталогу резервных копий занят файлом.")
     ensure_private_dir(backup_dir)
     if backup_dir.is_symlink():
         raise OSError("Каталог резервных копий не может быть символической ссылкой.")
+    if not backup_dir.is_dir():
+        raise OSError("Каталог резервных копий не является директорией.")
 
 
 def prune_backups(backup_dir: Path, keep_path: Path | None = None) -> None:
@@ -149,6 +154,8 @@ def prune_updates_dir(update_dir: Path) -> None:
     """Удаляет старые временные файлы и резервные копии .exe из папки обновлений."""
     if not update_dir.exists():
         return
+    if update_dir.is_symlink():
+        raise OSError("Каталог обновлений не может быть символической ссылкой.")
     import time
     now = time.time()
     # Удаляем файлы старше 24 часов (86400 секунд), чтобы не мешать активному обновлению
@@ -179,7 +186,11 @@ def create_backup() -> dict[str, Any]:
         )
         try:
             ensure_real_backup_dir(backup_dir)
+            if target.exists() and target.is_symlink():
+                raise OSError("Файл резервной копии не может быть символической ссылкой.")
             ensure_private_file_created(target)
+            if target.is_symlink():
+                raise OSError("Файл резервной копии не может быть символической ссылкой.")
             with (
                 closing(connect()) as source,
                 closing(sqlite3.connect(target, timeout=30)) as destination,
@@ -208,6 +219,8 @@ def latest_backup_info() -> dict[str, Any] | None:
     with _BACKUP_LOCK:
         backup_dir = _runtime.RUNTIME.db_path.parent / "backups"
         try:
+            if backup_dir.exists() and backup_dir.is_symlink():
+                raise OSError("Каталог резервных копий не может быть символической ссылкой.")
             backups = [
                 path
                 for path in backup_dir.glob("sto_crm_backup_*.sqlite3")
@@ -640,9 +653,12 @@ def download_release_asset(asset: dict[str, Any], target: Path) -> dict[str, Any
     tmp_target = target.with_name(f"{target.name}.tmp")
     try:
         tmp_target.unlink(missing_ok=True)
+        ensure_private_file_created(tmp_target)
+        if tmp_target.is_symlink():
+            raise OSError("Временный файл обновления не может быть символической ссылкой.")
         with (
             urllib.request.urlopen(request, timeout=GITHUB_UPDATE_TIMEOUT) as response,  # nosec B310
-            tmp_target.open("wb") as output,
+            tmp_target.open("r+b") as output,
         ):
             final_url = response.geturl() if hasattr(response, "geturl") else url
             validate_update_response_url(final_url)

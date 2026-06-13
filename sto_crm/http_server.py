@@ -30,7 +30,6 @@ from .queries import get_order
 from .runtime import (
     clean_text,
     parse_int_field,
-    redact_local_paths,
     redact_sensitive_query,
     safe_log,
     strict_json_loads,
@@ -336,10 +335,11 @@ class CRMHandler(BaseHTTPRequestHandler):
                 "Запись конфликтует с существующими данными. Обновите страницу и повторите действие.",
             )
         except RuntimeError as exc:
-            safe_log(f"HTTP runtime error: {redact_sensitive_query(str(exc))}")
-            self.send_error_json(
-                500, redact_local_paths(str(exc)) or INTERNAL_ERROR_MESSAGE
+            import logging
+            logging.getLogger("sto_crm").error(
+                f"HTTP runtime error: {redact_sensitive_query(str(exc))}", exc_info=True
             )
+            self.send_error_json(500, INTERNAL_ERROR_MESSAGE)
         except BrokenPipeError:
             return
         except TimeoutError:

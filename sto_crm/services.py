@@ -94,22 +94,36 @@ def delete_customer(record_id: int) -> dict[str, Any]:
                 "У клиента есть активные записи в календаре. Завершите или отмените их перед удалением клиента."
             )
         stamp = now_iso()
-        for vehicle in conn.execute(
-            "SELECT id FROM vehicles WHERE customer_id = ? AND deleted_at IS NULL",
+        # Check if any active vehicles of the customer have active orders:
+        has_vehicle_orders = conn.execute(
+            """
+            SELECT 1 FROM orders o
+            JOIN vehicles v ON v.id = o.vehicle_id
+            WHERE v.customer_id = ? AND v.deleted_at IS NULL AND o.deleted_at IS NULL
+            LIMIT 1
+            """,
             (record_id,),
-        ).fetchall():
-            vid = vehicle["id"]
-            if conn.execute(
-                "SELECT COUNT(*) FROM orders WHERE vehicle_id = ? AND deleted_at IS NULL",
-                (vid,),
-            ).fetchone()[0]:
-                raise ValueError(
-                    "У клиента есть автомобили с заказ-нарядами. Сначала удалите или перенесите заказы."
-                )
-            if active_appointment_count_for_vehicle(conn, vid):
-                raise ValueError(
-                    "У клиента есть автомобили с активными записями в календаре. Завершите или отмените их перед удалением."
-                )
+        ).fetchone()
+        if has_vehicle_orders:
+            raise ValueError(
+                "У клиента есть автомобили с заказ-нарядами. Сначала удалите или перенесите заказы."
+            )
+
+        # Check if any active vehicles of the customer have active appointments:
+        has_vehicle_appointments = conn.execute(
+            """
+            SELECT 1 FROM appointments a
+            JOIN vehicles v ON v.id = a.vehicle_id
+            WHERE v.customer_id = ? AND v.deleted_at IS NULL AND a.deleted_at IS NULL
+              AND a.status IN ('scheduled', 'confirmed', 'arrived')
+            LIMIT 1
+            """,
+            (record_id,),
+        ).fetchone()
+        if has_vehicle_appointments:
+            raise ValueError(
+                "У клиента есть автомобили с активными записями в календаре. Завершите или отмените их перед удалением."
+            )
         conn.execute(
             "UPDATE customers SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL",
             (stamp, stamp, record_id),
@@ -868,18 +882,48 @@ def ensure_inventory_available_for_order(
     exclude_order_id: int | None = None,
 ) -> None:
     requested = part_quantities(items)
+    if not requested:
+        return
+
+    part_ids = list(requested.keys())
+    placeholders = ",".join("?" for _ in part_ids)
+
+    parts = conn.execute(
+        f"SELECT id, name, quantity, deleted_at FROM inventory WHERE id IN ({placeholders})",
+        part_ids,
+    ).fetchall()
+    parts_map = {row["id"]: row for row in parts}
+
+    params = part_ids.copy()
+    exclude_sql = ""
+    if exclude_order_id:
+        exclude_sql = " AND o.id <> ?"
+        params.append(exclude_order_id)
+
+    reserved_rows = conn.execute(
+        f"""
+        SELECT oi.inventory_id, COALESCE(SUM(oi.quantity), 0) AS reserved
+        FROM order_items oi
+        JOIN orders o ON o.id = oi.order_id
+        WHERE oi.inventory_id IN ({placeholders})
+          AND oi.kind = 'part'
+          AND oi.approval_status = 'approved'
+          AND o.status IN ('approved', 'in_progress', 'done')
+          AND o.deleted_at IS NULL
+          {exclude_sql}
+        GROUP BY oi.inventory_id
+        """,
+        params,
+    ).fetchall()
+    reserved_map = {row["inventory_id"]: parse_float(row["reserved"]) for row in reserved_rows}
+
     for part_id, quantity in requested.items():
-        part = conn.execute(
-            "SELECT name, quantity, deleted_at FROM inventory WHERE id = ?",
-            (part_id,),
-        ).fetchone()
-        if not part:
+        if part_id not in parts_map:
             raise ValueError("Складская позиция для резервирования не найдена.")
+        part = parts_map[part_id]
         if part["deleted_at"]:
             raise ValueError(f"Складская позиция недоступна: {part['name']}.")
-        available = parse_float(part["quantity"]) - reserved_quantity(
-            conn, part_id, exclude_order_id=exclude_order_id
-        )
+        available = parse_float(part["quantity"]) - reserved_map.get(part_id, 0.0)
         if available + 1e-9 < quantity:
             raise ValueError(
                 f"Недостаточно свободного остатка: {part['name']}. Доступно {available:g}, требуется {quantity:g}."
@@ -1004,16 +1048,29 @@ def apply_inventory_delta(
         part_quantities(new_items) if new_status in CONSUMING_STATUSES else {}
     )
     all_part_ids = sorted(set(old_consumed) | set(new_consumed))
+
+    # Calculate deltas and filter for non-zero changes
+    delta_parts = {}
     for part_id in all_part_ids:
         delta = new_consumed.get(part_id, 0.0) - old_consumed.get(part_id, 0.0)
-        if abs(delta) < stock_epsilon:
-            continue
-        part = conn.execute(
-            "SELECT id, name, quantity, deleted_at FROM inventory WHERE id=?",
-            (part_id,),
-        ).fetchone()
-        if not part:
+        if abs(delta) >= stock_epsilon:
+            delta_parts[part_id] = delta
+
+    if not delta_parts:
+        return
+
+    part_ids = list(delta_parts.keys())
+    placeholders = ",".join("?" for _ in part_ids)
+    parts = conn.execute(
+        f"SELECT id, name, quantity, deleted_at FROM inventory WHERE id IN ({placeholders})",
+        part_ids,
+    ).fetchall()
+    parts_map = {row["id"]: row for row in parts}
+
+    for part_id, delta in delta_parts.items():
+        if part_id not in parts_map:
             raise ValueError("Складская позиция для списания не найдена.")
+        part = parts_map[part_id]
         if part["deleted_at"]:
             if delta > 0:
                 raise ValueError(

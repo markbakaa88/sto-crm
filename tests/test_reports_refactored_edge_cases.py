@@ -1,9 +1,7 @@
 import unittest
 from datetime import datetime, timedelta
-from typing import Any
-from unittest.mock import MagicMock, patch
 
-from sto_crm.reports import build_reports, order_vehicle_text, format_vehicle_text
+from sto_crm.reports import build_reports, format_vehicle_text, order_vehicle_text
 
 
 class TestReportsRefactoredEdgeCases(unittest.TestCase):

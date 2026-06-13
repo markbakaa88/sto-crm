@@ -17,9 +17,20 @@ MAX_NUMERIC_ABS = 1_000_000_000_000.0
 MAX_FINANCIAL_TOTAL = 1_000_000_000_000.0
 MIN_QUANTITY_STEP = 0.01
 UPDATE_STATUS_CACHE_SECONDS = 60
-MAX_BACKUP_FILES = int(os.environ.get("STO_CRM_MAX_BACKUP_FILES", "30"))
-MAX_BACKUP_TOTAL_BYTES = int(
-    os.environ.get("STO_CRM_MAX_BACKUP_TOTAL_BYTES", str(5 * 1024 * 1024 * 1024))
+def _get_env_int(key: str, default: int) -> int:
+    val = os.environ.get(key)
+    if val is None:
+        return default
+    try:
+        parsed = int(val)
+        return parsed if parsed >= 0 else default
+    except ValueError:
+        return default
+
+
+MAX_BACKUP_FILES = _get_env_int("STO_CRM_MAX_BACKUP_FILES", 30)
+MAX_BACKUP_TOTAL_BYTES = _get_env_int(
+    "STO_CRM_MAX_BACKUP_TOTAL_BYTES", 5 * 1024 * 1024 * 1024
 )
 INTERNAL_ERROR_MESSAGE = (
     "Внутренняя ошибка сервера. Подробности записаны в журнал приложения."

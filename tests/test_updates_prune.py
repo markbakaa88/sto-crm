@@ -74,6 +74,7 @@ class TestUpdatesPruneCoverage(unittest.TestCase):
     def test_prune_updates_dir_coverage(self):
         import tempfile
         import time
+
         from sto_crm.updates import prune_updates_dir
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -102,8 +103,9 @@ class TestUpdatesPruneCoverage(unittest.TestCase):
 
     def test_prune_updates_dir_os_error_handling(self):
         import tempfile
-        from sto_crm.updates import prune_updates_dir
         from unittest.mock import MagicMock, patch
+
+        from sto_crm.updates import prune_updates_dir
         with tempfile.TemporaryDirectory() as tmpdir:
             update_dir = Path(tmpdir)
             with patch.object(Path, "iterdir") as mock_iterdir:

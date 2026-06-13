@@ -131,6 +131,8 @@ def parse_bool_field(value: Any, field_name: str, default: bool = False) -> int:
 
 
 def validate_customer(payload: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("Некорректный формат данных.")
     name = clean_text(payload.get("name"), 180)
     if not name:
         raise ValueError("Укажите имя клиента.")
@@ -157,6 +159,8 @@ def validate_customer(payload: dict[str, Any]) -> dict[str, Any]:
 def validate_vehicle(
     conn: sqlite3.Connection, payload: dict[str, Any]
 ) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("Некорректный формат данных.")
     customer_id = parse_int_field(payload.get("customer_id"), "клиент")
     if not customer_id or not active_exists(conn, "customers", customer_id):
         raise ValueError("Выберите действующего клиента.")
@@ -190,6 +194,8 @@ def validate_vehicle(
 
 
 def validate_inventory(payload: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("Некорректный формат данных.")
     name = clean_text(payload.get("name"), 220)
     if not name:
         raise ValueError("Укажите название позиции склада.")
@@ -224,6 +230,8 @@ def validate_order(
     allow_deleted_inventory_ids: set[int] | None = None,
     allow_deleted_vehicle_id: int | None = None,
 ) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("Некорректный формат данных.")
     customer_id = parse_int_field(payload.get("customer_id"), "клиент")
     if not customer_id or not active_exists(conn, "customers", customer_id):
         raise ValueError("Выберите действующего клиента.")
@@ -247,9 +255,32 @@ def validate_order(
     raw_items = payload.get("items") or []
     if not isinstance(raw_items, list):
         raise ValueError("Позиции заказ-наряда должны быть списком.")
+
+    # Pre-fetch inventory records to avoid N+1 query loop in validate_order_item
+    parts_map = {}
+    part_ids = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        kind = clean_text(item.get("kind"), 20, "service")
+        if kind == "part":
+            inventory_id = parse_int_field(item.get("inventory_id"), "складская позиция")
+            if inventory_id is not None and inventory_id > 0:
+                part_ids.append(inventory_id)
+    if part_ids:
+        placeholders = ",".join("?" for _ in part_ids)
+        rows = conn.execute(
+            f"SELECT id, name, price, cost, deleted_at FROM inventory WHERE id IN ({placeholders})",
+            part_ids,
+        ).fetchall()
+        parts_map = {row["id"]: row for row in rows}
+
     items = [
         validate_order_item(
-            conn, item, allow_deleted_inventory_ids=allow_deleted_inventory_ids
+            conn,
+            item,
+            allow_deleted_inventory_ids=allow_deleted_inventory_ids,
+            parts_map=parts_map,
         )
         for item in raw_items
     ]
@@ -292,6 +323,8 @@ def validate_order(
 def validate_appointment(
     conn: sqlite3.Connection, payload: dict[str, Any]
 ) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("Некорректный формат данных.")
     customer_id = parse_int_field(payload.get("customer_id"), "клиент")
     if not customer_id or not active_exists(conn, "customers", customer_id):
         raise ValueError("Выберите действующего клиента.")
@@ -363,6 +396,7 @@ def validate_order_item(
     payload: dict[str, Any],
     *,
     allow_deleted_inventory_ids: set[int] | None = None,
+    parts_map: dict[int, Any] | None = None,
 ) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("Позиция заказ-наряда должна быть JSON-объектом.")
@@ -394,10 +428,13 @@ def validate_order_item(
         raise ValueError("Некорректный статус согласования позиции заказ-наряда.")
 
     if kind == "part" and inventory_id:
-        part = conn.execute(
-            "SELECT id, name, price, cost, deleted_at FROM inventory WHERE id = ?",
-            (inventory_id,),
-        ).fetchone()
+        if parts_map is not None:
+            part = parts_map.get(inventory_id)
+        else:
+            part = conn.execute(
+                "SELECT id, name, price, cost, deleted_at FROM inventory WHERE id = ?",
+                (inventory_id,),
+            ).fetchone()
         allowed_deleted = inventory_id in (allow_deleted_inventory_ids or set())
         if not part or (part["deleted_at"] and not allowed_deleted):
             raise ValueError("Выбранная складская позиция не найдена.")

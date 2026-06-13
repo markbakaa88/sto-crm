@@ -1,5 +1,7 @@
 
 
+"use strict";
+
 const state = {
     route: "dashboard",
     q: "",
@@ -4776,7 +4778,7 @@ async function shutdownApp() {
         toast(error.message || String(error), "error");
     }
 }
-$("#shutdownBtn")?.addEventListener("click", () => shutdownApp());
+$("#shutdownBtn")?.addEventListener("click", () => shutdownApp().catch(showError));
 
 // init theme
 function systemPrefersDark() {
