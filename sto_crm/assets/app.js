@@ -1747,11 +1747,6 @@ function bindShellShortcuts() {
     let keySequence = "";
     let keyTimer = null;
     const resetSequence = () => { keySequence = ""; };
-    const inEditable = el => {
-        if (!el) return false;
-        const tag = el.tagName;
-        return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
-    };
     const inInteractiveContext = el => Boolean(el?.closest?.('input, textarea, select, button, a[href], [role="button"], [role="menuitem"], [role="option"], [contenteditable="true"]'));
     document.addEventListener("keydown", event => {
         if (event.defaultPrevented || event.metaKey || event.altKey || event.isComposing) return;
@@ -3431,6 +3426,7 @@ function handleModalKeydown(event) {
     }
     const commandPaletteOpen = $("#commandPalette")?.classList.contains("open");
     if ((event.ctrlKey || event.metaKey) && (event.code === "KeyK" || event.key.toLowerCase() === "k" || event.key.toLowerCase() === "л") && !commandPaletteOpen) {
+        if (inEditable(event.target)) return;
         event.preventDefault();
         if (!$("#modalBackdrop")?.classList.contains("open")) openCommandPalette();
         return;
