@@ -307,6 +307,7 @@ html:focus-within { scroll-behavior: smooth; }
 
 :focus-visible {
     outline: 2px solid var(--brand);
+    outline-color: var(--brand);
     outline-offset: 2px;
     border-radius: var(--radius-xs);
 }
@@ -1345,7 +1346,7 @@ body.compact .row-actions .btn {  height: 26px; padding: 0 8px; font-size: var(-
     transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 .hint-dismiss:hover { background: var(--neutral-soft); color: var(--ink); border-color: var(--line-strong); transform: scale(1.04); }
-.hint-dismiss:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.hint-dismiss:focus-visible { outline: 2px solid var(--brand); outline-color: var(--brand); outline-offset: 2px; }
 .hint-chip[data-tone="warn"] .hint-dot,
 .hint-chip[data-tone="warning"] .hint-dot { background: var(--warn); }
 .hint-chip[data-tone="ok"] .hint-dot,
@@ -2198,7 +2199,9 @@ input[type="checkbox"]:checked {
 }
 input[type="checkbox"]:focus-visible,
 input[type="radio"]:focus-visible {
-    outline: none;
+    outline: 2px solid var(--brand);
+    outline-color: var(--brand);
+    outline-offset: 2px;
     box-shadow: var(--shadow-focus);
 }
 
@@ -2885,6 +2888,7 @@ body #bellBtn:focus-visible,
 #appSidebar [role="menuitem"]:focus-visible,
 body .nav > .nav-section > button:focus-visible {
     outline: 2px solid var(--brand);
+    outline-color: var(--brand);
     outline-offset: 2px;
     border-radius: var(--radius-sm);
 }
