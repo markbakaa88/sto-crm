@@ -1,34 +1,32 @@
 import unittest
-import sqlite3
-import os
 import urllib.error
 import urllib.request
-import hashlib
-from email.message import Message
 from datetime import datetime
+from email.message import Message
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from sto_crm.reports import build_reports
-from sto_crm.services import (
-    reconcile_vehicle_mileage_after_order_change,
-    update_order,
-    ensure_inventory_available_for_order,
-    apply_inventory_delta,
-)
-from sto_crm.updates import (
-    validate_manifest_asset_download_url,
-    read_limited_response,
-    fetch_asset_json,
-    latest_release_info,
-    download_release_asset,
-    ensure_downloaded_executable,
-    install_update_from_github,
-    APP_VERSION
-)
 import sto_crm
 from sto_crm import runtime as _runtime
 from sto_crm.database import init_db
+from sto_crm.reports import build_reports
+from sto_crm.services import (
+    apply_inventory_delta,
+    ensure_inventory_available_for_order,
+    reconcile_vehicle_mileage_after_order_change,
+    update_order,
+)
+from sto_crm.updates import (
+    APP_VERSION,
+    download_release_asset,
+    ensure_downloaded_executable,
+    fetch_asset_json,
+    install_update_from_github,
+    latest_release_info,
+    read_limited_response,
+    validate_manifest_asset_download_url,
+)
+
 
 class MockDatetime:
     @classmethod

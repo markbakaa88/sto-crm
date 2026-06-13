@@ -1,9 +1,10 @@
-import unittest
 import signal
-from unittest.mock import MagicMock, patch
+import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from sto_crm.cli import main
+
 
 class TestCliCoverage(unittest.TestCase):
     @patch("sto_crm.cli.create_server")
