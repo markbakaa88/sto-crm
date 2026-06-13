@@ -100,3 +100,17 @@ class TestUpdatesPruneCoverage(unittest.TestCase):
             nonexistent = Path(tmpdir) / "nonexistent"
             prune_updates_dir(nonexistent)
 
+    def test_prune_updates_dir_os_error_handling(self):
+        import tempfile
+        from sto_crm.updates import prune_updates_dir
+        from unittest.mock import MagicMock, patch
+        with tempfile.TemporaryDirectory() as tmpdir:
+            update_dir = Path(tmpdir)
+            with patch.object(Path, "iterdir") as mock_iterdir:
+                bad_path = MagicMock()
+                bad_path.is_file.side_effect = OSError("Simulated path access error")
+                mock_iterdir.return_value = [bad_path]
+                prune_updates_dir(update_dir)
+
+
+
