@@ -1,6 +1,6 @@
 import sqlite3
-from contextlib import closing
 import unittest
+from contextlib import closing
 
 from sto_crm.validation import (
     ensure_unique_active_value,
