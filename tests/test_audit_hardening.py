@@ -322,12 +322,14 @@ class TestAuditHardening(unittest.TestCase):
             conn.execute("INSERT OR IGNORE INTO customers (id, name, created_at, updated_at) VALUES (9999, 'Test Cust', '', '')")
             conn.execute("INSERT INTO vehicles (customer_id, make, model, vin, created_at, updated_at) VALUES (9999, 'Test', 'T', 'ABC', '', '')")
             conn.execute("INSERT INTO vehicles (customer_id, make, model, vin, created_at, updated_at) VALUES (9999, 'Test', 'T', 'ABC ', '', '')")
+            conn.execute("INSERT INTO vehicles (customer_id, make, model, vin, created_at, updated_at) VALUES (9999, 'Test', 'T', 'DEF ', '', '')")
 
             normalize_legacy_unique_values(conn, 'vehicles', 'vin')
 
             rows = conn.execute("SELECT vin FROM vehicles WHERE customer_id = 9999 ORDER BY id").fetchall()
             self.assertEqual(rows[0]['vin'], 'ABC')
             self.assertEqual(rows[1]['vin'], 'ABC ')
+            self.assertEqual(rows[2]['vin'], 'DEF')
 
             conn.execute("DELETE FROM vehicles WHERE customer_id = 9999")
             conn.execute("DELETE FROM customers WHERE id = 9999")

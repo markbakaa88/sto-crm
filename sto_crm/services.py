@@ -659,10 +659,6 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         elif str(old["closed_at"] or "") and old_status == "cancelled":
             # Отменённый после закрытия заказ-наряд: финансы заморожены,
             # разрешаем только noop-сохранение в статусе cancelled.
-            if new_status != "cancelled":
-                raise ValueError(
-                    "Отменённый после закрытия заказ-наряд нельзя повторно открыть или изменить. Создайте новый корректирующий заказ."
-                )
             # Для проверки noop нормализуем обе стороны: статус уже 'cancelled' → 'cancelled',
             # а ensure_closed_order_not_changed ожидает старую запись в 'closed' и
             # маппит новую 'cancelled' в 'closed'. Нам нужно, чтобы обе стороны сравнивались
@@ -678,10 +674,6 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
                     "Отменённый после закрытия заказ-наряд нельзя повторно открыть или изменить. Создайте новый корректирующий заказ."
                 )
         elif old_status == "cancelled":
-            if new_status != "cancelled":
-                raise ValueError(
-                    "Отменённый заказ-наряд нельзя повторно открыть. Создайте новый заказ."
-                )
             if closed_order_signature(old, old_items) != closed_order_signature(
                 data, data["items"]
             ):

@@ -65,6 +65,32 @@ class TestUltraCoverage(unittest.TestCase):
         finally:
             sto_crm.database.connect = orig_connect
 
+    @patch("sto_crm.database.connect")
+    def test_init_db_in_transaction_error(self, mock_connect):
+        class BrokenInitConnection:
+            def execute(self, *args, **kwargs):
+                raise sqlite3.DatabaseError("init_db failed")
+            @property
+            def in_transaction(self):
+                raise AttributeError("simulated")
+            def rollback(self):
+                pass
+            def close(self):
+                pass
+        
+        mock_connect.return_value = BrokenInitConnection()
+        with self.assertRaises(sqlite3.DatabaseError):
+            init_db()
+
+    def test_write_db_other_operational_error(self):
+        conn = MagicMock()
+        conn.execute.side_effect = sqlite3.OperationalError("disk I/O error")
+        with patch("sto_crm.database.db") as mock_db:
+            mock_db.return_value.__enter__.return_value = conn
+            with self.assertRaises(sqlite3.OperationalError):
+                with write_db() as _:
+                    pass
+
     def test_write_db_locked_retry(self):
         # We simulate the busy-retry loop in write_db
         # Mock connections execute to fail with a locked error first, then succeed
@@ -87,17 +113,26 @@ class TestUltraCoverage(unittest.TestCase):
             with write_db() as _:
                 self.assertEqual(call_count, 3)
 
+    def test_write_db_locked_retry_exhausted(self):
+        conn = MagicMock()
+        conn.execute.side_effect = sqlite3.OperationalError("database is locked")
+        with patch("sto_crm.database.db") as mock_db:
+            mock_db.return_value.__enter__.return_value = conn
+            with self.assertRaises(sqlite3.OperationalError):
+                with write_db() as _:
+                    pass
+
     # --- RUNTIME.PY BRANCHES ---
 
     def test_normalize_github_repository_empty(self):
         # Trigger line 152: if not raw: return GITHUB_REPOSITORY
         with patch.dict(os.environ, {}, clear=True):
-            res = normalize_github_repository("")
+            res = normalize_github_repository("   ")
             self.assertEqual(res, "markbakaa88/sto-crm")
 
     def test_redact_local_paths_url(self):
         # Trigger line 430: URL paths should not be redacted
-        msg = "View at https://github.com/path/to/repo/file.py here"
+        msg = "http://link.com?file=/usr/bin/local"
         res = redact_local_paths(msg)
         self.assertEqual(res, msg)
 
@@ -132,11 +167,23 @@ class TestUltraCoverage(unittest.TestCase):
         mock_server._active_threads_lock = threading.Lock()
         
         dummy_thread = threading.Thread(target=lambda: time.sleep(0.05))
+        dummy_thread2 = threading.Thread(target=lambda: time.sleep(0.05))
         dummy_thread.start()
+        dummy_thread2.start()
         
-        mock_server._active_threads = {dummy_thread}
+        mock_server._active_threads = {dummy_thread, dummy_thread2}
         CRMServer.wait_for_active_threads(mock_server, timeout=0.001)
         dummy_thread.join()
+        dummy_thread2.join()
+
+    def test_http_server_wait_for_active_threads_natural_exit(self):
+        # Trigger natural loop exit in wait_for_active_threads
+        mock_server = MagicMock()
+        mock_server._active_threads_lock = threading.Lock()
+        
+        # Test with empty threads list
+        mock_server._active_threads = set()
+        CRMServer.wait_for_active_threads(mock_server, timeout=5.0)
 
     # --- SERVICES.PY BRANCHES ---
 
