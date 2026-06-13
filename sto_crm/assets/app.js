@@ -2762,7 +2762,7 @@ function renderRevenueChartSVG(data) {
     }
 
     const valueCircles = points.filter(p => p.value > 0).map(p => `
-        <circle cx="${p.x}" cy="${p.y}" r="4" fill="var(--brand, #3b82f6)" stroke="var(--bg-panel, #ffffff)" stroke-width="2">
+        <circle cx="${p.x}" cy="${p.y}" r="4" fill="var(--brand, #3b82f6)" stroke="var(--surface, #ffffff)" stroke-width="2">
             <title>День ${p.label}: ${money(p.value)}</title>
         </circle>
     `).join("");

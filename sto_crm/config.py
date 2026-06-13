@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 
 APP_NAME = "СТО CRM"
@@ -16,8 +17,10 @@ MAX_NUMERIC_ABS = 1_000_000_000_000.0
 MAX_FINANCIAL_TOTAL = 1_000_000_000_000.0
 MIN_QUANTITY_STEP = 0.01
 UPDATE_STATUS_CACHE_SECONDS = 60
-MAX_BACKUP_FILES = 30
-MAX_BACKUP_TOTAL_BYTES = 5 * 1024 * 1024 * 1024
+MAX_BACKUP_FILES = int(os.environ.get("STO_CRM_MAX_BACKUP_FILES", "30"))
+MAX_BACKUP_TOTAL_BYTES = int(
+    os.environ.get("STO_CRM_MAX_BACKUP_TOTAL_BYTES", str(5 * 1024 * 1024 * 1024))
+)
 INTERNAL_ERROR_MESSAGE = (
     "Внутренняя ошибка сервера. Подробности записаны в журнал приложения."
 )
