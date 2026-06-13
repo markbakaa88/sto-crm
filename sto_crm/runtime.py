@@ -74,11 +74,13 @@ def ensure_private_file(path: Path) -> None:
 def ensure_private_file_created(path: Path) -> None:
     """Create a sensitive local file with restrictive permissions from the first open."""
     ensure_private_dir(path.parent)
+    is_link = False
     try:
-        if path.is_symlink() is True:
-            raise OSError("Файл не может быть символической ссылкой.")
+        is_link = path.is_symlink()
     except (OSError, AttributeError):
         pass
+    if is_link is True:
+        raise OSError("Файл не может быть символической ссылкой.")
     if os.name == "nt":
         path.touch(exist_ok=True)
         return

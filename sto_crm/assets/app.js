@@ -515,12 +515,10 @@ function toast(message, type = "info") {
     node.classList.toggle("error", isError);
     node.setAttribute("aria-live", isError ? "assertive" : "polite");
     node.setAttribute("aria-atomic", "true");
-    node.classList.add("show");
-    
-    // Provide tactile animation reset
-    node.style.animation = 'none';
+    // Provide tactile animation reset by class swap (CSP compliant)
+    node.classList.remove("show");
     node.offsetHeight; /* trigger reflow */
-    node.style.animation = null;
+    node.classList.add("show");
     
     announce(message, isError);
     clearTimeout(node.timer);
@@ -1022,14 +1020,11 @@ function routeFromLocation() {
 
 function render() {
     const mainEl = document.querySelector('main');
+    // Restart animation on route change by class swap (CSP compliant)
     if (mainEl) {
         mainEl.classList.remove('rendered');
         mainEl.offsetHeight; /* trigger reflow */
         mainEl.classList.add('rendered');
-        // Restart animation on route change
-        mainEl.style.animation = 'none';
-        mainEl.offsetHeight; /* trigger reflow */
-        mainEl.style.animation = null;
     }
     if (!state.data) return;
     const content = $("#content");
