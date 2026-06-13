@@ -102,7 +102,7 @@
     --sidebar-active-bg: rgba(255, 255, 255, 0.1);
     --ink: #0f172a;
     --ink-soft: #334155;
-    --ink-muted: #475569;
+    --ink-muted: #1e293b;
     --ink-faint: #64748b;
     --line: #e2e8f0;
     --line-strong: #cbd5e1;
@@ -124,8 +124,8 @@
     --info-soft: #eff6ff;
     --neutral-soft: #eef2f7;
     --disabled-bg: #f1f5f9;
-    --disabled-ink: #94a3b8;
-    --disabled-border: #e2e8f0;
+    --disabled-ink: #475569;
+    --disabled-border: #cbd5e1;
     --badge-neutral-bg: #eef2f7;
     --badge-neutral-ink: #475569;
     --badge-danger-bg: #fff1f2;
@@ -184,7 +184,7 @@ body.dark, [data-theme="dark"] {
     --sidebar-active-bg: rgba(255, 255, 255, 0.1);
     --ink: #e2e8f0;
     --ink-soft: #cbd5e1;
-    --ink-muted: #a8b5c7;
+    --ink-muted: #cbd5e1;
     --ink-faint: #94a3b8;
     --line: rgba(255, 255, 255, 0.08);
     --line-strong: rgba(255, 255, 255, 0.14);
@@ -202,8 +202,8 @@ body.dark, [data-theme="dark"] {
     --info-soft: rgba(96, 165, 250, 0.16);
     --neutral-soft: rgba(255, 255, 255, 0.08);
     --disabled-bg: rgba(148, 163, 184, 0.08);
-    --disabled-ink: #64748b;
-    --disabled-border: rgba(148, 163, 184, 0.12);
+    --disabled-ink: #cbd5e1;
+    --disabled-border: rgba(148, 163, 184, 0.24);
     --badge-neutral-bg: rgba(148, 163, 184, 0.13);
     --badge-neutral-ink: #cbd5e1;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.36), 0 0 0 1px rgba(148, 163, 184, 0.06);
@@ -2741,162 +2741,172 @@ body.dark .report-progress::-webkit-progress-bar {
    ========================================================================== */
 
 /* Glassmorphism Panels & Cards */
-.section-card, .panel, .modal, .command-palette, .bell-panel, .cta-menu, .system-menu-panel {
-    background: rgba(255, 255, 255, 0.65) !important;
-    -webkit-backdrop-filter: blur(20px) saturate(190%) !important;
-    backdrop-filter: blur(20px) saturate(190%) !important;
-    border: 1px solid rgba(255, 255, 255, 0.45) !important;
+body .section-card, body .panel, body .modal, body .command-palette, body .bell-panel, body .cta-menu, body .system-menu-panel {
+    background: rgba(255, 255, 255, 0.65);
+    -webkit-backdrop-filter: blur(10px) saturate(190%);
+    backdrop-filter: blur(10px) saturate(190%);
+    border: 1px solid rgba(255, 255, 255, 0.45);
     box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.06), 
                 0 1px 2px 0 rgba(0, 0, 0, 0.02),
-                inset 0 1px 1px 0 rgba(255, 255, 255, 0.8) !important;
+                inset 0 1px 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 body.dark .section-card, body.dark .panel, body.dark .modal, body.dark .command-palette, body.dark .bell-panel, body.dark .cta-menu, body.dark .system-menu-panel {
-    background: rgba(17, 24, 39, 0.65) !important;
-    -webkit-backdrop-filter: blur(20px) saturate(190%) !important;
-    backdrop-filter: blur(20px) saturate(190%) !important;
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    background: rgba(17, 24, 39, 0.65);
+    -webkit-backdrop-filter: blur(10px) saturate(190%);
+    backdrop-filter: blur(10px) saturate(190%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37),
-                inset 0 1px 0 0 rgba(255, 255, 255, 0.05) !important;
+                inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
 }
 
 /* Hover effects for Cards */
-.section-card:hover, .panel:hover {
-    transform: translateY(-2px) !important;
-    border-color: rgba(10, 147, 150, 0.4) !important;
+body .section-card:hover, body .panel:hover {
+    transform: translateY(-2px);
+    border-color: rgba(10, 147, 150, 0.4);
     box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.09),
-                inset 0 1px 1px 0 rgba(255, 255, 255, 0.9) !important;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+                inset 0 1px 1px 0 rgba(255, 255, 255, 0.9);
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 body.dark .section-card:hover, body.dark .panel:hover {
-    border-color: rgba(90, 200, 189, 0.3) !important;
+    border-color: rgba(90, 200, 189, 0.3);
     box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.5),
-                inset 0 1px 0 0 rgba(255, 255, 255, 0.08) !important;
+                inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
 }
 
 /* Glassmorphism Search Bar & Fields styling */
-.search {
-    background: rgba(255, 255, 255, 0.4) !important;
-    -webkit-backdrop-filter: blur(10px) !important;
-    backdrop-filter: blur(10px) !important;
-    border: 1px solid rgba(255, 255, 255, 0.5) !important;
-    box-shadow: inset 0 1px 1px 0 rgba(0, 0, 0, 0.015) !important;
+body .search {
+    background: rgba(255, 255, 255, 0.4);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    box-shadow: inset 0 1px 1px 0 rgba(0, 0, 0, 0.015);
     font-weight: 500;
 }
 
 body.dark .search {
-    background: rgba(17, 24, 39, 0.38) !important;
-    border: 1px solid rgba(255, 255, 255, 0.05) !important;
-    box-shadow: none !important;
+    background: rgba(17, 24, 39, 0.38);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: none;
 }
 
-.search:focus-within {
-    border-color: var(--brand) !important;
-    box-shadow: var(--shadow-focus), inset 0 1.5px 0 0 rgba(255, 255, 255, 0.1) !important;
-    background: var(--surface) !important;
+body .search:focus-within {
+    border-color: var(--brand);
+    box-shadow: var(--shadow-focus), inset 0 1.5px 0 0 rgba(255, 255, 255, 0.1);
+    background: var(--surface);
 }
 
 body.dark .search:focus-within {
-    background: rgba(17, 24, 39, 0.8) !important;
+    background: rgba(17, 24, 39, 0.8);
 }
 
 /* Sophisticated Form Inputs */
-.field input, .field select, .field textarea,
-.catalog-search input, .items-table input, .items-table select {
-    background: rgba(255, 255, 255, 0.5) !important;
-    border: 1px solid rgba(15, 23, 42, 0.13) !important;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02) !important;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+body .field input, body .field select, body .field textarea,
+body .catalog-search input, body .items-table input, body .items-table select {
+    background: rgba(255, 255, 255, 0.5);
+    border: 1px solid rgba(15, 23, 42, 0.13);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 body.dark .field input, body.dark .field select, body.dark .field textarea,
 body.dark .catalog-search input, body.dark .items-table input, body.dark .items-table select {
-    background: rgba(17, 24, 39, 0.45) !important;
-    border-color: rgba(255, 255, 255, 0.08) !important;
-    box-shadow: none !important;
+    background: rgba(17, 24, 39, 0.45);
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: none;
 }
 
-.field input:focus, .field select:focus, .field textarea:focus,
-.catalog-search input:focus, .items-table input:focus, .items-table select:focus {
-    border-color: var(--brand) !important;
-    background: var(--surface) !important;
-    transform: translateY(-1px) !important;
-    box-shadow: var(--shadow-focus) !important;
+body .field input:focus, body .field select:focus, body .field textarea:focus,
+body .catalog-search input:focus, body .items-table input:focus, body .items-table select:focus {
+    border-color: var(--brand);
+    background: var(--surface);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-focus);
 }
 
 body.dark .field input:focus, body.dark .field select:focus, body.dark .field textarea:focus,
 body.dark .catalog-search input:focus, body.dark .items-table input:focus, body.dark .items-table select:focus {
-    background: var(--surface) !important;
-    border-color: var(--brand) !important;
-    box-shadow: var(--shadow-focus) !important;
+    background: var(--surface);
+    border-color: var(--brand);
+    box-shadow: var(--shadow-focus);
+}
+
+/* Visibility and usability for inputs in disabled state */
+body .field input:disabled, body .field select:disabled, body .field textarea:disabled,
+body .catalog-search input:disabled, body .items-table input:disabled, body .items-table select:disabled {
+    background: var(--disabled-bg);
+    color: var(--disabled-ink);
+    border-color: var(--disabled-border);
+    cursor: not-allowed;
+    opacity: 0.8;
 }
 
 /* Premium Row Hover & Interactive State Transitions */
-.modern-hover tbody tr {
+body .modern-hover tbody tr {
     transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), 
                 background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1), 
-                box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+                box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.modern-hover tbody tr:hover {
-    background-color: var(--surface) !important;
+body .modern-hover tbody tr:hover {
+    background-color: var(--surface);
     box-shadow: 0 8px 24px rgba(31, 38, 135, 0.06), 
-                inset 4.5px 0 0 var(--brand) !important;
-    transform: scale(1.006) translateX(3px) !important;
-    z-index: 5 !important;
+                inset 4.5px 0 0 var(--brand);
+    transform: scale(1.006) translateX(3px);
+    z-index: 5;
 }
 
 body.dark .modern-hover tbody tr:hover {
-    background-color: var(--surface-subtle) !important;
+    background-color: var(--surface-subtle);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 
-                inset 4.5px 0 0 var(--brand) !important;
+                inset 4.5px 0 0 var(--brand);
 }
 
 /* Elegant Focus States with CSP Compliance (No Inline Styles) */
-button:focus-visible, 
-a:focus-visible, 
-input:focus-visible, 
-select:focus-visible, 
-textarea:focus-visible {
-    outline: 2.5px solid var(--brand) !important;
-    outline-offset: 2.5px !important;
-    border-radius: var(--radius-sm) !important;
+body button:focus-visible, 
+body a:focus-visible, 
+body input:focus-visible, 
+body select:focus-visible, 
+body textarea:focus-visible {
+    outline: 2.5px solid var(--brand);
+    outline-offset: 2.5px;
+    border-radius: var(--radius-sm);
 }
 
 /* Premium Button Elevation & Transitions */
-.btn {
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.045) !important;
+body .btn {
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.045);
 }
 
-.btn:hover {
-    transform: translateY(-1.5px) !important;
-    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08) !important;
-    border-color: var(--line-strong) !important;
+body .btn:hover {
+    transform: translateY(-1.5px);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+    border-color: var(--line-strong);
 }
 
-.btn:active {
-    transform: scale(0.96) translateY(0) !important;
+body .btn:active {
+    transform: scale(0.96) translateY(0);
 }
 
-.btn.primary {
-    background: var(--brand) !important;
-    border-color: var(--brand) !important;
-    color: var(--on-brand) !important;
-    box-shadow: 0 2px 8px rgba(10, 147, 150, 0.2) !important;
+body .btn.primary {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: var(--on-brand);
+    box-shadow: 0 2px 8px rgba(10, 147, 150, 0.2);
 }
 
 body.dark .btn.primary {
-    box-shadow: 0 2px 8px rgba(90, 200, 189, 0.15) !important;
+    box-shadow: 0 2px 8px rgba(90, 200, 189, 0.15);
 }
 
-.btn.primary:hover {
-    background: var(--brand-strong) !important;
-    border-color: var(--brand-strong) !important;
-    box-shadow: 0 4px 16px rgba(10, 147, 150, 0.32) !important;
+body .btn.primary:hover {
+    background: var(--brand-strong);
+    border-color: var(--brand-strong);
+    box-shadow: 0 4px 16px rgba(10, 147, 150, 0.32);
 }
 
 body.dark .btn.primary:hover {
-    box-shadow: 0 4px 16px rgba(90, 200, 189, 0.25) !important;
+    box-shadow: 0 4px 16px rgba(90, 200, 189, 0.25);
 }
 
