@@ -16,7 +16,10 @@ export default [
         },
         rules: {
             "no-unused-vars": "warn",
-            "no-undef": "error"
+            "no-undef": "error",
+            "no-duplicate-imports": "error",
+            "no-self-compare": "error",
+            "no-template-curly-in-string": "error"
         }
     }
 ];

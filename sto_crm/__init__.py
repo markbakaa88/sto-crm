@@ -22,6 +22,7 @@ from . import config as config
 from . import database as database
 from . import export as export
 from . import http_server as http_server
+from . import logging_config as logging_config
 from . import printing as printing
 from . import queries as queries
 from . import reports as reports
@@ -48,6 +49,7 @@ _IMPLEMENTATION_MODULES = (
     http_server,
     cli,
     seed,
+    logging_config,
 )
 
 

@@ -177,6 +177,7 @@ class TestCoverageEdge(unittest.TestCase):
 
     def test_catalog_official_entries_exceptions(self):
         import sto_crm.catalog
+
         orig = sto_crm.catalog.OFFICIAL_CAR_CATALOG_B64
         try:
             # 1. binary error / invalid base64
@@ -185,43 +186,56 @@ class TestCoverageEdge(unittest.TestCase):
 
             # 2. invalid zlib data
             import base64
-            sto_crm.catalog.OFFICIAL_CAR_CATALOG_B64 = base64.b64encode(b"not-zlib-compressed").decode()
+
+            sto_crm.catalog.OFFICIAL_CAR_CATALOG_B64 = base64.b64encode(
+                b"not-zlib-compressed"
+            ).decode()
             self.assertEqual(sto_crm.catalog.official_car_catalog_entries(), [])
 
             # 3. valid zlib but invalid JSON
             import zlib
+
             bad_json = zlib.compress(b"{bad json")
-            sto_crm.catalog.OFFICIAL_CAR_CATALOG_B64 = base64.b64encode(bad_json).decode()
+            sto_crm.catalog.OFFICIAL_CAR_CATALOG_B64 = base64.b64encode(
+                bad_json
+            ).decode()
             self.assertEqual(sto_crm.catalog.official_car_catalog_entries(), [])
-            
+
             # 4. JSON is not dict / has no 'makes' list
             bad_dict = zlib.compress(b"[]")
-            sto_crm.catalog.OFFICIAL_CAR_CATALOG_B64 = base64.b64encode(bad_dict).decode()
+            sto_crm.catalog.OFFICIAL_CAR_CATALOG_B64 = base64.b64encode(
+                bad_dict
+            ).decode()
             self.assertEqual(sto_crm.catalog.official_car_catalog_entries(), [])
 
             # 5. 'makes' is not list
             bad_makes = zlib.compress(b'{"makes": 123}')
-            sto_crm.catalog.OFFICIAL_CAR_CATALOG_B64 = base64.b64encode(bad_makes).decode()
+            sto_crm.catalog.OFFICIAL_CAR_CATALOG_B64 = base64.b64encode(
+                bad_makes
+            ).decode()
             self.assertEqual(sto_crm.catalog.official_car_catalog_entries(), [])
         finally:
             sto_crm.catalog.OFFICIAL_CAR_CATALOG_B64 = orig
 
     def test_catalog_payload_double_check(self):
         import sto_crm.catalog
+
         sto_crm.catalog._CAR_CATALOG_CACHE = None
         # Вызовем первый раз для прогрева кэша
         payload = sto_crm.catalog.car_catalog_payload()
         self.assertIn("makes", payload)
-        
+
         # Для покрытия double check inside lock:
         # Мы сбрасываем кэш, но при этом лочим во втором потоке
         import threading
+
         sto_crm.catalog._CAR_CATALOG_CACHE = None
         results = []
+
         def worker():
             res = sto_crm.catalog.car_catalog_payload()
             results.append(res)
-            
+
         t1 = threading.Thread(target=worker)
         t2 = threading.Thread(target=worker)
         t1.start()
@@ -232,13 +246,17 @@ class TestCoverageEdge(unittest.TestCase):
 
     def test_catalog_invalid_entries_continue(self):
         import sto_crm.catalog
+
         orig_catalog = sto_crm.catalog.CAR_CATALOG
         orig_cache = sto_crm.catalog._CAR_CATALOG_CACHE
         try:
             sto_crm.catalog.CAR_CATALOG = [
                 {"make": ""},  # empty make -> line 821
-                {"make": "TestMake", "models": "not-a-list"},  # models not list -> line 826
-                {"make": "TestMake", "models": ["ModelA", " "]}  # valid path
+                {
+                    "make": "TestMake",
+                    "models": "not-a-list",
+                },  # models not list -> line 826
+                {"make": "TestMake", "models": ["ModelA", " "]},  # valid path
             ]
             sto_crm.catalog._CAR_CATALOG_CACHE = None
             payload = sto_crm.catalog.car_catalog_payload()
@@ -250,17 +268,22 @@ class TestCoverageEdge(unittest.TestCase):
 
     def test_format_quantity_edge(self):
         from sto_crm.printing import _format_quantity
+
         self.assertEqual(_format_quantity(-0.00001), "-0")
         self.assertEqual(_format_quantity(0.0), "0")
         self.assertEqual(_format_quantity(1.5), "1,5")
 
         import sto_crm.printing
+
         orig = sto_crm.printing.parse_float
+
         class CustomFloat(float):
             def __format__(self, format_spec):
                 return "-"
+
         def mock_parse_float(val: Any) -> float:
             return CustomFloat(val)
+
         sto_crm.printing.parse_float = mock_parse_float
         try:
             self.assertEqual(sto_crm.printing._format_quantity(1.0), "0")
@@ -269,6 +292,7 @@ class TestCoverageEdge(unittest.TestCase):
 
     def test_csv_export_key_error_edge(self):
         from sto_crm.export import csv_export
+
         with self.assertRaises(KeyError):
             csv_export("unknown_entity")
 
@@ -277,19 +301,28 @@ class TestCoverageEdge(unittest.TestCase):
         from sto_crm.database import init_db
         from sto_crm.export import csv_export
         from sto_crm.runtime import Runtime
+
         current_runtime = _runtime.RUNTIME
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             _runtime.RUNTIME = Runtime(
                 db_path=Path(tmpdir) / "test_export.sqlite3",
                 start_time=0.0,
                 csrf_token="",
                 access_token="",
-                bootstrap_token=""
+                bootstrap_token="",
             )
             try:
                 init_db(seed_demo=True)
-                for entity in ("customers", "vehicles", "inventory", "appointments", "orders", "catalog"):
+                for entity in (
+                    "customers",
+                    "vehicles",
+                    "inventory",
+                    "appointments",
+                    "orders",
+                    "catalog",
+                ):
                     filename, content = csv_export(entity)
                     self.assertTrue(filename.endswith(".csv"))
                     self.assertTrue(content.startswith("\ufeff"))
@@ -298,6 +331,7 @@ class TestCoverageEdge(unittest.TestCase):
 
     def test_web_read_asset_frozen_edge(self):
         from sto_crm import web as crm_web
+
         orig_frozen = crm_web.is_frozen
         # Подменяем is_frozen на True прямо в пространстве имен модуля web
         crm_web.is_frozen = lambda: True
@@ -326,14 +360,16 @@ class TestCoverageEdge(unittest.TestCase):
                 start_time=time.time(),
                 csrf_token="test_csrf",
                 access_token="test_access",
-                bootstrap_token="test_bootstrap"
+                bootstrap_token="test_bootstrap",
             )
             # Инициализируем БД
             from sto_crm.database import init_db
+
             init_db(seed_demo=True)
-            
+
             # Подменяем latest_release_info, чтобы избежать обращения к сети
             from unittest.mock import patch
+
             patcher = patch("sto_crm.updates.latest_release_info")
             mock_latest = patcher.start()
             mock_latest.return_value = {
@@ -350,10 +386,12 @@ class TestCoverageEdge(unittest.TestCase):
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             base = f"http://127.0.0.1:{server.server_port}"
-            
+
             try:
                 # 1. do_DELETE без токена -> 403
-                delete_req = urllib.request.Request(f"{base}/api/customers/1", method="DELETE")
+                delete_req = urllib.request.Request(
+                    f"{base}/api/customers/1", method="DELETE"
+                )
                 with self.assertRaises(urllib.error.HTTPError) as err:
                     urllib.request.urlopen(delete_req, timeout=5)
                 self.assertEqual(err.exception.code, 403)
@@ -362,7 +400,10 @@ class TestCoverageEdge(unittest.TestCase):
                 delete_req = urllib.request.Request(
                     f"{base}/api/customers/1",
                     method="DELETE",
-                    headers={"X-CRM-Access-Token": "test_access", "X-CSRF-Token": "wrong_csrf"}
+                    headers={
+                        "X-CRM-Access-Token": "test_access",
+                        "X-CSRF-Token": "wrong_csrf",
+                    },
                 )
                 with self.assertRaises(urllib.error.HTTPError) as err:
                     urllib.request.urlopen(delete_req, timeout=5)
@@ -388,7 +429,7 @@ class TestCoverageEdge(unittest.TestCase):
                 # 6. /print/order/1 GET без csrf -> 403
                 print_req = urllib.request.Request(
                     f"{base}/print/order/1",
-                    headers={"X-CRM-Access-Token": "test_access"}
+                    headers={"X-CRM-Access-Token": "test_access"},
                 )
                 with self.assertRaises(urllib.error.HTTPError) as err:
                     urllib.request.urlopen(print_req, timeout=5)
@@ -397,7 +438,7 @@ class TestCoverageEdge(unittest.TestCase):
                 # 7. /api/export/customers.csv GET без csrf -> 403
                 export_req = urllib.request.Request(
                     f"{base}/api/export/customers.csv",
-                    headers={"X-CRM-Access-Token": "test_access"}
+                    headers={"X-CRM-Access-Token": "test_access"},
                 )
                 with self.assertRaises(urllib.error.HTTPError) as err:
                     urllib.request.urlopen(export_req, timeout=5)
@@ -410,9 +451,9 @@ class TestCoverageEdge(unittest.TestCase):
                     headers={
                         "Content-Type": "application/json",
                         "Content-Length": "2",
-                        "X-CSRF-Token": "test_csrf"
+                        "X-CSRF-Token": "test_csrf",
                     },
-                    data=b"{}"
+                    data=b"{}",
                 )
                 with self.assertRaises(urllib.error.HTTPError) as err:
                     urllib.request.urlopen(backup_req, timeout=5)
@@ -422,7 +463,7 @@ class TestCoverageEdge(unittest.TestCase):
                 trace_req = urllib.request.Request(
                     f"{base}/",
                     method="TRACE",
-                    headers={"Origin": "http://evil.example.com"}
+                    headers={"Origin": "http://evil.example.com"},
                 )
                 with self.assertRaises(urllib.error.HTTPError) as err:
                     urllib.request.urlopen(trace_req, timeout=5)
@@ -441,7 +482,7 @@ class TestCoverageEdge(unittest.TestCase):
                 # 8d. GET /api/update/status дважды для кэша
                 update_req = urllib.request.Request(
                     f"{base}/api/update/status",
-                    headers={"X-CRM-Access-Token": "test_access"}
+                    headers={"X-CRM-Access-Token": "test_access"},
                 )
                 with urllib.request.urlopen(update_req, timeout=5) as response:
                     self.assertEqual(response.status, 200)
@@ -455,9 +496,9 @@ class TestCoverageEdge(unittest.TestCase):
                     headers={
                         "X-CRM-Access-Token": "test_access",
                         "X-CSRF-Token": "test_csrf",
-                        "Content-Type": "application/json"
+                        "Content-Type": "application/json",
                     },
-                    data=b"{}"
+                    data=b"{}",
                 )
                 with self.assertRaises(urllib.error.HTTPError) as err:
                     urllib.request.urlopen(put_req, timeout=5)
@@ -469,19 +510,17 @@ class TestCoverageEdge(unittest.TestCase):
                     method="DELETE",
                     headers={
                         "X-CRM-Access-Token": "test_access",
-                        "X-CSRF-Token": "test_csrf"
-                    }
+                        "X-CSRF-Token": "test_csrf",
+                    },
                 )
                 with self.assertRaises(urllib.error.HTTPError) as err:
                     urllib.request.urlopen(delete_req2, timeout=5)
                 self.assertEqual(err.exception.code, 404)
 
-
-
                 # 9. GET /api/update/status
                 update_req = urllib.request.Request(
                     f"{base}/api/update/status",
-                    headers={"X-CRM-Access-Token": "test_access"}
+                    headers={"X-CRM-Access-Token": "test_access"},
                 )
                 with urllib.request.urlopen(update_req, timeout=5) as response:
                     self.assertEqual(response.status, 200)
@@ -489,7 +528,7 @@ class TestCoverageEdge(unittest.TestCase):
                 # 10. GET /api/bootstrap без bootstrap_token но с access_token -> 200
                 bootstrap_req = urllib.request.Request(
                     f"{base}/api/bootstrap",
-                    headers={"X-CRM-Access-Token": "test_access"}
+                    headers={"X-CRM-Access-Token": "test_access"},
                 )
                 with urllib.request.urlopen(bootstrap_req, timeout=5) as response:
                     self.assertEqual(response.status, 200)
@@ -501,9 +540,9 @@ class TestCoverageEdge(unittest.TestCase):
                     headers={
                         "X-CRM-Access-Token": "test_access",
                         "X-CSRF-Token": "test_csrf",
-                        "Content-Type": "application/json"
+                        "Content-Type": "application/json",
                     },
-                    data=b"{}"
+                    data=b"{}",
                 )
                 with urllib.request.urlopen(shutdown_req, timeout=5) as response:
                     self.assertEqual(response.status, 200)
@@ -519,7 +558,19 @@ class TestCoverageEdge(unittest.TestCase):
 
     def test_cli_parse_args(self):
         from sto_crm.cli import candidate_ports, parse_args, server_class_for_host
-        args = parse_args(["--port", "9000", "--host", "127.0.0.1", "--db", "/tmp/crm_test.sqlite3", "--demo", "--no-browser"])
+
+        args = parse_args(
+            [
+                "--port",
+                "9000",
+                "--host",
+                "127.0.0.1",
+                "--db",
+                "/tmp/crm_test.sqlite3",
+                "--demo",
+                "--no-browser",
+            ]
+        )
         self.assertEqual(args.port, 9000)
         self.assertEqual(args.host, "127.0.0.1")
         self.assertEqual(Path(args.db).name, "crm_test.sqlite3")
@@ -543,9 +594,12 @@ class TestCoverageEdge(unittest.TestCase):
         from unittest.mock import MagicMock, patch
 
         from sto_crm import cli
-        with patch("sto_crm.cli.create_server") as mock_create_server, \
-             patch("sto_crm.cli.init_db") as mock_init_db, \
-             patch("webbrowser.open"):
+
+        with (
+            patch("sto_crm.cli.create_server") as mock_create_server,
+            patch("sto_crm.cli.init_db") as mock_init_db,
+            patch("webbrowser.open"),
+        ):
             mock_server = MagicMock()
             mock_server.server_address = ("127.0.0.1", 8765)
             mock_server.server_port = 8765
@@ -559,6 +613,7 @@ class TestCoverageEdge(unittest.TestCase):
 
     def test_database_normalized_unique_sql_invalid(self):
         from sto_crm.database import normalized_unique_sql
+
         with self.assertRaises(ValueError):
             normalized_unique_sql("invalid_table", "sku")
 
@@ -566,7 +621,7 @@ class TestCoverageEdge(unittest.TestCase):
         import importlib.util
         import sys
         from unittest.mock import patch
-        
+
         spec = importlib.util.spec_from_file_location("__main__", "sto_crm/__main__.py")
         self.assertIsNotNone(spec)
         assert spec is not None
@@ -604,11 +659,17 @@ class TestCoverageEdge(unittest.TestCase):
         )
 
         # 1. normalize_github_repository edge cases
-        self.assertEqual(normalize_github_repository("https://github.com/abc/def.git"), "abc/def")
-        self.assertEqual(normalize_github_repository("https://github.com/abc/def/issues"), "abc/def")
-        self.assertEqual(normalize_github_repository("invalid_format"), "markbakaa88/sto-crm")
+        self.assertEqual(
+            normalize_github_repository("https://github.com/abc/def.git"), "abc/def"
+        )
+        self.assertEqual(
+            normalize_github_repository("https://github.com/abc/def/issues"), "abc/def"
+        )
+        self.assertEqual(
+            normalize_github_repository("invalid_format"), "markbakaa88/sto-crm"
+        )
         self.assertEqual(normalize_github_repository(None), "markbakaa88/sto-crm")
-        
+
         # Override env
         os.environ["STO_CRM_UPDATE_REPOSITORY"] = "custom/repo"
         self.assertEqual(normalize_github_repository(None), "custom/repo")
@@ -650,11 +711,12 @@ class TestCoverageEdge(unittest.TestCase):
 
         # writable, directories, chmod permissions
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             p = Path(tmpdir) / "sub"
             self.assertTrue(directory_writable(p))
             ensure_private_dir(p)
-            
+
             f = p / "sensitive.txt"
             f.write_text("sens")
             ensure_private_file(f)
@@ -680,6 +742,7 @@ class TestCoverageEdge(unittest.TestCase):
         # 2. HTTPError 404
         with patch("urllib.request.urlopen") as mock_open:
             from email.message import Message
+
             mock_open.side_effect = urllib.error.HTTPError(
                 "https://github.com/abc/def", 404, "Not Found", Message(), None
             )
@@ -699,7 +762,11 @@ class TestCoverageEdge(unittest.TestCase):
         # 4. HTTPError 500
         with patch("urllib.request.urlopen") as mock_open:
             mock_open.side_effect = urllib.error.HTTPError(
-                "https://github.com/abc/def", 500, "Internal Server Error", Message(), None
+                "https://github.com/abc/def",
+                500,
+                "Internal Server Error",
+                Message(),
+                None,
             )
             with self.assertRaises(RuntimeError) as ctx:
                 fetch_json("https://github.com/abc/def")
@@ -709,23 +776,8 @@ class TestCoverageEdge(unittest.TestCase):
         import os
 
         from sto_crm.updates import schedule_windows_update
+
         if os.name != "nt":
             with self.assertRaises(RuntimeError) as ctx:
                 schedule_windows_update(Path("dummy"), "dummy_sha")
             self.assertIn("Автоустановка доступна только в Windows", str(ctx.exception))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

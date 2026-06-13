@@ -288,6 +288,8 @@ def _parse_trusted_update_url(url: str) -> tuple[str, urllib.parse.ParseResult]:
         raise RuntimeError(
             "Manifest обновления содержит некорректную ссылку на файл."
         ) from exc
+    if "\\" in cleaned or "@" in (parsed.netloc or ""):
+        raise RuntimeError("Manifest обновления содержит недоверенную ссылку на файл.")
     try:
         port = parsed.port
     except ValueError as exc:
@@ -317,6 +319,8 @@ def validate_manifest_asset_download_url(url: str, repository: str, tag: str) ->
     cleaned, parsed = _parse_trusted_update_url(url)
     expected_repo = normalize_github_repository(repository).strip("/")
     expected_tag = clean_text(tag, 120)
+    if ".." in expected_tag or "/" in expected_tag or "\\" in expected_tag:
+        raise RuntimeError("Manifest обновления содержит некорректный тег релиза.")
     host = (parsed.hostname or "").lower()
     if host == "github.com":
         expected_path = f"/{expected_repo}/releases/download/{expected_tag}/"

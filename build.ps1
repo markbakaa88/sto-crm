@@ -269,8 +269,29 @@ try {
         if ($LASTEXITCODE -ne 0) {
             throw "Command failed with code ${LASTEXITCODE}: node --check sto_crm\assets\app.js"
         }
+
+        $npmCommand = Get-Command npm -ErrorAction SilentlyContinue
+        if ($npmCommand) {
+            Write-Host "Installing dependencies using npm..."
+            & $npmCommand.Source ci
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "npm ci failed, attempting npm install..."
+                & $npmCommand.Source install
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Command failed: npm install"
+                }
+            }
+
+            Write-Host "Running ESLint..."
+            & $npmCommand.Source run lint
+            if ($LASTEXITCODE -ne 0) {
+                throw "Command failed: npm run lint"
+            }
+        } else {
+            Write-Host "npm not found; skipping ESLint checks."
+        }
     } else {
-        Write-Host "Node.js not found; skipping app.js syntax check. CI still verifies frontend syntax."
+        Write-Host "Node.js not found; skipping app.js syntax check and ESLint checks. CI still verifies frontend syntax."
     }
 
     Remove-DirectoryIfExists $buildDir

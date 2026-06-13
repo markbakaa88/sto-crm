@@ -2693,6 +2693,7 @@ class StoCrmTests(unittest.TestCase):
             "api-secret",
             sto_crm.redact_sensitive_query("GET /?access_token=api-secret HTTP/1.1"),
         )
+
     def test_local_path_redaction_does_not_corrupt_https_urls(self):
         message = (
             "Не удалось получить https://github.com/owner/repo/releases/latest; "

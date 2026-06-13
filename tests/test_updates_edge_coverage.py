@@ -8,6 +8,7 @@ class TestUpdatesCoverageEdge(unittest.TestCase):
         # Но так как RUNTIME - dataclass, мы можем создать новый instance Runtime
         from sto_crm import runtime
         from sto_crm.updates import latest_backup_info
+
         orig_runtime = runtime.RUNTIME
         try:
             runtime.RUNTIME = runtime.Runtime(
@@ -15,7 +16,7 @@ class TestUpdatesCoverageEdge(unittest.TestCase):
                 start_time=0.0,
                 csrf_token="",
                 access_token="",
-                bootstrap_token=""
+                bootstrap_token="",
             )
             res = latest_backup_info()
             self.assertIsNone(res)
@@ -24,11 +25,13 @@ class TestUpdatesCoverageEdge(unittest.TestCase):
 
     def test_semantic_version_tuple_various(self):
         from sto_crm.updates import semantic_version_tuple
+
         self.assertEqual(semantic_version_tuple("v1.2.3.4"), (1, 2, 3, 4))
         self.assertEqual(semantic_version_tuple(""), (0,))
 
     def test_scorer_scores(self):
         from sto_crm.updates import manifest_asset_score, release_asset_score
+
         # MANIFEST_ASSET_RE matches: r"(?:^|[-_.])latest(?:[-_.]|$).*\.json$|^latest\.json$"
         # latest.json => should match
         self.assertEqual(manifest_asset_score({"name": "latest_release.json"}), 80)
@@ -42,7 +45,7 @@ class TestUpdatesCoverageEdge(unittest.TestCase):
         # and portable (score += 6)
         # = 146
         self.assertGreater(release_asset_score({"name": "STO_CRM_portable.exe"}), 100)
-        
+
         # STO_CRM_checksum.exe -> EXE_ASSET_RE matches => 100
         # endswith .exe => +40
         # checksum => -80

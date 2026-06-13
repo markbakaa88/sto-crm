@@ -122,7 +122,15 @@ def main(argv: list[str] | None = None) -> int:
     url_host = "[::1]" if host == "::1" else "127.0.0.1"
     url = f"http://{url_host}:{port}/"
 
+    shutdown_called = False
+    shutdown_lock = threading.Lock()
+
     def shutdown(*_: Any) -> None:
+        nonlocal shutdown_called
+        with shutdown_lock:
+            if shutdown_called:
+                return
+            shutdown_called = True
         server.graceful_shutdown_flag = True
         threading.Thread(target=server.shutdown, daemon=True).start()
 
@@ -142,8 +150,12 @@ def main(argv: list[str] | None = None) -> int:
         # Graceful shutdown connection closing lag
         if getattr(server, "graceful_shutdown_flag", False):
             lag = 0.5
-            safe_log(f"Установка соединения останавливается (мягкое завершение: {lag}с)...")
+            safe_log(
+                f"Установка соединения останавливается (мягкое завершение: {lag}с)..."
+            )
             time.sleep(lag)
+        if hasattr(server, "wait_for_active_threads"):
+            server.wait_for_active_threads(5.0)
         server.server_close()
         time.sleep(0.1)
     return 0

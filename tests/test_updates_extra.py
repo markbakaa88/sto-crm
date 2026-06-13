@@ -8,7 +8,7 @@ class TestUpdatesWindowsMock(unittest.TestCase):
     @patch("subprocess.Popen")
     def test_schedule_windows_update_mocked_win(self, mock_popen, mock_app_path):
         from sto_crm.updates import schedule_windows_update
-        
+
         # Подготовим моки
         mock_current = MagicMock(spec=Path)
         mock_current.exists.return_value = True
@@ -24,21 +24,26 @@ class TestUpdatesWindowsMock(unittest.TestCase):
 
         # Временная директория для записи скрипта
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            with patch("sto_crm.updates.user_data_dir", return_value=tmp_path), \
-                 patch("sto_crm.updates.updater_log_path", return_value=tmp_path / "updater.log"), \
-                 patch("os.name", "nt"):
-                
+            with (
+                patch("sto_crm.updates.user_data_dir", return_value=tmp_path),
+                patch(
+                    "sto_crm.updates.updater_log_path",
+                    return_value=tmp_path / "updater.log",
+                ),
+                patch("os.name", "nt"),
+            ):
                 # Должен записать скрипт и вызвать Popen
                 schedule_windows_update(mock_downloaded, "validsha256" * 8)
-                
+
                 # Проверим, что Popen вызван
                 self.assertTrue(mock_popen.called)
                 args_called = mock_popen.call_args[0][0]
                 self.assertEqual(args_called[0], "powershell.exe")
                 self.assertEqual(args_called[1], "-NoProfile")
-                
+
                 # Проверим, что какой-то файл скрипта .ps1 был записан в tmp_path / "updates"
                 updates_dir = tmp_path / "updates"
                 ps1_files = list(updates_dir.glob("*.ps1"))
@@ -50,7 +55,7 @@ class TestUpdatesWindowsMock(unittest.TestCase):
     @patch("sto_crm.updates.app_executable_path")
     def test_schedule_windows_update_failures(self, mock_app_path):
         from sto_crm.updates import schedule_windows_update
-        
+
         # 1. file not exists
         mock_current = MagicMock(spec=Path)
         mock_current.exists.return_value = False
@@ -68,21 +73,29 @@ class TestUpdatesWindowsMock(unittest.TestCase):
         with patch("os.name", "nt"):
             with self.assertRaises(RuntimeError) as ctx:
                 schedule_windows_update(Path("dummy"), "sha")
-            self.assertIn("Автоустановка доступна только для собранного", str(ctx.exception))
+            self.assertIn(
+                "Автоустановка доступна только для собранного", str(ctx.exception)
+            )
 
     @patch("sto_crm.updates.can_install_windows_update", return_value=False)
     def test_install_update_from_github_non_windows(self, mock_can_install):
         from sto_crm.updates import install_update_from_github
+
         with self.assertRaises(RuntimeError) as ctx:
             install_update_from_github()
-        self.assertIn("Автоустановка доступна только в Windows-версии", str(ctx.exception))
+        self.assertIn(
+            "Автоустановка доступна только в Windows-версии", str(ctx.exception)
+        )
 
     @patch("sto_crm.updates.can_install_windows_update", return_value=True)
     @patch("sto_crm.updates._begin_update_install")
     @patch("sto_crm.updates.latest_release_info")
     @patch("sto_crm.updates._finish_update_install")
-    def test_install_update_from_github_prerelease(self, mock_finish, mock_latest, mock_begin, mock_can_install):
+    def test_install_update_from_github_prerelease(
+        self, mock_finish, mock_latest, mock_begin, mock_can_install
+    ):
         from sto_crm.updates import install_update_from_github
+
         # release with prerelease=True
         mock_latest.return_value = {"prerelease": True, "draft": False}
         res = install_update_from_github()

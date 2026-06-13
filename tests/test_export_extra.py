@@ -19,7 +19,7 @@ class TestExportExtra(unittest.TestCase):
             start_time=time.time(),
             csrf_token="test_csrf",
             access_token="test_access",
-            bootstrap_token="test_bootstrap"
+            bootstrap_token="test_bootstrap",
         )
         init_db(seed_demo=True)
 

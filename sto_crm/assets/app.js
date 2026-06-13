@@ -3332,11 +3332,19 @@ function closeModal(force = false, options = {}) {
     const wasOpen = backdrop?.classList.contains("open");
     backdrop?.classList.remove("open");
     if (backdrop) {
-        backdrop.hidden = true;
+        setTimeout(() => {
+            if (!backdrop.classList.contains("open")) {
+                backdrop.hidden = true;
+            }
+        }, 200);
     }
     if (wasOpen) setAppInert(false);
-    $("#modalBody").innerHTML = "";
-    $("#modalFoot").innerHTML = "";
+    setTimeout(() => {
+        if (!backdrop || !backdrop.classList.contains("open")) {
+            $("#modalBody").innerHTML = "";
+            $("#modalFoot").innerHTML = "";
+        }
+    }, 200);
     if (options.restoreFocus !== false) {
         if (lastFocusedElement && document.contains(lastFocusedElement)) {
             lastFocusedElement.focus({ preventScroll: true });

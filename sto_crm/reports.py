@@ -653,6 +653,7 @@ def build_reports(
 
     revenue_by_day = defaultdict(float)
     import calendar
+
     days_in_month = calendar.monthrange(today.year, today.month)[1]
     for d in range(1, days_in_month + 1):
         day_key = f"{month_prefix}-{d:02d}"

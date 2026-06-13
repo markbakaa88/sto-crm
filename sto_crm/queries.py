@@ -265,7 +265,7 @@ def attach_items_and_totals(
     order_ids = [int(order["id"]) for order in orders]
     rows = []
     for i in range(0, len(order_ids), chunk_size):
-        chunk = order_ids[i:i + chunk_size]
+        chunk = order_ids[i : i + chunk_size]
         placeholders = ",".join("?" for _ in chunk)
         chunk_rows = conn.execute(
             f"""

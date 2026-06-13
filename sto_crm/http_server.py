@@ -60,7 +60,7 @@ from .updates import (
 )
 from .web import FAVICON_SVG, index_html
 
-_UPDATE_STATUS_CACHE: dict[str, Any] = {"expires_at": 0.0, "payload": None}
+_UPDATE_STATUS_CACHE: tuple[float, dict[str, Any] | None] = (0.0, None)
 _UPDATE_STATUS_LOCK = threading.Lock()
 
 
@@ -130,6 +130,12 @@ class CRMHandler(BaseHTTPRequestHandler):
             self.discard_untrusted_request_body()
 
     def handle_request(self, method: str) -> None:
+        graceful = getattr(self.server, "graceful_shutdown_flag", False)
+        if graceful and not isinstance(graceful, bool):
+            graceful = False
+        if graceful:
+            self.send_error_json(503, "Сервер останавливается.")
+            return
         trusted_request = False
         try:
             parsed = urllib.parse.urlparse(self.path)
@@ -262,7 +268,9 @@ class CRMHandler(BaseHTTPRequestHandler):
                     }
                 self.send_json(result)
                 if result.get("updated"):
-                    safe_log("Получена команда перезагрузки для установки обновлений. Планирование мягкого завершения работы...")
+                    safe_log(
+                        "Получена команда перезагрузки для установки обновлений. Планирование мягкого завершения работы..."
+                    )
                     if isinstance(self.server, CRMServer):
                         self.server.graceful_shutdown_flag = True
                     else:
@@ -274,7 +282,9 @@ class CRMHandler(BaseHTTPRequestHandler):
                 return
             if entity == "shutdown" and len(parts) == 2 and method == "POST":
                 self.send_json({"ok": True})
-                safe_log("Получена команда перехода в оффлайн. Планирование мягкого завершения работы...")
+                safe_log(
+                    "Получена команда перехода в оффлайн. Планирование мягкого завершения работы..."
+                )
                 if isinstance(self.server, CRMServer):
                     self.server.graceful_shutdown_flag = True
                 else:
@@ -356,24 +366,20 @@ class CRMHandler(BaseHTTPRequestHandler):
                 self.discard_untrusted_request_body()
 
     def cached_update_status(self) -> dict[str, Any]:
+        global _UPDATE_STATUS_CACHE
         now = time.monotonic()
-        cached = _UPDATE_STATUS_CACHE.get("payload")
-        if cached is not None and now < float(
-            _UPDATE_STATUS_CACHE.get("expires_at") or 0.0
-        ):
+        expires_at, cached = _UPDATE_STATUS_CACHE
+        if cached is not None and now < expires_at:
             assert isinstance(cached, dict)
             return cached
         with _UPDATE_STATUS_LOCK:
             now = time.monotonic()
-            cached = _UPDATE_STATUS_CACHE.get("payload")
-            if cached is not None and now < float(
-                _UPDATE_STATUS_CACHE.get("expires_at") or 0.0
-            ):
+            expires_at, cached = _UPDATE_STATUS_CACHE
+            if cached is not None and now < expires_at:
                 assert isinstance(cached, dict)
                 return cached
             payload = update_status()
-            _UPDATE_STATUS_CACHE["payload"] = payload
-            _UPDATE_STATUS_CACHE["expires_at"] = now + UPDATE_STATUS_CACHE_SECONDS
+            _UPDATE_STATUS_CACHE = (now + UPDATE_STATUS_CACHE_SECONDS, payload)
             assert isinstance(payload, dict)
             return payload
 
@@ -658,6 +664,30 @@ class CRMServer(ThreadingHTTPServer):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.graceful_shutdown_flag = False
+        self._active_threads: set[threading.Thread] = set()
+        self._active_threads_lock = threading.Lock()
+
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        current_thr = threading.current_thread()
+        with self._active_threads_lock:
+            self._active_threads.add(current_thr)
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            with self._active_threads_lock:
+                self._active_threads.discard(current_thr)
+
+    def wait_for_active_threads(self, timeout: float = 5.0) -> None:
+        start_time = time.monotonic()
+        current = threading.current_thread()
+        with self._active_threads_lock:
+            threads = [t for t in self._active_threads if t is not current]
+        for t in threads:
+            elapsed = time.monotonic() - start_time
+            rem = max(0.0, timeout - elapsed)
+            if rem <= 0:
+                break
+            t.join(timeout=rem)
 
 
 class CRMServerV6(CRMServer):

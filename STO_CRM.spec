@@ -20,6 +20,7 @@ a = Analysis(
         'sto_crm.database',
         'sto_crm.export',
         'sto_crm.http_server',
+        'sto_crm.logging_config',
         'sto_crm.printing',
         'sto_crm.queries',
         'sto_crm.reports',

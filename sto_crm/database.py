@@ -65,8 +65,21 @@ def db() -> Iterator[sqlite3.Connection]:
 @contextmanager
 def write_db() -> Iterator[sqlite3.Connection]:
     """Open a write transaction early to serialize check-then-write business rules."""
+    import random
+    import time
+
     with db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+        max_retries = 5
+        base_delay = 0.05
+        for attempt in range(max_retries):
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                break
+            except sqlite3.OperationalError as exc:
+                if "locked" in str(exc).lower() and attempt < max_retries - 1:
+                    time.sleep(base_delay * (1.5**attempt) + random.uniform(0, 0.02))
+                    continue
+                raise
         yield conn
 
 
