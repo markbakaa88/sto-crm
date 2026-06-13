@@ -1,35 +1,44 @@
-import os
-import sys
-import unittest
-import math
-import sqlite3
-import threading
 import signal
-import urllib.request
-import urllib.error
-import urllib.parse
-import json
+import sqlite3
+import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from sto_crm import runtime as _runtime
-from sto_crm.runtime import Runtime
-from sto_crm.database import db, init_db, connect
 from sto_crm.cli import create_server, main
-from sto_crm.queries import _mask_deleted_order_vehicle, list_appointments, list_orders, get_order, _finite_total
+from sto_crm.database import connect, db, init_db
+from sto_crm.queries import (
+    _finite_total,
+    _mask_deleted_order_vehicle,
+    get_order,
+    list_appointments,
+    list_orders,
+)
+from sto_crm.runtime import Runtime
 from sto_crm.services import (
-    update_vehicle, get_inventory, update_appointment, delete_order, update_order,
-    vehicle_order_mileage_source, reconcile_vehicle_mileage_after_order_change
+    delete_order,
+    get_inventory,
+    update_appointment,
+    update_order,
+    update_vehicle,
+    vehicle_order_mileage_source,
 )
 from sto_crm.updates import (
-    _finish_update_install, ensure_real_backup_dir, latest_backup_info, select_release_asset,
-    _parse_trusted_update_url, _content_length, read_limited_response, fetch_json,
-    normalize_release_asset, release_info_from_manifest, latest_release_info, append_updater_log,
-    download_release_asset, ensure_downloaded_executable
+    _finish_update_install,
+    _parse_trusted_update_url,
+    append_updater_log,
+    download_release_asset,
+    ensure_downloaded_executable,
+    ensure_real_backup_dir,
+    fetch_json,
+    latest_backup_info,
+    latest_release_info,
+    normalize_release_asset,
+    read_limited_response,
+    release_info_from_manifest,
+    select_release_asset,
 )
-from sto_crm.validation import (
-    generate_order_number, validate_appointment, validate_order_item, active_exists
-)
+
 
 class TestCoverageGapFiller(unittest.TestCase):
     def setUp(self) -> None:
@@ -77,7 +86,7 @@ class TestCoverageGapFiller(unittest.TestCase):
              patch("threading.current_thread") as mock_curr_thread, \
              patch("threading.main_thread") as mock_main_thread, \
              patch("threading.Timer", side_effect=mock_timer), \
-             patch("time.sleep") as mock_sleep:
+             patch("time.sleep"):
             
             mock_curr_thread.return_value = "main"
             mock_main_thread.return_value = "main"
@@ -174,8 +183,7 @@ class TestCoverageGapFiller(unittest.TestCase):
                 self.assertEqual(resolved, 0)
 
     def test_ensure_unique_index_failure(self):
-        from sto_crm.database import ensure_unique_index
-        with db() as conn:
+        with db():
             # We want ensure_unique_index to throw RuntimeError.
             # To do that, the statement 'CREATE UNIQUE INDEX' must fail with sqlite3.IntegrityError,
             # and after calling resolve_active_duplicate_values, there must STILL be duplicates left.
@@ -214,23 +222,19 @@ class TestCoverageGapFiller(unittest.TestCase):
 
     def test_ensure_schema_orphan_items_multiple_orders(self):
         from sto_crm.database import ensure_schema
-        with db() as conn:
+        conn = connect() # Use connect() from sto_crm.database to set row_factory = sqlite3.Row properly
+        try:
+            conn.execute("PRAGMA foreign_keys = OFF")
             conn.execute("INSERT INTO orders (id, number, customer_id, status, created_at, updated_at) VALUES (9998, 'TEST-9998', 1, 'draft', '2026', '2026')")
             conn.execute("INSERT INTO orders (id, number, customer_id, status, created_at, updated_at) VALUES (9999, 'TEST-9999', 1, 'draft', '2026', '2026')")
-            # We must use a valid order_id which is NOT 0 to bypass foreign key check if it is active,
-            # wait, the orphan check looks for COALESCE(order_id, 0) = 0.
-            # In SQLite, if FOREIGN KEYs are ON, insert into order_items (order_id) VALUES (0) will fail
-            # unless a row with orders.id = 0 exists, which doesn't.
-            # So let's temporarily disable foreign keys or insert an order with id = 0.
-            conn.execute("PRAGMA foreign_keys = OFF")
-            try:
-                conn.execute("INSERT INTO order_items (id, order_id, title, kind, created_at) VALUES (9999, 0, 'Orphan Item', 'service', '2026')")
-                ensure_schema(conn)
-            finally:
-                conn.execute("PRAGMA foreign_keys = ON")
-            
+            conn.execute("INSERT INTO order_items (id, order_id, title, kind, created_at) VALUES (9999, 0, 'Orphan Item', 'service', '2026')")
+            conn.commit()
+            ensure_schema(conn)
             conn.execute("DELETE FROM orders WHERE id IN (9998, 9999)")
             conn.execute("DELETE FROM order_items WHERE id = 9999")
+            conn.commit()
+        finally:
+            conn.close()
 
     # --- QUERIES GAPS ---
     def test_mask_deleted_order_vehicle_missing_key(self):
@@ -551,20 +555,19 @@ class TestCoverageGapFiller(unittest.TestCase):
             append_updater_log("test log")
 
     def test_download_release_asset_size_exceeds(self):
-        # We must provide browser_download_url or download_url matching validate_update_download_url,
-        # which requires HTTPS and host in TRUSTED_UPDATE_DOWNLOAD_HOSTS.
-        # TRUSTED_UPDATE_DOWNLOAD_HOSTS = {"github.com", "objects.githubusercontent.com"}
         asset = {
             "size": 200 * 1024 * 1024,
             "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-            "download_url": "https://github.com/markbakaa88/sto-crm/releases/download/v1.17.3/STO_CRM.exe"
+            "download_url": "https://objects.githubusercontent.com/markbakaa88/sto-crm/releases/download/v1.17.3/STO_CRM.exe"
         }
-        with patch("urllib.request.urlopen") as mock_open:
+        with patch("sto_crm.updates.validate_update_download_url", return_value=asset["download_url"]), \
+             patch("urllib.request.urlopen") as mock_open:
             response = MagicMock()
-            response.headers = {"Content-Length": str(20 * 1024 * 1024)}
+            response.headers = {"Content-Length": str(260 * 1024 * 1024)} # Set Content-Length to trigger "Файл обновления слишком большой"
             mock_open.return_value.__enter__.return_value = response
-            with self.assertRaisesRegex(RuntimeError, "Файл обновления слишком большой"):
-                download_release_asset(asset, Path("/tmp/dest"))
+            with self.assertRaisesRegex(RuntimeError, "слишком большой"):
+                asset["browser_download_url"] = asset["download_url"]
+                download_release_asset(asset, Path(self.tmpdir.name) / "dest.exe")
 
     def test_ensure_downloaded_executable_pe_signature_errors(self):
         import tempfile
