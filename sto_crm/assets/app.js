@@ -4450,11 +4450,23 @@ function markFirstInvalidOrderItem(preferredField, message) {
     target.focus({ preventScroll: false });
 }
 
-async function deleteEntity(kind, id) {
+async function deleteEntity(kind, id, event = null) {
     if (state.saving) return;
+    const button = event ? event.target.closest("[data-save]") : null;
+    if (button) {
+        if (button.disabled || button.dataset.debounced === "true") return;
+        button.dataset.debounced = "true";
+        button.disabled = true;
+        button.setAttribute("aria-busy", "true");
+    }
     setSaveButtonsBusy(true);
     if (!confirm("Удалить запись? Это действие скроет запись из активной базы CRM.")) {
         setSaveButtonsBusy(false);
+        if (button) {
+            button.disabled = false;
+            button.setAttribute("aria-busy", "false");
+            delete button.dataset.debounced;
+        }
         return;
     }
     try {
@@ -4462,9 +4474,17 @@ async function deleteEntity(kind, id) {
         closeModal(true);
         await refreshAfterMutation("Удалено");
     } catch (error) {
+        if (button) {
+            button.disabled = false;
+            button.setAttribute("aria-busy", "false");
+            delete button.dataset.debounced;
+        }
         showError(error);
     } finally {
         setSaveButtonsBusy(false);
+        if (button) {
+            delete button.dataset.debounced;
+        }
     }
 }
 
