@@ -56,6 +56,18 @@ def ensure_finite_money(value: float, field_name: str) -> float:
     return value
 
 
+def require_mileage_limit(value: int, field_name: str) -> int:
+    if value > 10_000_000:
+        raise ValueError(
+            f"Недопустимое значение: {field_name} не может превышать 10 000 000."
+        )
+    return value
+
+
+def validate_tax_rate(value: float) -> float:
+    return min(max(value, 0.0), 100.0)
+
+
 def optional_non_negative_float(
     value: Any, field_name: str, default: float = 0.0
 ) -> float:
@@ -161,12 +173,17 @@ def validate_vehicle(
         "year": validate_vehicle_year(payload.get("year")),
         "plate": plate,
         "vin": vin,
-        "mileage": require_non_negative_int(payload.get("mileage"), "пробег"),
+        "mileage": require_mileage_limit(
+            require_non_negative_int(payload.get("mileage"), "пробег"), "пробег"
+        ),
         "next_service_at": parse_date_iso(
             payload.get("next_service_at"), "дата следующего сервиса"
         ),
-        "next_service_mileage": require_non_negative_int(
-            payload.get("next_service_mileage"), "сервисный пробег"
+        "next_service_mileage": require_mileage_limit(
+            require_non_negative_int(
+                payload.get("next_service_mileage"), "сервисный пробег"
+            ),
+            "сервисный пробег",
         ),
         "notes": clean_multiline(payload.get("notes"), 2000),
     }
@@ -176,17 +193,25 @@ def validate_inventory(payload: dict[str, Any]) -> dict[str, Any]:
     name = clean_text(payload.get("name"), 220)
     if not name:
         raise ValueError("Укажите название позиции склада.")
+    quantity = require_non_negative_float(payload.get("quantity"), "остаток")
+    min_quantity = require_non_negative_float(
+        payload.get("min_quantity"), "минимальный остаток"
+    )
+    price = require_non_negative_float(payload.get("price"), "цена")
+    cost = require_non_negative_float(payload.get("cost"), "себестоимость")
+
+    ensure_finite_money(quantity * price, "стоимость остатка по цене")
+    ensure_finite_money(quantity * cost, "стоимость остатка по себестоимости")
+
     return {
         "sku": clean_text(payload.get("sku"), 100).upper(),
         "name": name,
         "brand": clean_text(payload.get("brand"), 140),
         "unit": clean_text(payload.get("unit"), 30, "шт") or "шт",
-        "quantity": require_non_negative_float(payload.get("quantity"), "остаток"),
-        "min_quantity": require_non_negative_float(
-            payload.get("min_quantity"), "минимальный остаток"
-        ),
-        "price": require_non_negative_float(payload.get("price"), "цена"),
-        "cost": require_non_negative_float(payload.get("cost"), "себестоимость"),
+        "quantity": quantity,
+        "min_quantity": min_quantity,
+        "price": price,
+        "cost": cost,
         "supplier": clean_text(payload.get("supplier"), 180),
         "notes": clean_multiline(payload.get("notes"), 2000),
     }
@@ -240,15 +265,16 @@ def validate_order(
         "advisor": clean_text(payload.get("advisor"), 120),
         "mechanic": clean_text(payload.get("mechanic"), 120),
         "promised_at": parse_datetime_local(payload.get("promised_at"), "срок заказа"),
-        "odometer": require_non_negative_int(
-            payload.get("odometer"), "пробег в заказе"
+        "odometer": require_mileage_limit(
+            require_non_negative_int(payload.get("odometer"), "пробег в заказе"),
+            "пробег в заказе",
         ),
         "complaint": clean_multiline(payload.get("complaint"), 3000),
         "diagnosis": clean_multiline(payload.get("diagnosis"), 3000),
         "recommendations": clean_multiline(payload.get("recommendations"), 3000),
         "discount": require_non_negative_float(payload.get("discount"), "скидка"),
-        "tax_rate": min(
-            require_non_negative_float(payload.get("tax_rate"), "налог"), 100
+        "tax_rate": validate_tax_rate(
+            require_non_negative_float(payload.get("tax_rate"), "налог")
         ),
         "paid": require_non_negative_float(payload.get("paid"), "оплачено"),
         "payment_method": clean_text(payload.get("payment_method"), 80),
@@ -397,6 +423,9 @@ def validate_order_item(
             f"Количество в позиции должно быть не меньше {MIN_QUANTITY_STEP:g}."
         )
 
+    ensure_finite_money(quantity * unit_price, "сумма позиции")
+    ensure_finite_money(quantity * unit_cost, "себестоимость позиции")
+
     return {
         "kind": kind,
         "inventory_id": inventory_id,
@@ -484,12 +513,20 @@ def ensure_no_appointment_conflict(
     *,
     record_id: int | None = None,
 ) -> None:
-    start = datetime.fromisoformat(scheduled_at)
+    start_raw = datetime.fromisoformat(scheduled_at.replace("Z", "+00:00"))
+    if start_raw.tzinfo is not None:
+        # Normalize timezone-aware inputs to UTC for comparison, and do the same for stored timezone-aware values.
+        # But wait! If the stored scheduled_at is '2026-06-12T10:00:00+03:00', fromisoformat parses it with a tzinfo too.
+        # Let's convert both to timezone-aware UTC datetime objects to compare their absolute moments in time!
+        start = start_raw.astimezone(datetime.now().astimezone().tzinfo)
+    else:
+        start = start_raw
     end = start + timedelta(minutes=duration_minutes)
     if end <= start:
         raise ValueError("Длительность записи должна быть больше нуля.")
-    window_end = end.isoformat(timespec="minutes")
 
+    # Since we can query with UTC or local timezone-aware formats, let's load all active entries and compare them in memory.
+    # Why? Local SQLite doesn't natively support tz-aware comparisons easily, so comparing datetime objects directly in Python is 100% robust.
     rows = conn.execute(
         """
         SELECT a.id, a.scheduled_at, a.duration_minutes, c.name AS customer_name
@@ -497,20 +534,44 @@ def ensure_no_appointment_conflict(
         JOIN customers c ON c.id = a.customer_id
         WHERE a.deleted_at IS NULL
           AND a.status IN ('scheduled', 'confirmed', 'arrived')
-          AND a.scheduled_at < ?
           AND (? IS NULL OR a.id <> ?)
         """,
-        (window_end, record_id, record_id),
+        (record_id, record_id),
     ).fetchall()
+
     for row in rows:
         try:
-            existing_start = datetime.fromisoformat(str(row["scheduled_at"]))
+            existing_start_raw = datetime.fromisoformat(
+                str(row["scheduled_at"]).replace("Z", "+00:00")
+            )
+            if existing_start_raw.tzinfo is not None and start.tzinfo is not None:
+                existing_start = existing_start_raw.astimezone(start.tzinfo)
+            elif existing_start_raw.tzinfo is not None:
+                # Existing has tz, start does not. Assume start is in local time.
+                existing_start = existing_start_raw.astimezone().replace(tzinfo=None)
+            elif start.tzinfo is not None:
+                # Start has tz, existing does not. Assume existing is in local time.
+                existing_start = existing_start_raw
+                start_compare = start.astimezone().replace(tzinfo=None)
+                end_compare = end.astimezone().replace(tzinfo=None)
+                existing_end = existing_start + timedelta(
+                    minutes=max(parse_int(row["duration_minutes"], 60), 15)
+                )
+                if start_compare < existing_end and end_compare > existing_start:
+                    when = existing_start.strftime("%d.%m.%Y %H:%M")
+                    raise ValueError(
+                        f"На это время уже есть запись: {row['customer_name']} в {when}."
+                    )
+                continue
+            else:
+                existing_start = existing_start_raw
         except ValueError:
             continue
         existing_end = existing_start + timedelta(
             minutes=max(parse_int(row["duration_minutes"], 60), 15)
         )
         if start < existing_end and end > existing_start:
+            # Format when to local/configured tz if tzinfo is present
             when = existing_start.strftime("%d.%m.%Y %H:%M")
             raise ValueError(
                 f"На это время уже есть запись: {row['customer_name']} в {when}."

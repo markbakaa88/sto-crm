@@ -584,7 +584,7 @@ def update_status() -> dict[str, Any]:
 def append_updater_log(message: str) -> None:
     try:
         path = updater_log_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_private_dir(path.parent)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(f"{now_iso()} {message}\n")
     except OSError:
@@ -768,7 +768,7 @@ def schedule_windows_update(downloaded_exe: Path, expected_sha256: str) -> None:
     if current_exe.suffix.lower() != ".exe":
         raise RuntimeError("Автоустановка доступна только для собранного STO_CRM.exe.")
     update_dir = user_data_dir() / "updates"
-    update_dir.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(update_dir)
     backup_exe = (
         update_dir
         / f"{current_exe.stem}-{APP_VERSION}-{datetime.now().strftime('%Y%m%d%H%M%S')}.bak.exe"
@@ -829,7 +829,7 @@ def install_update_from_github() -> dict[str, Any]:
         validate_sha256(asset.get("sha256"), required=True)
         validate_update_download_url(str(asset.get("download_url") or ""))
         update_dir = user_data_dir() / "updates"
-        update_dir.mkdir(parents=True, exist_ok=True)
+        ensure_private_dir(update_dir)
         safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", asset.get("name") or "STO_CRM.exe")
         downloaded = (
             update_dir

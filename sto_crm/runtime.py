@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
 import math
 import os
@@ -49,30 +48,44 @@ def user_data_dir() -> Path:
 
 def ensure_private_dir(directory: Path) -> None:
     """Create an application data directory without exposing CRM data to other Unix users."""
-    directory.mkdir(parents=True, exist_ok=True)
     if os.name != "nt":
-        with contextlib.suppress(OSError):
+        old_umask = os.umask(0o077)
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+        finally:
+            os.umask(old_umask)
+        try:
             directory.chmod(0o700)
+        except OSError:
+            pass
+    else:
+        directory.mkdir(parents=True, exist_ok=True)
 
 
 def ensure_private_file(path: Path) -> None:
     """Tighten SQLite/backup file permissions on Unix-like systems."""
     if os.name != "nt" and path.exists():
-        with contextlib.suppress(OSError):
+        try:
             path.chmod(0o600)
+        except OSError:
+            pass
 
 
 def ensure_private_file_created(path: Path) -> None:
     """Create a sensitive local file with restrictive permissions from the first open."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(path.parent)
     if os.name == "nt":
         path.touch(exist_ok=True)
         return
     flags = os.O_WRONLY | os.O_CREAT
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
-    fd = os.open(path, flags, 0o600)
-    os.close(fd)
+    old_umask = os.umask(0o077)
+    try:
+        fd = os.open(path, flags, 0o600)
+        os.close(fd)
+    finally:
+        os.umask(old_umask)
     ensure_private_file(path)
 
 
@@ -376,7 +389,29 @@ def search_needle(q: str) -> str:
 
 def redact_sensitive_query(message: str) -> str:
     """Маскирует токены из URL перед выводом в локальный журнал."""
-    return SENSITIVE_QUERY_RE.sub(r"\1***", message)
+    text = str(message)
+    text = SENSITIVE_QUERY_RE.sub(r"\1***", text)
+    try:
+        # Mask json keys and header fields containing key=value or key:value
+        text = re.sub(
+            r"(?i)(\b(?:token|access_token|bootstrap_token|csrf|csrf_token)\b[\"\']?\s*[:=]\s*[\"\']?)([^&\s'\"’`,;{}()\[\]]+)([\"\']?)",
+            r"\1***\3",
+            text,
+        )
+        text = re.sub(
+            r"(?i)(\b(?:X-CSRF-Token|Cookie)\b\s*:\s*.*?csrf_token=)([^&\s'\";,]+)",
+            r"\1***",
+            text,
+        )
+        rt = globals().get("RUNTIME")
+        if rt is not None:
+            for attr in ("csrf_token", "access_token", "bootstrap_token"):
+                val = getattr(rt, attr, None)
+                if val and isinstance(val, str) and len(val) > 5:
+                    text = text.replace(val, "***")
+    except Exception:
+        pass
+    return text
 
 
 _LOCAL_PATH_RE = re.compile(

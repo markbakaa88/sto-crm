@@ -10,6 +10,7 @@ from . import runtime as _runtime
 from .config import APP_VERSION, LOOKUP_LIMIT
 from .runtime import (
     clean_multiline,
+    ensure_private_dir,
     ensure_private_file,
     ensure_private_file_created,
     now_iso,
@@ -52,14 +53,33 @@ def db() -> Iterator[sqlite3.Connection]:
     conn = connect()
     try:
         yield conn
-        if conn.in_transaction:
-            conn.commit()
-    except Exception:
-        if conn.in_transaction:
-            conn.rollback()
+        in_trans = False
+        try:
+            in_trans = conn.in_transaction
+        except (sqlite3.Error, AttributeError):
+            pass
+        if in_trans:
+            try:
+                conn.commit()
+            except (sqlite3.Error, AttributeError):
+                pass
+    except BaseException:
+        in_trans = False
+        try:
+            in_trans = conn.in_transaction
+        except (sqlite3.Error, AttributeError):
+            pass
+        if in_trans:
+            try:
+                conn.rollback()
+            except (sqlite3.Error, AttributeError):
+                pass
         raise
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except (sqlite3.Error, AttributeError):
+            pass
 
 
 @contextmanager
@@ -84,7 +104,7 @@ def write_db() -> Iterator[sqlite3.Connection]:
 
 
 def init_db(seed_demo: bool = False) -> None:
-    _runtime.RUNTIME.db_path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(_runtime.RUNTIME.db_path.parent)
     with db() as conn:
         try:
             conn.execute("PRAGMA journal_mode = WAL")
@@ -198,9 +218,17 @@ def init_db(seed_demo: bool = False) -> None:
                 """
             )
             ensure_schema(conn)
-        except Exception:
-            if conn.in_transaction:
-                conn.rollback()
+        except BaseException:
+            in_trans = False
+            try:
+                in_trans = conn.in_transaction
+            except (sqlite3.Error, AttributeError):
+                pass
+            if in_trans:
+                try:
+                    conn.rollback()
+                except (sqlite3.Error, AttributeError):
+                    pass
             raise
     if seed_demo:
         _seed_demo_data()

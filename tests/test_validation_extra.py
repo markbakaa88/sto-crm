@@ -283,3 +283,82 @@ class TestValidationExtra(unittest.TestCase):
                 validate_order(conn, payload)
         finally:
             conn.close()
+
+    def test_odometer_limit(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            "CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT, deleted_at TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO customers (id, name, deleted_at) VALUES (1, 'Customer', NULL)"
+        )
+        try:
+            payload = {
+                "customer_id": 1,
+                "status": "new",
+                "priority": "normal",
+                "odometer": 10_000_001,  # limit is 10_000_000
+                "items": [{"kind": "service", "title": "Labor", "quantity": 1}],
+            }
+            with self.assertRaisesRegex(
+                ValueError, "пробег в заказе не может превышать 10 000 000"
+            ):
+                validate_order(conn, payload)
+        finally:
+            conn.close()
+
+    def test_huge_inventory_money_limit(self):
+        payload = {
+            "sku": "T-HUGE",
+            "name": "Huge Part",
+            "quantity": 1_000_000.0,
+            "min_quantity": 0,
+            "price": 2_000_000.0,  # 1M * 2M = 2 Trillion (> 1 Trillion MAX_FINANCIAL_TOTAL)
+            "cost": 10.0,
+        }
+        with self.assertRaisesRegex(
+            ValueError, "Некорректное финансовое значение: стоимость остатка по цене"
+        ):
+            validate_inventory(payload)
+
+    def test_timezone_aware_appointment_conflict(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            "CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT, deleted_at TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO customers (id, name, deleted_at) VALUES (1, 'Customer', NULL)"
+        )
+        conn.execute(
+            """
+            CREATE TABLE appointments (
+                id INTEGER PRIMARY KEY,
+                customer_id INTEGER,
+                vehicle_id INTEGER,
+                scheduled_at TEXT,
+                duration_minutes INTEGER,
+                status TEXT,
+                deleted_at TEXT
+            )
+            """
+        )
+        # Add conflict
+        conn.execute(
+            """
+            INSERT INTO appointments (id, customer_id, vehicle_id, scheduled_at, duration_minutes, status, deleted_at)
+            VALUES (1, 1, NULL, '2026-06-12T10:00:00+03:00', 60, 'scheduled', NULL)
+            """
+        )
+        try:
+            # Under a different timezone (e.g. UTC, if we shift scheduled_at to match 10:00 in +03:00)
+            # 10:00 in +03:00 is 07:00 UTC.
+            # So a new appointment at 07:00 UTC should conflict!
+            # Let's pass 2026-06-12T07:00:00Z (which is 2026-06-12T07:00:00+00:00)
+            with self.assertRaisesRegex(ValueError, "На это время уже есть запись"):
+                from sto_crm.validation import ensure_no_appointment_conflict
+
+                ensure_no_appointment_conflict(conn, "2026-06-12T07:00:00Z", 30)
+        finally:
+            conn.close()
