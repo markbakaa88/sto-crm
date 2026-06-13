@@ -359,6 +359,16 @@ function appointmentVehicle(appointment) {
     return [appointment.vehicle_make, appointment.vehicle_model, appointment.vehicle_year, appointment.vehicle_plate].filter(Boolean).join(" ");
 }
 
+function linkCustomerHtml(customerId, customerName) {
+    if (!customerId || !customerName) return esc(customerName || "—");
+    return `<button class="action-link" type="button" data-action="edit-customer" data-id="${safeRecordId(customerId)}">${esc(customerName)}</button>`;
+}
+
+function linkVehicleHtml(vehicleId, vehicleText) {
+    if (!vehicleId || !vehicleText || vehicleText === "Авто не выбрано" || vehicleText === "—") return esc(vehicleText || "Авто не выбрано");
+    return `<button class="action-link" type="button" data-action="edit-vehicle" data-id="${safeRecordId(vehicleId)}">${esc(vehicleText)}</button>`;
+}
+
 function classToken(value) {
     return String(value ?? "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-") || "unknown";
 }
@@ -896,6 +906,91 @@ function setRoute(route, updateUrl = true) {
     }
 }
 
+function initKanbanDragAndDrop() {
+    const board = document.querySelector('.pipeline-board');
+    if (!board) return;
+    const cards = board.querySelectorAll('.deal-card');
+    const columns = board.querySelectorAll('.pipeline-column');
+    
+    cards.forEach(card => {
+        card.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', card.dataset.id);
+            card.classList.add('dragging');
+        });
+        card.addEventListener('dragend', () => card.classList.remove('dragging'));
+    });
+    
+    columns.forEach(col => {
+        col.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            col.classList.add('drag-over');
+        });
+        col.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+            col.classList.add('drag-over');
+        });
+        col.addEventListener('dragleave', () => {
+            col.classList.remove('drag-over');
+        });
+        col.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            col.classList.remove('drag-over');
+            const orderIdStr = e.dataTransfer.getData('text/plain');
+            const orderId = Number(orderIdStr || 0);
+            const status = col.dataset.status; 
+            const order = findOrderById(orderId);
+            if (!order) return;
+            if (order.status === status) return;
+            
+            const allowed = new Set([order.status, ...(orderStatusTransitions[order.status] || [])]);
+            if (!allowed.has(status)) {
+                toast(`Недопустимый переход статуса с "${order.status}" на "${status}"`, "error");
+                return;
+            }
+            
+            // Build full order structure for put
+            const data = {
+                customer_id: Number(order.customer_id),
+                vehicle_id: order.vehicle_id ? Number(order.vehicle_id) : null,
+                status: status,
+                priority: order.priority || "normal",
+                advisor: order.advisor || "Администратор",
+                mechanic: order.mechanic || "",
+                promised_at: order.promised_at || "",
+                odometer: order.odometer !== undefined && order.odometer !== null ? Number(order.odometer) : 0,
+                paid: order.paid !== undefined && order.paid !== null ? Number(order.paid) : 0,
+                discount: order.discount !== undefined && order.discount !== null ? Number(order.discount) : 0,
+                tax_rate: order.tax_rate !== undefined && order.tax_rate !== null ? Number(order.tax_rate) : 0,
+                payment_method: order.payment_method || "",
+                authorized_by: order.authorized_by || "",
+                authorized_at: order.authorized_at || "",
+                follow_up_at: order.follow_up_at || "",
+                complaint: order.complaint || "",
+                diagnosis: order.diagnosis || "",
+                recommendations: order.recommendations || "",
+                items: (order.items || []).map(item => ({
+                    kind: item.kind,
+                    inventory_id: item.kind === "part" && Number(item.inventory_id || 0) > 0 ? Number(item.inventory_id) : null,
+                    title: item.title,
+                    approval_status: item.approval_status || "approved",
+                    quantity: Number(item.quantity || 0),
+                    unit_price: Number(item.unit_price || 0),
+                    unit_cost: Number(item.unit_cost || 0)
+                }))
+            };
+            
+            const path = entityRecordPath("orders", orderId);
+            try {
+                await api(path, { method: "PUT", body: JSON.stringify(data) });
+                await refreshAfterMutation("Статус заказа обновлен");
+            } catch (error) {
+                showError(error);
+                render();
+            }
+        });
+    });
+}
+
 function routeFromLocation() {
     const params = new URLSearchParams(location.search);
     const requested = params.get("route") || location.hash.replace("#", "");
@@ -904,7 +999,9 @@ function routeFromLocation() {
 
 function render() {
     const mainEl = document.querySelector('main');
-    if (mainEl && !mainEl.classList.contains('rendered')) {
+    if (mainEl) {
+        mainEl.classList.remove('rendered');
+        mainEl.offsetHeight; /* trigger reflow */
         mainEl.classList.add('rendered');
         // Restart animation on route change
         mainEl.style.animation = 'none';
@@ -938,6 +1035,9 @@ function render() {
     content.innerHTML = `${offlineBannerHtml()}${errorBannerHtml()}${contextStripHtml()}${viewHtml}`;
     content.setAttribute("aria-busy", busy);
     bindViewActions(content);
+    if (state.route === "dashboard") {
+         initKanbanDragAndDrop();
+    }
     bindCatalogFilter(content);
     bindWorkspaceToolbar(content);
     updateScrollHints(content);
@@ -2106,21 +2206,39 @@ function quickActions() {
 
 function healthMetric(report) {
     const score = Math.max(0, Math.min(100, Number(report.business_health_score || 0)));
-    return `<article class="metric health-card" aria-label="Индекс смены: ${score} из 100"><div class="metric-top"><small>Индекс смены</small><span class="metric-icon" aria-hidden="true">↗</span></div><strong><span class="health-score">${score}</span><span>/100</span></strong><div class="trend">${esc(report.business_health_label || "Контроль")} · просрочки и склад</div></article>`;
+    return `<article class="metric health-card" aria-label="Индекс смены: ${score} из 100">
+        <div class="metric-top"><small>Индекс смены</small><span class="metric-icon" aria-hidden="true">↗</span></div>
+        <div class="gauge-container">
+            <svg class="health-gauge-svg" viewBox="0 0 40 40" width="48" height="48" aria-hidden="true">
+                <circle class="gauge-track" cx="20" cy="20" r="16" fill="none" stroke="var(--line-subtle, rgba(255, 255, 255, 0.1))" stroke-width="3"></circle>
+                <circle class="gauge-fill" cx="20" cy="20" r="16" fill="none" stroke="url(#health-gauge-grad)" stroke-width="3"
+                        stroke-dasharray="100.53" stroke-dashoffset="${100.53 - (score / 100) * 100.53}"
+                        stroke-linecap="round" transform="rotate(-90 20 20)"></circle>
+                <defs>
+                    <linearGradient id="health-gauge-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="var(--brand-start, #3b82f6)"></stop>
+                        <stop offset="100%" stop-color="var(--brand, #10b981)"></stop>
+                    </linearGradient>
+                </defs>
+            </svg>
+            <strong><span class="health-score">${score}</span><span>/100</span></strong>
+        </div>
+        <div class="trend">${esc(report.business_health_label || "Контроль")} · просрочки и склад</div>
+    </article>`;
 }
 
 function pipelineBoard(statuses = []) {
     const active = statuses.filter(column => !["cancelled"].includes(column.status));
     if (!active.length) return `<div class="muted">Воронка пока пуста.</div>`;
     return `<div class="pipeline-board">${active.map(column => `
-        <article class="pipeline-column ${Number(column.count || 0) ? "" : "is-empty"}">
+        <article class="pipeline-column ${Number(column.count || 0) ? "" : "is-empty"}" data-status="${esc(column.status)}">
             <div class="pipeline-head"><strong>${esc(column.label)}</strong><span class="count-pill">${column.count}</span></div>
             <div class="pipeline-body">
                 <div class="muted">${money(column.total)} · долг ${money(column.due)}</div>
                 ${(column.orders || []).slice(0, 3).map(order => {
                     const overdue = (state.data?.reports?.overdue_orders || []).some(item => Number(item.id) === Number(order.id));
                     return `
-                    <div class="deal-card ${overdue ? "overdue" : ""}">
+                    <div class="deal-card ${overdue ? "overdue" : ""}" draggable="true" data-id="${safeRecordId(order.id)}">
                         <strong>${esc(order.number || "Без номера")}</strong>
                         <div class="muted">${esc(order.customer_name || "")} · ${esc(order.vehicle || "Авто не выбрано")}</div>
                         <div>${money(order.total)} · ${esc(priorityLabels[order.priority] || order.priority || "")}</div>
@@ -2137,11 +2255,20 @@ function appointmentTimeline(days = []) {
     const maxCount = Math.max(...days.map(day => Number(day.count || 0)), 1);
     return `<div class="timeline">${days.map(day => {
         const width = Number(day.count || 0) ? Math.max(8, Math.round(Number(day.count || 0) / maxCount * 100)) : 0;
+        const [y, m, d] = day.date.split("-").map(Number);
+        const dDate = new Date(y, m - 1, d);
+        const dayOfWeek = dDate.getDay();
+        const isWeekend = dayOfWeek === 6 || dayOfWeek === 0;
+        const load = maxCount > 0 ? (Number(day.count || 0) / maxCount) * 100 : 0;
+        const isPeak = load > 70;
+        
+        const toneClass = isPeak ? "timeline-peak" : (isWeekend ? "timeline-weekend" : "timeline-normal");
+        const peakBadge = isPeak ? `<span class="timeline-badge">Пик</span>` : "";
         return `
-        <article class="timeline-day ${day.date === todayKey ? "today" : ""}">
-            <strong><span>${esc(day.label)}</span><span class="count-pill">${esc(day.count)}</span></strong>
+        <article class="timeline-day ${day.date === todayKey ? "today" : ""} ${toneClass}">
+            <strong><span>${esc(day.label)} ${peakBadge}</span><span class="count-pill">${esc(day.count)}</span></strong>
             <div class="bar-track" role="img" aria-label="Загрузка ${esc(day.label)}: ${esc(day.count)}"><div class="bar-fill ${widthClassFromPercent(width)}"></div></div>
-            <div class="timeline-list">${(day.appointments || []).slice(0, 2).map(item => `<span>${esc(dateShort(item.scheduled_at))} · ${esc(item.customer_name || "")}</span>`).join("") || `<span class="muted">Свободно</span>`}</div>
+            <div class="timeline-list">${(day.appointments || []).slice(0, 2).map(item => `<span>${esc(dateShort(item.scheduled_at))} · ${linkCustomerHtml(item.customer_id, item.customer_name)}</span>`).join("") || `<span class="muted">Свободно</span>`}</div>
         </article>`;
     }).join("")}</div>`;
 }
@@ -2202,8 +2329,8 @@ function renderAppointments() {
     const body = rows.map(appointment => `
                         <tr>
                             <td class="nowrap" data-label="Запланировано"><div class="cell-title"><strong>${dateShort(appointment.scheduled_at)}</strong><div class="muted text-sm">~${Number(appointment.duration_minutes || 0)} мин</div></div></td>
-                            <td data-label="О клиенте"><div class="cell-title"><strong>${esc(appointment.customer_name)}</strong><div class="muted d-flex align-items-center"><span class="icon-contact" aria-hidden="true">📱</span> ${esc(appointment.customer_phone)}</div></div></td>
-                            <td data-label="Транспорт"><strong>${esc(appointmentVehicle(appointment) || "—")}</strong></td>
+                            <td data-label="О клиенте"><div class="cell-title"><strong>${linkCustomerHtml(appointment.customer_id, appointment.customer_name)}</strong><div class="muted d-flex align-items-center"><span class="icon-contact" aria-hidden="true">📱</span> ${esc(appointment.customer_phone)}</div></div></td>
+                            <td data-label="Транспорт"><strong>${linkVehicleHtml(appointment.vehicle_id, appointmentVehicle(appointment))}</strong></td>
                             <td data-label="Статус визита">${appointmentStatusBadge(appointment.status)}</td>
                             <td data-label="Приёмщик"><strong>${esc(appointment.advisor) || "—"}</strong></td>
                             <td data-label="Повод обращения"><div class="cell-title"><strong>${esc(appointment.reason) || "—"}</strong><div class="muted truncate-text" title="${esc(appointment.notes)}">${esc(appointment.notes)}</div></div></td>
@@ -2291,7 +2418,7 @@ function ordersTable(orders, compact) {
                     ${orders.map(order => `
                         <tr>
                             <td data-label="Номер"><div class="cell-title"><strong>${esc(order.number)}</strong><span class="priority-dot" data-priority="${esc(order.priority)}">${esc(priorityLabels[order.priority] || order.priority)}</span></div></td>
-                            <td data-label="Клиент и авто"><div class="cell-title"><strong>${esc(order.customer_name)}</strong><div class="muted">${esc(orderVehicle(order) || "Авто не выбрано")}</div></div></td>
+                            <td data-label="Клиент и авто"><div class="cell-title"><strong>${linkCustomerHtml(order.customer_id, order.customer_name)}</strong><div class="muted">${linkVehicleHtml(order.vehicle_id, orderVehicle(order))}</div></div></td>
                             <td data-label="Статус">${statusBadge(order.status)}</td>
                             <td class="money" data-label="Итого"><strong>${money(order.total)}</strong></td>
                             <td data-label="Действия">${orderRowActions(order)}</td>
@@ -2308,7 +2435,7 @@ function ordersTable(orders, compact) {
                 ${orders.map(order => `
                     <tr>
                         <td data-label="Номер"><div class="cell-title"><strong>${esc(order.number)}</strong><span class="priority-dot" data-priority="${esc(order.priority)}">${esc(priorityLabels[order.priority] || order.priority)}</span></div></td>
-                        <td data-label="Клиент и авто"><div class="cell-title"><strong>${esc(order.customer_name)}</strong><div class="muted d-flex"><span aria-hidden="true" class="mr-1">🚗</span> ${esc(orderVehicle(order) || "Авто не выбрано")}</div></div></td>
+                        <td data-label="Клиент и авто"><div class="cell-title"><strong>${linkCustomerHtml(order.customer_id, order.customer_name)}</strong><div class="muted d-flex"><span aria-hidden="true" class="mr-1">🚗</span> ${linkVehicleHtml(order.vehicle_id, orderVehicle(order))}</div></div></td>
                         <td data-label="Статус">${statusBadge(order.status)}</td>
                         <td class="nowrap" data-label="Срок"><strong>${dateOrDash(order.promised_at)}</strong></td>
                         <td data-label="Мастер"><div class="cell-title"><strong>${textOrDash(order.mechanic || order.advisor, "Не назначен")}</strong><div class="muted text-sm">Исполнитель</div></div></td>
@@ -2558,6 +2685,103 @@ function renderInventory() {
     `;
 }
 
+function getDailyRevenue() {
+    const orders = state.data?.orders || [];
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const monthPrefix = `${year}-${month}`;
+
+    const daily = {};
+    const daysInMonth = new Date(year, now.getMonth() + 1, 0).getDate();
+    for (let d = 1; d <= daysInMonth; d++) {
+        const dayStr = String(d).padStart(2, "0");
+        daily[`${monthPrefix}-${dayStr}`] = 0;
+    }
+
+    orders.forEach(o => {
+        if (o.status === "closed" && o.closed_at) {
+            const dateStr = o.closed_at.substring(0, 10);
+            if (dateStr.startsWith(monthPrefix)) {
+                daily[dateStr] = (daily[dateStr] || 0) + Number(o.total || 0);
+            }
+        }
+    });
+
+    return Object.entries(daily).map(([date, revenue]) => {
+        const dayNum = parseInt(date.split("-")[2], 10);
+        return { label: String(dayNum), value: revenue };
+    });
+}
+
+function renderRevenueChartSVG(data) {
+    const width = 600;
+    const height = 180;
+    const paddingLeft = 50;
+    const paddingRight = 20;
+    const paddingTop = 20;
+    const paddingBottom = 30;
+
+    const chartWidth = width - paddingLeft - paddingRight;
+    const chartHeight = height - paddingTop - paddingBottom;
+
+    const maxVal = Math.max(...data.map(d => d.value), 1000);
+    const roundedMax = Math.ceil(maxVal / 1000) * 1000;
+
+    const gridLines = [];
+    const divisions = 4;
+    for (let i = 0; i <= divisions; i++) {
+        const val = (roundedMax / divisions) * i;
+        const y = height - paddingBottom - (val / roundedMax) * chartHeight;
+        gridLines.push(`
+            <line x1="${paddingLeft}" y1="${y}" x2="${width - paddingRight}" y2="${y}" stroke="var(--line, rgba(255, 255, 255, 0.08))" stroke-dasharray="3,3" />
+            <text x="${paddingLeft - 8}" y="${y + 4}" font-size="10" fill="var(--ink-muted, #a8b5c7)" text-anchor="end">${moneyCompact(val)}</text>
+        `);
+    }
+
+    const points = [];
+    const elements = data.map((d, index) => {
+        const x = paddingLeft + (index / (data.length - 1 || 1)) * chartWidth;
+        const y = height - paddingBottom - (d.value / roundedMax) * chartHeight;
+        points.push({ x, y, label: d.label, value: d.value });
+
+        const showLabel = data.length <= 15 || index % 3 === 0 || index === data.length - 1;
+        return showLabel ? `
+            <text x="${x}" y="${height - paddingBottom + 16}" font-size="10" fill="var(--ink-muted, #a8b5c7)" text-anchor="middle">${d.label}</text>
+            <line x1="${x}" y1="${height - paddingBottom}" x2="${x}" y2="${height - paddingBottom + 4}" stroke="var(--line, rgba(255, 255, 255, 0.2))" />
+        ` : '';
+    }).filter(Boolean);
+
+    let pathD = "";
+    let areaD = "";
+    if (points.length > 0) {
+        pathD = `M ${points[0].x} ${points[0].y} ` + points.slice(1).map(p => `L ${p.x} ${p.y}`).join(" ");
+        areaD = `${pathD} L ${points[points.length - 1].x} ${height - paddingBottom} L ${points[0].x} ${height - paddingBottom} Z`;
+    }
+
+    const valueCircles = points.filter(p => p.value > 0).map(p => `
+        <circle cx="${p.x}" cy="${p.y}" r="4" fill="var(--brand, #3b82f6)" stroke="var(--bg-panel, #ffffff)" stroke-width="2">
+            <title>День ${p.label}: ${money(p.value)}</title>
+        </circle>
+    `).join("");
+
+    return `
+        <svg viewBox="0 0 ${width} ${height}" class="revenue-chart-svg" width="100%" height="${height}" aria-hidden="true" style="overflow: visible;">
+            <defs>
+                <linearGradient id="chart-area-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stop-color="var(--brand, #3b82f6)" stop-opacity="0.25"></stop>
+                    <stop offset="100%" stop-color="var(--brand, #3b82f6)" stop-opacity="0.00"></stop>
+                </linearGradient>
+            </defs>
+            ${gridLines.join("")}
+            ${pathD ? `<path d="${areaD}" fill="url(#chart-area-grad)" />` : ""}
+            ${pathD ? `<path d="${pathD}" fill="none" stroke="var(--brand, #3b82f6)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />` : ""}
+            ${valueCircles}
+            ${elements.join("")}
+        </svg>
+    `;
+}
+
 function renderReports() {
     const r = state.data.reports || {};
     const statusCounts = r.status_counts || {};
@@ -2575,6 +2799,15 @@ function renderReports() {
             ${insightCard("В работе", money(r.pipeline_value || 0), "Денег в активных заказах", "⚙️")}
             ${insightCard("Ожидает оплаты", money(r.pipeline_due || 0), "Долги клиентов по ремонтам", "⏳")}
         </section>
+
+        <div class="panel shadow-sm mb-5">
+            <div class="panel-head panel-border-subtle">
+                <h3>📈 Динамика выручки за текущий месяц</h3>
+            </div>
+            <div class="panel-body pt-3 pb-3">
+                ${renderRevenueChartSVG(getDailyRevenue())}
+            </div>
+        </div>
         
         <div class="workspace-grid dashboard-grid">
             <div class="panel shadow-sm">
@@ -2606,18 +2839,23 @@ function renderReports() {
                         const maxCount = Math.max(1, ...topServices.map(t => Number(t.count || 0)));
                         return `
                         <ul class="stats-list panel-list">
-                            ${topServices.map(ts => `
+                            ${topServices.map(ts => {
+                                const widthPercent = (Number(ts.count || 0) / maxCount) * 100;
+                                return `
                                 <li class="panel-list-item report-service-item">
                                     <div class="report-service-info">
                                         <span class="truncate-text max-w-60p report-service-title" title="${esc(ts.title)}">${esc(ts.title)}</span>
-                                        <progress class="report-progress" max="${maxCount}" value="${Number(ts.count || 0)}"></progress>
+                                        <div class="report-progress-track" role="img" aria-label="Популярность: ${Number(ts.count || 0)} из ${maxCount}">
+                                            <div class="report-progress-fill ${widthClassFromPercent(widthPercent)}"></div>
+                                        </div>
                                     </div>
                                     <div class="text-right report-service-meta">
                                         <strong>${ts.count} ${pluralRu(ts.count, "раз", "раза", "раз")}</strong>
                                         <div class="text-success text-sm">${money(ts.revenue)}</div>
                                     </div>
                                 </li>
-                            `).join("")}
+                                `;
+                            }).join("")}
                         </ul>
                         `;
                     })()}

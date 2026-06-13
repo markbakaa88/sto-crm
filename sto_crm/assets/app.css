@@ -151,6 +151,9 @@
     --hero-card-bg: linear-gradient(135deg, rgba(15, 118, 110, 0.05), rgba(15, 111, 134, 0.035));
     --hero-card-border: rgba(15, 118, 110, 0.14);
     --health-card-border: rgba(15, 118, 110, 0.18);
+    --glass-bg: rgba(255, 255, 255, 0.5);
+    --glass-border: rgba(255, 255, 255, 0.25);
+    --glass-blur: blur(12px);
 }
 
 /* Тёмная тема — тот же язык, другая калибровка */
@@ -236,6 +239,9 @@ body.dark, [data-theme="dark"] {
     --health-card-border: rgba(90, 200, 189, 0.2);
     --topbar-bg: rgba(17, 24, 39, 0.85);
     --sidebar-bg-glass: rgba(6, 12, 27, 0.85);
+    --glass-bg: rgba(15, 23, 42, 0.55);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-blur: blur(12px);
 }
 
 /* Advanced Scrollbar Styling */
@@ -3009,6 +3015,42 @@ body .btn.danger[aria-busy="true"]::after {
 }
 .confirm-dialog.panel:hover {
     transform: none;
+}
+
+/* Custom UI/UX Improvements */
+.panel {
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    transition: transform var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out);
+}
+.panel:hover {
+    box-shadow: var(--shadow-lg);
+}
+
+.deal-card.dragging {
+    opacity: 0.5;
+    border: 2px dashed var(--brand);
+}
+.pipeline-column.drag-over {
+    background: rgba(10, 147, 150, 0.1) !important;
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+main.rendered #content {
+    animation: fadeInUp var(--dur-slow) var(--ease-out) forwards;
 }
 
 

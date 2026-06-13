@@ -327,15 +327,23 @@ def build_reports(
     )[:8]
 
     service_sales: dict[str, float] = defaultdict(float)
+    service_counts: dict[str, int] = defaultdict(int)
     for order in closed_orders:
         for item in order.get("items", []):
             if item.get("kind") == "service" and item_is_billable(item):
-                service_sales[str(item.get("title"))] += parse_float(
-                    item.get("quantity")
-                ) * parse_float(item.get("unit_price"))
+                title = str(item.get("title"))
+                qty_val = parse_float(item.get("quantity"))
+                price_val = parse_float(item.get("unit_price"))
+                service_sales[title] += qty_val * price_val
+                service_counts[title] += int(qty_val) if qty_val >= 1 else 1
     top_services = sorted(
         [
-            {"title": title, "total": round(total, 2)}
+            {
+                "title": title,
+                "total": round(total, 2),
+                "revenue": round(total, 2),
+                "count": service_counts[title],
+            }
             for title, total in service_sales.items()
         ],
         key=lambda x: parse_float(x["total"] or 0),
@@ -643,6 +651,24 @@ def build_reports(
     for item in action_plan:
         action_plan_by_tone[str(item.get("tone") or "info")] += 1
 
+    revenue_by_day = defaultdict(float)
+    import calendar
+    days_in_month = calendar.monthrange(today.year, today.month)[1]
+    for d in range(1, days_in_month + 1):
+        day_key = f"{month_prefix}-{d:02d}"
+        revenue_by_day[day_key] = 0.0
+
+    for o in month_closed:
+        closed_at = str(o.get("closed_at") or "")
+        if closed_at:
+            day_str = closed_at[:10]
+            revenue_by_day[day_str] += parse_float(o.get("total"))
+
+    revenue_by_day_list = [
+        {"date": date, "revenue": round(val, 2)}
+        for date, val in sorted(revenue_by_day.items())
+    ]
+
     return {
         "orders_total": len(orders),
         "active_orders": len(active_orders),
@@ -689,4 +715,5 @@ def build_reports(
         "pipeline_by_status": pipeline_by_status,
         "status_counts": status_counts,
         "top_services": top_services,
+        "revenue_by_day": revenue_by_day_list,
     }
