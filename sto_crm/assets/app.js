@@ -2997,7 +2997,18 @@ async function installUpdate() {
         toast("Автоустановка доступна только в собранном Windows .exe", "error");
         return;
     }
-    if (!confirm("Скачать обновление, закрыть CRM и перезапустить новую версию? Перед установкой будут созданы резервные копии базы SQLite и текущего exe.")) return;
+    if (!confirm) {
+        // Fallback if confirm isn't available
+        return;
+    }
+    const confirmed = await showConfirmOverlay({
+        title: "Установка обновлений",
+        message: "Скачать обновление, закрыть CRM и перезапустить новую версию? Перед установкой будут созданы резервные копии базы SQLite и текущего exe.",
+        confirmText: "Обновить",
+        cancelText: "Отмена",
+        danger: false
+    });
+    if (!confirmed) return;
     state.updateInstalling = true;
     render();
     try {
@@ -3340,11 +3351,30 @@ function closeModal(force = false, options = {}) {
 }
 
 let confirmResolve = null;
-function showConfirmOverlay() {
+function showConfirmOverlay(options = {}) {
+    const title = options.title || "Несохраненные изменения";
+    const message = options.message || "Закрыть окно без сохранения изменений?";
+    const confirmText = options.confirmText || "Закрыть всё равно";
+    const cancelText = options.cancelText || "Остаться";
+    const danger = options.danger !== false;
+
     return new Promise(resolve => {
         confirmResolve = resolve;
         const confirmB = $("#confirmBackdrop");
         if (!confirmB) return resolve(false);
+
+        const titleEl = $("#confirmTitle");
+        if (titleEl) titleEl.textContent = title;
+        const msgEl = confirmB.querySelector("p");
+        if (msgEl) msgEl.textContent = message;
+        const discardEl = $("#confirmDiscard");
+        if (discardEl) {
+            discardEl.textContent = confirmText;
+            discardEl.className = danger ? "btn danger" : "btn primary";
+        }
+        const cancelEl = $("#confirmCancel");
+        if (cancelEl) cancelEl.textContent = cancelText;
+
         confirmB.hidden = false;
         confirmB.classList.add("open");
         setAppInert(true);
@@ -4463,7 +4493,14 @@ async function deleteEntity(kind, id, event = null) {
         button.setAttribute("aria-busy", "true");
     }
     setSaveButtonsBusy(true);
-    if (!confirm("Удалить запись? Это действие скроет запись из активной базы CRM.")) {
+    const confirmed = await showConfirmOverlay({
+        title: "Удаление записи",
+        message: "Удалить запись? Это действие скроет запись из активной базы CRM.",
+        confirmText: "Удалить",
+        cancelText: "Отмена",
+        danger: true
+    });
+    if (!confirmed) {
         setSaveButtonsBusy(false);
         if (button) {
             button.disabled = false;
@@ -4692,7 +4729,14 @@ document.addEventListener("keydown", event => {
 
 async function shutdownApp() {
     if (!requiresFreshCsrf("остановку CRM")) return;
-    if (!confirm("Остановить локальное приложение СТО CRM? Окно можно будет закрыть, а для продолжения работы CRM нужно запустить снова.")) return;
+    const confirmed = await showConfirmOverlay({
+        title: "Остановка CRM",
+        message: "Остановить локальное приложение СТО CRM? Окно можно будет закрыть, а для продолжения работы CRM нужно запустить снова.",
+        confirmText: "Остановить",
+        cancelText: "Отмена",
+        danger: true
+    });
+    if (!confirmed) return;
     try {
         await api("/api/shutdown", { method: "POST", body: "{}" });
         clearCachedBootstrap();
