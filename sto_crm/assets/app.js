@@ -192,6 +192,12 @@ function assertSafeModalMarkup(markup) {
     }
 }
 
+function inEditable(el) {
+    if (!el) return false;
+    const tag = el.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+}
+
 function clampPercent(value) {
     const number = Number(value || 0);
     if (!Number.isFinite(number)) return 0;
@@ -1750,13 +1756,14 @@ function bindShellShortcuts() {
     document.addEventListener("keydown", event => {
         if (event.defaultPrevented || event.metaKey || event.altKey || event.isComposing) return;
         const interactive = inInteractiveContext(event.target);
-        if (event.ctrlKey && (event.key === "b" || event.key === "B")) {
+        const isBKey = event.code === "KeyB" || event.key.toLowerCase() === "b" || event.key.toLowerCase() === "и";
+        if ((event.ctrlKey || event.metaKey) && isBKey) {
             if (inEditable(event.target)) return;
             event.preventDefault();
             $("#sidebarCollapse")?.click();
             return;
         }
-        if (event.ctrlKey || interactive) return;
+        if (event.ctrlKey || event.metaKey || interactive) return;
         if ($("#modalBackdrop")?.classList.contains("open") || $("#commandPalette")?.classList.contains("open")) return;
         if (event.key === "/") {
             const input = $("#globalSearch");
@@ -1971,8 +1978,8 @@ function sectionIntro(title, text, options = {}) {
     return `<section class="${className}"><h3>${esc(title)}</h3><p>${esc(text)}</p></section>`;
 }
 
-function emptyState(title, text, action = "") {
-    return `<div class="empty"><strong>${esc(title)}</strong><span>${esc(text)}</span>${action}</div>`;
+function emptyState(title, text, action = "", icon = "📁") {
+    return `<div class="empty"><div class="empty-icon" aria-hidden="true">${esc(icon)}</div><strong>${esc(title)}</strong><span>${esc(text)}</span>${action}</div>`;
 }
 
 function noticeHtml(tone = "info", title = "", text = "", action = "") {
@@ -2350,7 +2357,7 @@ function renderAppointments() {
                 <thead>${tableHead(["Запланировано", "О клиенте", "Транспорт", "Статус визита", "Приёмщик", "Повод обращения", ""])}</thead>
                 <tbody>${body}</tbody>
             </table>
-        </div>` : emptyState("Нет записей в календаре", "Запланируйте первую встречу с клиентом, чтобы запустить бизнес-процесс.", `<button class="btn primary shadow-btn" type="button" data-action="new-appointment">+ Создать запись</button>`)}
+        </div>` : emptyState("Нет записей в календаре", "Запланируйте первую встречу с клиентом, чтобы запустить бизнес-процесс.", `<button class="btn primary shadow-btn" type="button" data-action="new-appointment">+ Создать запись</button>`, "📅")}
     `;
 }
 
@@ -2408,7 +2415,7 @@ function orderRowActions(order) {
 }
 
 function ordersTable(orders, compact) {
-    if (!orders.length) return emptyState("Заказ-нарядов не найдено", "Создайте первый заказ или измените поиск.", `<button class="btn primary" type="button" data-action="new-order">Новый заказ</button>`);
+    if (!orders.length) return emptyState("Заказ-нарядов не найдено", "Создайте первый заказ или измените поиск.", `<button class="btn primary" type="button" data-action="new-order">Новый заказ</button>`, "🛠");
     
     if (compact) {
         return `<div class="table-wrap responsive-table-wrap">
@@ -2473,7 +2480,7 @@ function renderCustomers() {
             <td data-label="Заметки"><div class="truncate-text" title="${esc(c.notes)}">${esc(c.notes)}</div></td>
             <td data-label="Действия"><button class="btn" type="button" data-action="edit-customer" data-id="${c.id}" aria-label="Открыть клиента ${esc(c.name || c.id)}">Открыть</button></td>
         </tr>
-    `).join("") : emptyState("Клиентов не найдено", "Создайте первого клиента или измените поиск.", `<button class="btn primary" type="button" data-action="new-customer">Новый клиент</button>`);
+    `).join("") : emptyState("Клиентов не найдено", "Создайте первого клиента или измените поиск.", `<button class="btn primary" type="button" data-action="new-customer">Новый клиент</button>`, "👥");
 
     const table = paged.length ? `<div class="table-wrap responsive-table-wrap">
         <table class="responsive-table modern-hover" aria-label="Таблица клиентов">
@@ -2523,7 +2530,7 @@ function renderVehicles() {
                 <thead>${tableHead(["Автомобиль", "Госномер", "VIN", "Владелец", "Пробег", "Следующий ТО", ""])}</thead>
                 <tbody>${body}</tbody>
             </table>
-        </div>` : emptyState("Автомобилей не найдено", "Добавьте автомобиль для учёта заказ-нарядов и пробега.", `<button class="btn primary shadow-btn" type="button" data-action="new-vehicle">+ Новый автомобиль</button>`)}
+        </div>` : emptyState("Автомобилей не найдено", "Добавьте автомобиль для учёта заказ-нарядов и пробега.", `<button class="btn primary shadow-btn" type="button" data-action="new-vehicle">+ Новый автомобиль</button>`, "🚗")}
     `;
 }
 
@@ -2593,7 +2600,7 @@ function renderCatalog() {
 
         </div>
         <section class="catalog-grid">
-            ${visibleEntries.map(entry => catalogMakeHtml(entry.make, entry.models)).join("") || emptyState("В каталоге ничего не найдено", "Измените фильтр по марке или модели.")}
+            ${visibleEntries.map(entry => catalogMakeHtml(entry.make, entry.models)).join("") || emptyState("В каталоге ничего не найдено", "Измените фильтр по марке или модели.", "", "🔍")}
         </section>
         ${hiddenEntries ? `<div class="load-more"><button class="btn" type="button" data-action="catalog-more">Показать ещё ${Math.min(60, hiddenEntries)} из ${hiddenEntries}</button></div>` : ""}
     `;
@@ -2681,7 +2688,7 @@ function renderInventory() {
                 <thead>${tableHead(["Номенклатура", "Артикул", "Бренд", "Наличие", {text: "Цена клиенту", className: "money"}, {text: "Себестоимость", className: "money"}, "Поставщик", ""])}</thead>
                 <tbody>${body}</tbody>
             </table>
-        </div>` : emptyState("Номенклатура пуста", "Добавьте запчасти или материалы, чтобы списывать их в заказ-нарядах.", `<button class="btn primary shadow-btn" type="button" data-action="new-inventory">+ Оприходовать деталь</button>`)}
+        </div>` : emptyState("Номенклатура пуста", "Добавьте запчасти или материалы, чтобы списывать их в заказ-нарядах.", `<button class="btn primary shadow-btn" type="button" data-action="new-inventory">+ Оприходовать деталь</button>`, "📦")}
     `;
 }
 
