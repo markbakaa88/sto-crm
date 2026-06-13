@@ -70,3 +70,33 @@ class TestUpdatesPruneCoverage(unittest.TestCase):
             with patch.object(Path, "stat", mock_stat):
                 # Должен корректно пропустить этот бэкап и не упасть
                 prune_backups(backup_dir)
+
+    def test_prune_updates_dir_coverage(self):
+        import tempfile
+        import time
+        from sto_crm.updates import prune_updates_dir
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            update_dir = Path(tmpdir)
+            f1 = update_dir / "download-old-123"
+            f2 = update_dir / "download-new-123"
+            f3 = update_dir / "unrelated.txt"
+            f1.touch()
+            f2.touch()
+            f3.touch()
+
+            # Set mtime for f1 to be 2 days ago
+            old_time = time.time() - (86400 * 2)
+            import os
+            os.utime(f1, (old_time, old_time))
+
+            prune_updates_dir(update_dir)
+
+            self.assertFalse(f1.exists())
+            self.assertTrue(f2.exists())
+            self.assertTrue(f3.exists())
+
+            # Test nonexistent directory
+            nonexistent = Path(tmpdir) / "nonexistent"
+            prune_updates_dir(nonexistent)
+

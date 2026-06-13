@@ -147,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         server.serve_forever()
     finally:
+        server.server_close()
         # Graceful shutdown connection closing lag
         if getattr(server, "graceful_shutdown_flag", False):
             lag = 0.5
@@ -156,6 +157,5 @@ def main(argv: list[str] | None = None) -> int:
             time.sleep(lag)
         if hasattr(server, "wait_for_active_threads"):
             server.wait_for_active_threads(5.0)
-        server.server_close()
         time.sleep(0.1)
     return 0

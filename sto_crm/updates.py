@@ -56,6 +56,7 @@ from .runtime import (
 )
 
 _UPDATE_INSTALL_LOCK = threading.Lock()
+_BACKUP_LOCK = threading.RLock()
 _UPDATE_INSTALL_IN_PROGRESS = False
 _UPDATE_INSTALL_SCHEDULED = False
 
@@ -79,7 +80,7 @@ def is_installable_update_asset(asset: dict[str, Any] | None) -> bool:
 
 
 def _begin_update_install() -> None:
-    global _UPDATE_INSTALL_IN_PROGRESS
+    global _UPDATE_INSTALL_IN_PROGRESS, _UPDATE_INSTALL_SCHEDULED
     with _UPDATE_INSTALL_LOCK:
         if _UPDATE_INSTALL_IN_PROGRESS or _UPDATE_INSTALL_SCHEDULED:
             raise RuntimeError(
@@ -112,93 +113,121 @@ def ensure_real_backup_dir(backup_dir: Path) -> None:
 
 def prune_backups(backup_dir: Path, keep_path: Path | None = None) -> None:
     """Keep automatic SQLite backups bounded so manual backup spam cannot fill the disk."""
-    if MAX_BACKUP_FILES <= 0 and MAX_BACKUP_TOTAL_BYTES <= 0:
+    with _BACKUP_LOCK:
+        if MAX_BACKUP_FILES <= 0 and MAX_BACKUP_TOTAL_BYTES <= 0:
+            return
+        keep_resolved = None
+        if keep_path is not None:
+            with contextlib.suppress(OSError):
+                keep_resolved = keep_path.resolve()
+        if backup_dir.exists() and backup_dir.is_symlink():
+            raise OSError("Каталог резервных копий не может быть символической ссылкой.")
+        backups: list[tuple[float, int, Path, bool]] = []
+        for path in backup_dir.glob("sto_crm_backup_*.sqlite3"):
+            try:
+                stat = path.stat()
+                resolved = path.resolve()
+            except OSError:
+                continue
+            if path.is_file() and not path.is_symlink():
+                backups.append(
+                    (stat.st_mtime, stat.st_size, path, resolved == keep_resolved)
+                )
+        backups.sort(key=lambda row: (row[3], row[0]), reverse=True)
+    
+        total = 0
+        for index, (_mtime, size, path, is_keep_path) in enumerate(backups):
+            total += size
+            too_many = MAX_BACKUP_FILES > 0 and index >= MAX_BACKUP_FILES
+            too_large = MAX_BACKUP_TOTAL_BYTES > 0 and total > MAX_BACKUP_TOTAL_BYTES
+            if not is_keep_path and (too_many or too_large):
+                with contextlib.suppress(OSError):
+                    path.unlink(missing_ok=True)
+
+
+def prune_updates_dir(update_dir: Path) -> None:
+    """Удаляет старые временные файлы и резервные копии .exe из папки обновлений."""
+    if not update_dir.exists():
         return
-    keep_resolved = None
-    if keep_path is not None:
-        with contextlib.suppress(OSError):
-            keep_resolved = keep_path.resolve()
-    if backup_dir.exists() and backup_dir.is_symlink():
-        raise OSError("Каталог резервных копий не может быть символической ссылкой.")
-    backups: list[tuple[float, int, Path, bool]] = []
-    for path in backup_dir.glob("sto_crm_backup_*.sqlite3"):
+    import time
+    now = time.time()
+    # Удаляем файлы старше 24 часов (86400 секунд), чтобы не мешать активному обновлению
+    for path in update_dir.iterdir():
         try:
-            stat = path.stat()
-            resolved = path.resolve()
+            if path.is_file() and not path.is_symlink():
+                name = path.name.lower()
+                is_temp = (
+                    name.startswith("download-")
+                    or name.startswith("apply_update_")
+                    or name.endswith(".tmp")
+                    or name.endswith(".bak.exe")
+                )
+                if is_temp:
+                    stat = path.stat()
+                    if now - stat.st_mtime > 86400:
+                        path.unlink(missing_ok=True)
         except OSError:
             continue
-        if path.is_file() and not path.is_symlink():
-            backups.append(
-                (stat.st_mtime, stat.st_size, path, resolved == keep_resolved)
-            )
-    backups.sort(key=lambda row: (row[3], row[0]), reverse=True)
-
-    total = 0
-    for index, (_mtime, size, path, is_keep_path) in enumerate(backups):
-        total += size
-        too_many = MAX_BACKUP_FILES > 0 and index >= MAX_BACKUP_FILES
-        too_large = MAX_BACKUP_TOTAL_BYTES > 0 and total > MAX_BACKUP_TOTAL_BYTES
-        if not is_keep_path and (too_many or too_large):
-            with contextlib.suppress(OSError):
-                path.unlink(missing_ok=True)
 
 
 def create_backup() -> dict[str, Any]:
-    backup_dir = _runtime.RUNTIME.db_path.parent / "backups"
-    target = (
-        backup_dir
-        / f"sto_crm_backup_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.sqlite3"
-    )
-    try:
-        ensure_real_backup_dir(backup_dir)
-        ensure_private_file_created(target)
-        with (
-            closing(connect()) as source,
-            closing(sqlite3.connect(target, timeout=30)) as destination,
-        ):
-            destination.execute("PRAGMA busy_timeout = 30000")
-            source.backup(destination)
-        ensure_private_file(target)
-        size = target.stat().st_size
-        prune_backups(backup_dir, keep_path=target)
-    except (OSError, sqlite3.Error) as exc:
-        with contextlib.suppress(OSError):
-            target.unlink(missing_ok=True)
-        raise RuntimeError(f"Не удалось создать резервную копию базы: {exc}") from exc
-    return {
-        "path": str(target),
-        "display_path": display_path(target),
-        "filename": target.name,
-        "size": size,
-        "created_at": datetime.fromtimestamp(target.stat().st_mtime).isoformat(
-            timespec="minutes"
-        ),
-    }
+    with _BACKUP_LOCK:
+        backup_dir = _runtime.RUNTIME.db_path.parent / "backups"
+        target = (
+            backup_dir
+            / f"sto_crm_backup_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.sqlite3"
+        )
+        try:
+            ensure_real_backup_dir(backup_dir)
+            ensure_private_file_created(target)
+            with (
+                closing(connect()) as source,
+                closing(sqlite3.connect(target, timeout=30)) as destination,
+            ):
+                destination.execute("PRAGMA busy_timeout = 30000")
+                source.backup(destination)
+            ensure_private_file(target)
+            size = target.stat().st_size
+            prune_backups(backup_dir, keep_path=target)
+        except (OSError, sqlite3.Error) as exc:
+            with contextlib.suppress(OSError):
+                target.unlink(missing_ok=True)
+            raise RuntimeError(f"Не удалось создать резервную копию базы: {exc}") from exc
+        return {
+            "path": str(target),
+            "display_path": display_path(target),
+            "filename": target.name,
+            "size": size,
+            "created_at": datetime.fromtimestamp(target.stat().st_mtime).isoformat(
+                timespec="minutes"
+            ),
+        }
 
 
 def latest_backup_info() -> dict[str, Any] | None:
-    backup_dir = _runtime.RUNTIME.db_path.parent / "backups"
-    try:
-        backups = [
-            path
-            for path in backup_dir.glob("sto_crm_backup_*.sqlite3")
-            if path.is_file() and not path.is_symlink()
-        ]
-        if not backups:
+    with _BACKUP_LOCK:
+        backup_dir = _runtime.RUNTIME.db_path.parent / "backups"
+        try:
+            backups = [
+                path
+                for path in backup_dir.glob("sto_crm_backup_*.sqlite3")
+                if path.is_file() and not path.is_symlink()
+            ]
+            if not backups:
+                return None
+            latest = max(backups, key=lambda path: path.stat().st_mtime)
+            stat = latest.stat()
+        except OSError:
             return None
-        latest = max(backups, key=lambda path: path.stat().st_mtime)
-        stat = latest.stat()
-    except OSError:
-        return None
-    return {
-        "path": str(latest),
-        "display_path": display_path(latest),
-        "filename": latest.name,
-        "size": stat.st_size,
-        "created_at": datetime.fromtimestamp(stat.st_mtime).isoformat(
-            timespec="minutes"
-        ),
-    }
+        return {
+            "path": str(latest),
+            "display_path": display_path(latest),
+            "filename": latest.name,
+            "size": stat.st_size,
+            "created_at": datetime.fromtimestamp(stat.st_mtime).isoformat(
+                timespec="minutes"
+            ),
+        }
 
 
 def public_backup_payload(info: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -551,6 +580,8 @@ def latest_release_info() -> dict[str, Any]:
 def update_status() -> dict[str, Any]:
     repository = normalize_github_repository()
     app_path = app_executable_path()
+    with contextlib.suppress(OSError):
+        prune_updates_dir(user_data_dir() / "updates")
     try:
         release = latest_release_info()
         version = str(release.get("version") or release.get("tag") or "")

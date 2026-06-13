@@ -279,36 +279,51 @@ function entityRecordPath(kind, id) {
 }
 
 async function downloadCsv(entity) {
+    const source = arguments[1] || null;
     if (!requiresFreshCsrf("экспорт CSV")) return;
-    const safeEntity = String(entity || "").trim();
-    const headers = {};
-    if (state.data?.app?.csrf_token) headers["X-CSRF-Token"] = state.data.app.csrf_token;
-    const accessToken = state.data?.app?.access_token || state.accessToken;
-    if (accessToken) headers["X-CRM-Access-Token"] = accessToken;
-    const response = await fetch(exportUrl(entity), {
-        headers,
-        cache: "no-store"
-    });
-    if (!response.ok) {
-        const contentType = response.headers.get("Content-Type") || "";
-        const payload = contentType.includes("application/json") ? await response.json() : await response.text();
-        const error = new Error(payload?.error || payload || "Не удалось экспортировать CSV");
-        error.status = response.status;
-        throw error;
+    if (source) {
+        if (source.disabled || source.dataset.debounced === "true") return;
+        source.disabled = true;
+        source.dataset.debounced = "true";
+        source.setAttribute("aria-busy", "true");
     }
-    const blob = await response.blob();
-    const disposition = response.headers.get("Content-Disposition") || "";
-    const match = disposition.match(/filename="?([^";]+)"?/i);
-    const filename = safeDownloadFilename(match ? match[1] : "", `${safeEntity}.csv`);
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast("CSV экспортирован");
+    try {
+        const safeEntity = String(entity || "").trim();
+        const headers = {};
+        if (state.data?.app?.csrf_token) headers["X-CSRF-Token"] = state.data.app.csrf_token;
+        const accessToken = state.data?.app?.access_token || state.accessToken;
+        if (accessToken) headers["X-CRM-Access-Token"] = accessToken;
+        const response = await fetch(exportUrl(entity), {
+            headers,
+            cache: "no-store"
+        });
+        if (!response.ok) {
+            const contentType = response.headers.get("Content-Type") || "";
+            const payload = contentType.includes("application/json") ? await response.json() : await response.text();
+            const error = new Error(payload?.error || payload || "Не удалось экспортировать CSV");
+            error.status = response.status;
+            throw error;
+        }
+        const blob = await response.blob();
+        const disposition = response.headers.get("Content-Disposition") || "";
+        const match = disposition.match(/filename="?([^";]+)"?/i);
+        const filename = safeDownloadFilename(match ? match[1] : "", `${safeEntity}.csv`);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        toast("CSV экспортирован");
+    } finally {
+        if (source) {
+            source.disabled = false;
+            delete source.dataset.debounced;
+            source.setAttribute("aria-busy", "false");
+        }
+    }
 }
 
 function qty(value) {
@@ -3055,7 +3070,7 @@ function dispatchViewAction(source, event = null) {
         }
         else if (action === "export-csv") {
             event?.preventDefault();
-            downloadCsv(source.dataset.export).catch(showError);
+            downloadCsv(source.dataset.export, source).catch(showError);
         }
         else if (action === "filter-status") {
             const nextStatus = source.dataset.status;
@@ -3318,11 +3333,16 @@ function openModal(title, body, foot, size = "") {
 function closeModal(force = false, options = {}) {
     if (state.saving && !force) return false;
     if (!force && state.modalDirty) {
+        const lastActive = document.activeElement;
         showConfirmOverlay().then(confirmed => {
             if (confirmed) {
                 closeModal(true, options);
             } else {
-                focusModalStart();
+                if (lastActive && typeof lastActive.focus === "function" && document.contains(lastActive) && lastActive !== document.body) {
+                    lastActive.focus({ preventScroll: true });
+                } else {
+                    focusModalStart();
+                }
             }
         });
         return false;
@@ -4514,6 +4534,9 @@ async function deleteEntity(kind, id, event = null) {
             button.disabled = false;
             button.setAttribute("aria-busy", "false");
             delete button.dataset.debounced;
+            button.focus({ preventScroll: true });
+        } else {
+            focusModalStart();
         }
         return;
     }

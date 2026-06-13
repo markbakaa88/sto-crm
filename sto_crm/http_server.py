@@ -667,6 +667,16 @@ class CRMServer(ThreadingHTTPServer):
         self._active_threads: set[threading.Thread] = set()
         self._active_threads_lock = threading.Lock()
 
+    def process_request(self, request: Any, client_address: Any) -> None:
+        t = threading.Thread(
+            target=self.process_request_thread,
+            args=(request, client_address),
+        )
+        t.daemon = self.daemon_threads
+        with self._active_threads_lock:
+            self._active_threads.add(t)
+        t.start()
+
     def process_request_thread(self, request: Any, client_address: Any) -> None:
         current_thr = threading.current_thread()
         with self._active_threads_lock:
