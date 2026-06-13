@@ -266,7 +266,8 @@ class CRMHandler(BaseHTTPRequestHandler):
                     if isinstance(self.server, CRMServer):
                         self.server.graceful_shutdown_flag = True
                     else:
-                        setattr(self.server, "graceful_shutdown_flag", True)
+                        server_any: Any = self.server
+                        server_any.graceful_shutdown_flag = True
                     timer = threading.Timer(0.3, self.server.shutdown)
                     timer.daemon = True
                     timer.start()
@@ -277,7 +278,8 @@ class CRMHandler(BaseHTTPRequestHandler):
                 if isinstance(self.server, CRMServer):
                     self.server.graceful_shutdown_flag = True
                 else:
-                    setattr(self.server, "graceful_shutdown_flag", True)
+                    server_any_shutdown: Any = self.server
+                    server_any_shutdown.graceful_shutdown_flag = True
                 timer = threading.Timer(0.3, self.server.shutdown)
                 timer.daemon = True
                 timer.start()
