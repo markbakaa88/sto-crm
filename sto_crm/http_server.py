@@ -262,11 +262,15 @@ class CRMHandler(BaseHTTPRequestHandler):
                     }
                 self.send_json(result)
                 if result.get("updated"):
-                    threading.Thread(target=self.server.shutdown, daemon=True).start()
+                    timer = threading.Timer(0.3, self.server.shutdown)
+                    timer.daemon = True
+                    timer.start()
                 return
             if entity == "shutdown" and len(parts) == 2 and method == "POST":
                 self.send_json({"ok": True})
-                threading.Thread(target=self.server.shutdown, daemon=True).start()
+                timer = threading.Timer(0.3, self.server.shutdown)
+                timer.daemon = True
+                timer.start()
                 return
 
             entity_routes = {

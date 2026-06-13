@@ -139,4 +139,5 @@ def main(argv: list[str] | None = None) -> int:
         server.serve_forever()
     finally:
         server.server_close()
+        time.sleep(0.1)
     return 0
