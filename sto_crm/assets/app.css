@@ -2944,3 +2944,55 @@ body .btn.danger[aria-busy="true"]::after {
     to { transform: rotate(360deg); }
 }
 
+/* Glassmorphic confirmation overlay styling */
+.confirm-backdrop {
+    opacity: 0;
+    transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    position: fixed;
+    inset: 0;
+    background: var(--overlay-backdrop);
+    z-index: 110;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4);
+}
+.confirm-backdrop.open {
+    display: flex;
+    opacity: 1;
+}
+.confirm-dialog {
+    width: 100%;
+    max-width: 400px;
+    padding: var(--space-5);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    animation: modal-in var(--dur-slow) var(--ease-out);
+    text-align: center;
+    border-radius: var(--radius-lg);
+}
+.confirm-dialog h3 {
+    margin: 0;
+    font-size: var(--font-size-lg);
+    font-weight: 650;
+    color: var(--ink);
+}
+.confirm-dialog p {
+    margin: 0;
+    font-size: var(--font-size-base);
+    color: var(--ink-muted);
+}
+.confirm-actions {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-3);
+    margin-top: var(--space-2);
+}
+.confirm-dialog.panel:hover {
+    transform: none;
+}
+
+

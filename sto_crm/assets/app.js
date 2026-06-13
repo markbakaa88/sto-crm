@@ -1597,6 +1597,19 @@ function initShell() {
         if (btn?.dataset.crumbRoute && routes[btn.dataset.crumbRoute]) setRoute(btn.dataset.crumbRoute);
     });
 
+    // Initialize custom confirm overlay buttons
+    $("#confirmDiscard")?.addEventListener("click", () => {
+        closeConfirmOverlay(true);
+    });
+    $("#confirmCancel")?.addEventListener("click", () => {
+        closeConfirmOverlay(false);
+    });
+    $("#confirmBackdrop")?.addEventListener("click", event => {
+        if (event.target.id === "confirmBackdrop") {
+            closeConfirmOverlay(false);
+        }
+    });
+
     bindShellShortcuts();
     if (!shellRefreshInterval) shellRefreshInterval = setInterval(renderShell, 30000);
     renderShell();
@@ -3000,7 +3013,15 @@ function openModal(title, body, foot, size = "") {
 
 function closeModal(force = false, options = {}) {
     if (state.saving && !force) return false;
-    if (!force && state.modalDirty && !confirm("Закрыть окно без сохранения изменений?")) return false;
+    if (!force && state.modalDirty) {
+        showConfirmOverlay().then(confirmed => {
+            if (confirmed) {
+                closeModal(true, options);
+            }
+        });
+        return false;
+    }
+    // confirm("Закрыть окно без сохранения изменений?")
     const backdrop = $("#modalBackdrop");
     const wasOpen = backdrop?.classList.contains("open");
     backdrop?.classList.remove("open");
@@ -3017,6 +3038,32 @@ function closeModal(force = false, options = {}) {
     state.modalDirty = false;
     return true;
 }
+
+let confirmResolve = null;
+function showConfirmOverlay() {
+    return new Promise(resolve => {
+        confirmResolve = resolve;
+        const confirmB = $("#confirmBackdrop");
+        if (!confirmB) return resolve(false);
+        confirmB.hidden = false;
+        confirmB.classList.add("open");
+        setAppInert(true);
+        $("#confirmCancel")?.focus({ preventScroll: true });
+    });
+}
+
+function closeConfirmOverlay(confirmed) {
+    const confirmB = $("#confirmBackdrop");
+    if (confirmB) {
+        confirmB.classList.remove("open");
+        confirmB.hidden = true;
+        setAppInert(false);
+    }
+    const resolve = confirmResolve;
+    confirmResolve = null;
+    if (resolve) resolve(confirmed);
+}
+
 
 function commandPaletteFocusableElements() {
     const palette = $("#commandPalette");
@@ -3046,7 +3093,37 @@ function handleCommandPaletteTab(event) {
     }
 }
 
+function handleConfirmTab(event) {
+    const discardBtn = $("#confirmDiscard");
+    const cancelBtn = $("#confirmCancel");
+    if (!discardBtn || !cancelBtn) return;
+    const focusable = [discardBtn, cancelBtn];
+    const active = document.activeElement;
+    if (!focusable.includes(active)) {
+        event.preventDefault();
+        cancelBtn.focus({ preventScroll: true });
+        return;
+    }
+    if (event.shiftKey && active === discardBtn) {
+        event.preventDefault();
+        cancelBtn.focus({ preventScroll: true });
+    } else if (!event.shiftKey && active === cancelBtn) {
+        event.preventDefault();
+        discardBtn.focus({ preventScroll: true });
+    }
+}
+
 function handleModalKeydown(event) {
+    const confirmOpen = !$("#confirmBackdrop")?.hidden;
+    if (confirmOpen) {
+        if (event.key === "Escape") {
+            event.preventDefault();
+            closeConfirmOverlay(false);
+        } else if (event.key === "Tab") {
+            handleConfirmTab(event);
+        }
+        return;
+    }
     const commandPaletteOpen = $("#commandPalette")?.classList.contains("open");
     if ((event.ctrlKey || event.metaKey) && (event.code === "KeyK" || event.key.toLowerCase() === "k" || event.key.toLowerCase() === "л") && !commandPaletteOpen) {
         event.preventDefault();
