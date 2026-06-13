@@ -2864,14 +2864,30 @@ body.dark .modern-hover tbody tr:hover {
 }
 
 /* Elegant Focus States with CSP Compliance (No Inline Styles) */
+body button:focus,
+body a:focus,
+body [role="button"]:focus,
+body [role="menuitem"]:focus {
+    outline: none;
+}
+
 body button:focus-visible, 
 body a:focus-visible, 
 body input:focus-visible, 
 body select:focus-visible, 
-body textarea:focus-visible {
-    outline: 2.5px solid var(--brand);
-    outline-offset: 2.5px;
-    border-radius: var(--radius-sm);
+body textarea:focus-visible,
+body [role="button"]:focus-visible,
+body [role="menuitem"]:focus-visible,
+#commandBtn:focus-visible,
+#refreshBtn:focus-visible,
+#systemMenuBtn:focus-visible,
+#primaryCtaBtn:focus-visible,
+#primaryCtaMore:focus-visible,
+#bellBtn:focus-visible,
+.nav > .nav-section > button:focus-visible {
+    outline: 2.5px solid var(--brand) !important;
+    outline-offset: 2.5px !important;
+    border-radius: var(--radius-sm) !important;
 }
 
 /* Premium Button Elevation & Transitions */

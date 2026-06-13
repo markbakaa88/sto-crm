@@ -1455,6 +1455,24 @@ function handleMenuPanelKeydown(event, panel, triggerButton, closePanel, onOpenI
             event.preventDefault();
             onOpenItem(items[activeIndex]);
         }
+    } else if (event.key === "Tab") {
+        if (!items.length) {
+            event.preventDefault();
+            triggerButton?.focus({ preventScroll: true });
+            return;
+        }
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (!panel.contains(document.activeElement)) {
+            event.preventDefault();
+            first.focus({ preventScroll: true });
+        } else if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus({ preventScroll: true });
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus({ preventScroll: true });
+        }
     } else if (!panel?.contains(document.activeElement) && triggerButton) {
         focusMenuPanelItem(panel, 0);
     }
@@ -4333,6 +4351,24 @@ $("#systemMenu")?.addEventListener("keydown", event => {
     } else if (event.key === "End") {
         event.preventDefault();
         focusSystemMenuItem(items.length - 1);
+    } else if (event.key === "Tab") {
+        if (!items.length) {
+            event.preventDefault();
+            $("#systemMenuBtn")?.focus({ preventScroll: true });
+            return;
+        }
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (!$("#systemMenu")?.contains(document.activeElement)) {
+            event.preventDefault();
+            first.focus({ preventScroll: true });
+        } else if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus({ preventScroll: true });
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus({ preventScroll: true });
+        }
     }
 });
 document.addEventListener("click", event => {
