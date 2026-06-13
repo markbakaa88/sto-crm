@@ -262,12 +262,16 @@ class CRMHandler(BaseHTTPRequestHandler):
                     }
                 self.send_json(result)
                 if result.get("updated"):
+                    safe_log("Получена команда перезагрузки для установки обновлений. Планирование мягкого завершения работы...")
+                    self.server.graceful_shutdown_flag = True
                     timer = threading.Timer(0.3, self.server.shutdown)
                     timer.daemon = True
                     timer.start()
                 return
             if entity == "shutdown" and len(parts) == 2 and method == "POST":
                 self.send_json({"ok": True})
+                safe_log("Получена команда перехода в оффлайн. Планирование мягкого завершения работы...")
+                self.server.graceful_shutdown_flag = True
                 timer = threading.Timer(0.3, self.server.shutdown)
                 timer.daemon = True
                 timer.start()
@@ -642,6 +646,10 @@ class CRMHandler(BaseHTTPRequestHandler):
 class CRMServer(ThreadingHTTPServer):
     allow_reuse_address = True
     daemon_threads = True
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.graceful_shutdown_flag = False
 
 
 class CRMServerV6(CRMServer):

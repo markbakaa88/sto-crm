@@ -3097,9 +3097,15 @@ function dispatchViewAction(source, event = null) {
         else if (action === "new-order") openOrderModal();
         else if (action === "edit-order") openOrderModal(findOrderById(id));
         else if (action === "duplicate-order") {
-            if (source.disabled) return;
+            if (source.disabled || source.dataset.debounced === "true") return;
+            source.dataset.debounced = "true";
             source.disabled = true;
-            setTimeout(() => { source.disabled = false; }, 500);
+            source.setAttribute("aria-busy", "true");
+            setTimeout(() => {
+                source.disabled = false;
+                source.setAttribute("aria-busy", "false");
+                delete source.dataset.debounced;
+            }, 500);
             const order = findOrderById(id);
             if (requireRecord(order, "Заказ")) openOrderModal(orderDuplicateDraft(order));
         }
@@ -3187,6 +3193,17 @@ function modalFocusableElements() {
 function shouldKeepModalForEscape(event) {
     if (event.defaultPrevented) return true;
     const target = event.target;
+    const active = document.activeElement;
+    if (target instanceof HTMLInputElement) {
+        if (target.type === "date" || target.type === "datetime-local") {
+            return true;
+        }
+    }
+    if (active instanceof HTMLInputElement) {
+        if (active.type === "date" || active.type === "datetime-local") {
+            return true;
+        }
+    }
     if (!(target instanceof HTMLElement)) return false;
     if (target.isContentEditable) return true;
     if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true;
@@ -3204,8 +3221,16 @@ function alignPrintHtmlNonce(htmlText) {
 }
 
 function focusModalStart() {
-    const controls = $$("input:not([type='hidden']):not([disabled]), select:not([disabled]), textarea:not([disabled])", $("#modalBody"))
-        .filter(element => element instanceof HTMLElement && element.getClientRects().length > 0);
+    const modalBody = $("#modalBody");
+    const form = modalBody ? $("form", modalBody) : null;
+    let controls = [];
+    if (form) {
+        controls = $$("input:not([type='hidden']):not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), a[href]", form)
+            .filter(element => element instanceof HTMLElement && element.getClientRects().length > 0);
+    } else if (modalBody) {
+        controls = $$("input:not([type='hidden']):not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), a[href]", modalBody)
+            .filter(element => element instanceof HTMLElement && element.getClientRects().length > 0);
+    }
     const preferred = controls[0] || $("#modalFoot .btn.primary:not([disabled])") || $("#modalClose:not([disabled])") || $("#modal");
     preferred?.focus({ preventScroll: true });
 }
@@ -3248,10 +3273,20 @@ function openModal(title, body, foot, size = "") {
     if (!backdrop) return false;
     assertSafeModalMarkup(body);
     assertSafeModalMarkup(foot);
+    const prevFocused = lastFocusedElement;
     if (backdrop.classList.contains("open")) closeModal(true, { restoreFocus: false });
     setMobileNavOpen(false, { restoreFocus: false });
     closeTransientPanels();
-    lastFocusedElement = meaningfulActiveElement(null);
+    if (prevFocused && document.contains(prevFocused) && !prevFocused.closest("#modal") && !prevFocused.closest("#modalBackdrop")) {
+        lastFocusedElement = prevFocused;
+    } else {
+        const candidate = meaningfulActiveElement(null);
+        if (candidate && !candidate.closest("#modal") && !candidate.closest("#modalBackdrop")) {
+            lastFocusedElement = candidate;
+        } else {
+            lastFocusedElement = prevFocused || null;
+        }
+    }
     $("#modalTitle").textContent = title;
     $("#modalBody").innerHTML = body;
     $("#modalFoot").innerHTML = foot;
@@ -3273,6 +3308,8 @@ function closeModal(force = false, options = {}) {
         showConfirmOverlay().then(confirmed => {
             if (confirmed) {
                 closeModal(true, options);
+            } else {
+                focusModalStart();
             }
         });
         return false;
@@ -3287,8 +3324,13 @@ function closeModal(force = false, options = {}) {
     if (wasOpen) setAppInert(false);
     $("#modalBody").innerHTML = "";
     $("#modalFoot").innerHTML = "";
-    if (options.restoreFocus !== false && lastFocusedElement && document.contains(lastFocusedElement)) {
-        lastFocusedElement.focus({ preventScroll: true });
+    if (options.restoreFocus !== false) {
+        if (lastFocusedElement && document.contains(lastFocusedElement)) {
+            lastFocusedElement.focus({ preventScroll: true });
+        } else {
+            const fallback = $("#content") || document.body;
+            fallback?.focus({ preventScroll: true });
+        }
     }
     lastFocusedElement = null;
     state.modalDirty = false;
@@ -4093,8 +4135,12 @@ function openOrderModal(order = {}) {
         const btn = event.currentTarget;
         if (btn.disabled) return;
         btn.disabled = true;
+        btn.setAttribute("aria-busy", "true");
         setTimeout(() => {
-            if (!state.orderDraftReadOnly) btn.disabled = false;
+            if (!state.orderDraftReadOnly) {
+                btn.disabled = false;
+                btn.setAttribute("aria-busy", "false");
+            }
         }, 300);
         markModalDirty();
         state.orderDraftItems.push({ kind: "service", title: "", approval_status: "approved", quantity: 1, unit_price: 0, unit_cost: 0 });
@@ -4105,8 +4151,12 @@ function openOrderModal(order = {}) {
         const btn = event.currentTarget;
         if (btn.disabled) return;
         btn.disabled = true;
+        btn.setAttribute("aria-busy", "true");
         setTimeout(() => {
-            if (!state.orderDraftReadOnly) btn.disabled = false;
+            if (!state.orderDraftReadOnly) {
+                btn.disabled = false;
+                btn.setAttribute("aria-busy", "false");
+            }
         }, 300);
         markModalDirty();
         state.orderDraftItems.push({ kind: "part", inventory_id: "", title: "", approval_status: "approved", quantity: 1, unit_price: 0, unit_cost: 0 });

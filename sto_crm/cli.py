@@ -123,6 +123,7 @@ def main(argv: list[str] | None = None) -> int:
     url = f"http://{url_host}:{port}/"
 
     def shutdown(*_: Any) -> None:
+        server.graceful_shutdown_flag = True
         threading.Thread(target=server.shutdown, daemon=True).start()
 
     if threading.current_thread() is threading.main_thread():
@@ -138,6 +139,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         server.serve_forever()
     finally:
+        # Graceful shutdown connection closing lag
+        if getattr(server, "graceful_shutdown_flag", False):
+            lag = 0.5
+            safe_log(f"Установка соединения останавливается (мягкое завершение: {lag}с)...")
+            time.sleep(lag)
         server.server_close()
         time.sleep(0.1)
     return 0

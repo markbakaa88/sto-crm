@@ -124,7 +124,7 @@
     --info-soft: #eff6ff;
     --neutral-soft: #eef2f7;
     --disabled-bg: #f1f5f9;
-    --disabled-ink: #475569;
+    --disabled-ink: #334155;
     --disabled-border: #cbd5e1;
     --badge-neutral-bg: #eef2f7;
     --badge-neutral-ink: #475569;
@@ -205,7 +205,7 @@ body.dark, [data-theme="dark"] {
     --info-soft: rgba(96, 165, 250, 0.16);
     --neutral-soft: rgba(255, 255, 255, 0.08);
     --disabled-bg: rgba(148, 163, 184, 0.08);
-    --disabled-ink: #cbd5e1;
+    --disabled-ink: #e2e8f0;
     --disabled-border: rgba(148, 163, 184, 0.24);
     --badge-neutral-bg: rgba(148, 163, 184, 0.13);
     --badge-neutral-ink: #cbd5e1;
@@ -1478,7 +1478,7 @@ body:not(.sidebar-collapsed) .brand { padding-right: 20px; }
     animation: modal-in var(--dur-slow) var(--ease-out);
     box-shadow: var(--shadow-lg), 0 0 0 1px var(--line-subtle);
     border-radius: var(--radius-xl);
-    -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
     background: var(--overlay-surface);
 }
 .command-palette-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); transition: box-shadow var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out); }
@@ -2045,7 +2045,7 @@ body.compact .bell-count { top: -4px; right: -4px; }
     .view-heading h2 { font-size: var(--font-size-xl); }
     .metric strong { font-size: var(--font-size-xl); }
     .hero-actions .btn {  flex: 1 1 140px; justify-content: center;  border-radius: var(--radius-md); font-weight: 500; letter-spacing: 0.2px; transition: all var(--dur-fast) ease-in-out; }
-    .command-palette { margin-top: 0; max-height: calc(100dvh - var(--space-8));  box-shadow: var(--shadow-lg), 0 0 0 1px var(--line-subtle); border-radius: var(--radius-xl); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); background: var(--overlay-surface); }
+    .command-palette { margin-top: 0; max-height: calc(100dvh - var(--space-8));  box-shadow: var(--shadow-lg), 0 0 0 1px var(--line-subtle); border-radius: var(--radius-xl); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); background: var(--overlay-surface); }
 }
 
 @media (pointer: coarse) {
@@ -2748,6 +2748,7 @@ body.dark .report-progress::-webkit-progress-bar {
 
 /* Glassmorphism Panels & Cards */
 body .section-card, body .panel, body .modal, body .command-palette, body .bell-panel, body .cta-menu, body .system-menu-panel {
+    --ink-muted: #2d3748;
     background: rgba(255, 255, 255, 0.65);
     -webkit-backdrop-filter: blur(10px) saturate(190%);
     backdrop-filter: blur(10px) saturate(190%);
@@ -2758,6 +2759,7 @@ body .section-card, body .panel, body .modal, body .command-palette, body .bell-
 }
 
 body.dark .section-card, body.dark .panel, body.dark .modal, body.dark .command-palette, body.dark .bell-panel, body.dark .cta-menu, body.dark .system-menu-panel {
+    --ink-muted: #cbd5e1;
     background: rgba(17, 24, 39, 0.65);
     -webkit-backdrop-filter: blur(10px) saturate(190%);
     backdrop-filter: blur(10px) saturate(190%);
@@ -2884,16 +2886,20 @@ body select:focus-visible,
 body textarea:focus-visible,
 body [role="button"]:focus-visible,
 body [role="menuitem"]:focus-visible,
-#commandBtn:focus-visible,
-#refreshBtn:focus-visible,
-#systemMenuBtn:focus-visible,
-#primaryCtaBtn:focus-visible,
-#primaryCtaMore:focus-visible,
-#bellBtn:focus-visible,
-.nav > .nav-section > button:focus-visible {
-    outline: 2.5px solid var(--brand) !important;
-    outline-offset: 2.5px !important;
-    border-radius: var(--radius-sm) !important;
+body #commandBtn:focus-visible,
+body #refreshBtn:focus-visible,
+body #systemMenuBtn:focus-visible,
+body #primaryCtaBtn:focus-visible,
+body #primaryCtaMore:focus-visible,
+body #bellBtn:focus-visible,
+#appSidebar button:focus-visible,
+#appSidebar a:focus-visible,
+#appSidebar [role="button"]:focus-visible,
+#appSidebar [role="menuitem"]:focus-visible,
+body .nav > .nav-section > button:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
 }
 
 /* Premium Button Elevation & Transitions */
@@ -2933,32 +2939,38 @@ body.dark .btn.primary:hover {
 }
 
 /* Spinner / busy indicator for buttons in progress of mutating / networking */
-body button[aria-busy="true"],
-body .btn[aria-busy="true"] {
-    position: relative !important;
-    color: transparent !important;
-    pointer-events: none !important;
+html body button[aria-busy="true"],
+html body .btn[aria-busy="true"],
+html body button[aria-busy="true"]:hover,
+html body .btn[aria-busy="true"]:hover,
+html body button[aria-busy="true"]:active,
+html body .btn[aria-busy="true"]:active,
+html body button[aria-busy="true"]:focus,
+html body .btn[aria-busy="true"]:focus {
+    position: relative;
+    color: transparent;
+    pointer-events: none;
 }
-body button[aria-busy="true"]::after,
-body .btn[aria-busy="true"]::after {
-    content: "" !important;
-    position: absolute !important;
-    left: 50% !important;
-    top: 50% !important;
-    width: 16px !important;
-    height: 16px !important;
-    margin-left: -8px !important;
-    margin-top: -8px !important;
-    border: 2px solid rgba(120, 120, 120, 0.2) !important;
-    border-top-color: var(--ink, #1f2937) !important;
-    border-radius: 50% !important;
-    animation: button-spin 0.6s linear infinite !important;
+html body button[aria-busy="true"]::after,
+html body .btn[aria-busy="true"]::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 16px;
+    height: 16px;
+    margin-left: -8px;
+    margin-top: -8px;
+    border: 2px solid rgba(120, 120, 120, 0.2);
+    border-top-color: var(--ink, #1f2937);
+    border-radius: 50%;
+    animation: button-spin 0.6s linear infinite;
 }
-body button.primary[aria-busy="true"]::after,
-body .btn.primary[aria-busy="true"]::after,
-body button.danger[aria-busy="true"]::after,
-body .btn.danger[aria-busy="true"]::after {
-    border-top-color: var(--on-brand, #ffffff) !important;
+html body button.primary[aria-busy="true"]::after,
+html body .btn.primary[aria-busy="true"]::after,
+html body button.danger[aria-busy="true"]::after,
+html body .btn.danger[aria-busy="true"]::after {
+    border-top-color: var(--on-brand, #ffffff);
 }
 
 @keyframes button-spin {
@@ -3035,8 +3047,8 @@ body .btn.danger[aria-busy="true"]::after {
     opacity: 0.5;
     border: 2px dashed var(--brand);
 }
-.pipeline-column.drag-over {
-    background: rgba(10, 147, 150, 0.1) !important;
+body .pipeline-column.drag-over {
+    background: rgba(10, 147, 150, 0.1);
 }
 
 @keyframes fadeInUp {
