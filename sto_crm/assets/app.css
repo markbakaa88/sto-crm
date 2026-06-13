@@ -1063,10 +1063,10 @@ a.count-pill:hover { filter: brightness(0.96); transform: scale(1.05); text-deco
 .bar-track, .signal-track { background: var(--surface-subtle); border-radius: 999px; height: 8px; overflow: hidden; border: 1px solid var(--line); }
 .bar-fill, .signal-fill { background: linear-gradient(90deg, var(--brand-start), var(--brand-mid)); height: 100%; display: block; border-radius: 999px; transition: width var(--dur-slow) cubic-bezier(0.34, 1.56, 0.64, 1); }
 .bar-fill::after, .signal-fill::after { content: ""; display: block; height: 100%; width: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent); animation: skeleton-shine 2s infinite linear; }
-.signal-fill.danger { background: var(--danger); }
-.signal-fill.warning, .signal-fill.warn { background: var(--warn); }
-.signal-fill.info { background: var(--info); }
-.signal-fill.success, .signal-fill.ok { background: var(--ok); }
+.signal-fill.danger { background: linear-gradient(90deg, var(--danger), #ff8a8a); }
+.signal-fill.warning, .signal-fill.warn { background: linear-gradient(90deg, var(--warn), #ffd075); }
+.signal-fill.info { background: linear-gradient(90deg, var(--info), #9bc5ff); }
+.signal-fill.success, .signal-fill.ok { background: linear-gradient(90deg, var(--ok), #5fe4cd); }
 .w-000 { width: 0%; }
 .w-005 { width: 5%; }
 .w-010 { width: 10%; }
@@ -1277,6 +1277,12 @@ body.compact .row-actions .btn {  height: 26px; padding: 0 8px; font-size: var(-
     background: var(--surface-subtle); color: var(--ink-soft);
     border: 1px solid var(--line);
     white-space: nowrap;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+    transition: all var(--dur-fast) var(--ease-out);
+}
+.status:hover {
+    transform: translateY(-0.5px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
 }
 .status[data-tone="info"],
 .status.s-new,
@@ -2329,13 +2335,19 @@ html[data-initial-theme="dark"] tr:nth-child(even) {
 .status-badge {
     display: inline-flex;
     align-items: center;
-    padding: 2px 8px;
-    border-radius: 12px;
+    padding: 3px 10px;
+    border-radius: 99px;
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     border: 1px solid transparent;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+    transition: all var(--dur-fast) var(--ease-out);
+}
+.status-badge:hover {
+    transform: translateY(-0.5px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 .status-badge.success { background: var(--ok-soft); color: var(--ok); border-color: var(--ok-border); }
 .status-badge.danger { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-border); }
@@ -2520,24 +2532,32 @@ body.dark .field .field-hint {
 
 /* 11. Кастомные скроллбары для потрясающей плавности и единого стиля */
 *::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
 }
 *::-webkit-scrollbar-track {
     background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-    background: var(--line);
-    border-radius: 4px;
+    background: var(--line-strong);
+    border: 3px solid transparent;
+    background-clip: padding-box;
+    border-radius: 99px;
 }
 *::-webkit-scrollbar-thumb:hover {
-    background: var(--ink-faint);
+    background: var(--brand-mid);
+    border: 3px solid transparent;
+    background-clip: padding-box;
 }
 body.dark *::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.22);
+    border: 3px solid transparent;
+    background-clip: padding-box;
 }
 body.dark *::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.24);
+    background: var(--brand);
+    border: 3px solid transparent;
+    background-clip: padding-box;
 }
 * {
     scrollbar-width: thin;
@@ -2739,23 +2759,31 @@ body.dark .report-progress::-webkit-progress-bar {
 /* Glassmorphism Panels & Cards */
 body .section-card, body .panel, body .modal, body .command-palette, body .bell-panel, body .cta-menu, body .system-menu-panel {
     --ink-muted: #2d3748;
-    background: rgba(255, 255, 255, 0.65);
-    -webkit-backdrop-filter: blur(10px) saturate(190%);
-    backdrop-filter: blur(10px) saturate(190%);
-    border: 1px solid rgba(255, 255, 255, 0.45);
+    background: rgba(255, 255, 255, 0.68);
+    -webkit-backdrop-filter: blur(14px) saturate(200%);
+    backdrop-filter: blur(14px) saturate(200%);
+    border: 1px solid rgba(255, 255, 255, 0.55);
     box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.06), 
                 0 1px 2px 0 rgba(0, 0, 0, 0.02),
-                inset 0 1px 1px 0 rgba(255, 255, 255, 0.8);
+                inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.85);
+    transition: transform var(--dur-base) var(--ease-out),
+                border-color var(--dur-base) var(--ease-out),
+                box-shadow var(--dur-base) var(--ease-out),
+                background-color var(--dur-base) var(--ease-out);
 }
 
 body.dark .section-card, body.dark .panel, body.dark .modal, body.dark .command-palette, body.dark .bell-panel, body.dark .cta-menu, body.dark .system-menu-panel {
     --ink-muted: #cbd5e1;
-    background: rgba(17, 24, 39, 0.65);
-    -webkit-backdrop-filter: blur(10px) saturate(190%);
-    backdrop-filter: blur(10px) saturate(190%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(17, 24, 39, 0.68);
+    -webkit-backdrop-filter: blur(14px) saturate(200%);
+    backdrop-filter: blur(14px) saturate(200%);
+    border: 1px solid rgba(255, 255, 255, 0.09);
     box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37),
                 inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+    transition: transform var(--dur-base) var(--ease-out),
+                border-color var(--dur-base) var(--ease-out),
+                box-shadow var(--dur-base) var(--ease-out),
+                background-color var(--dur-base) var(--ease-out);
 }
 
 /* Hover effects for Cards */
@@ -2793,10 +2821,12 @@ body .search:focus-within {
     border-color: var(--brand);
     box-shadow: var(--shadow-focus), inset 0 1.5px 0 0 rgba(255, 255, 255, 0.1);
     background: var(--surface);
+    transform: translateY(-1px) scale(1.01);
 }
 
 body.dark .search:focus-within {
     background: rgba(17, 24, 39, 0.8);
+    transform: translateY(-1px) scale(1.01);
 }
 
 /* Sophisticated Form Inputs */

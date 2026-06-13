@@ -380,15 +380,19 @@ def redact_sensitive_query(message: str) -> str:
 
 
 _LOCAL_PATH_RE = re.compile(
-    r"(?P<path>\\\\[^\s\"'<>|]+|[A-Za-z]:[\\/][^\s\"'<>|]+|(?<![:/])/(?:[^/\s\"'<>|]+/)+[^\s\"'<>|]+)"
+    r"(?P<path>\\\\[^\s\"'<>|]+|(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\s\"'<>|]+|(?<![A-Za-z0-9_.~%:/-])/(?:[^/\s\"'<>|]+/)+[^\s\"'<>|]+)"
 )
+_URL_PREFIX_RE = re.compile(r"\bhttps?://[^\s\"'<>|]*$", re.IGNORECASE)
 
 
 def redact_local_paths(message: str) -> str:
     """Hide absolute local filesystem paths before text is sent to the browser."""
+    text = str(message)
 
     def replace_path(match: re.Match[str]) -> str:
         raw = match.group("path")
+        if raw.startswith("/") and _URL_PREFIX_RE.search(text[: match.start()]):
+            return raw
         trailing = ""
         while raw and raw[-1] in ".,;:)]}":
             trailing = raw[-1] + trailing
@@ -400,7 +404,7 @@ def redact_local_paths(message: str) -> str:
             return (filename or "локальный файл") + trailing
         return display_path(Path(raw)) + trailing
 
-    return _LOCAL_PATH_RE.sub(replace_path, str(message))
+    return _LOCAL_PATH_RE.sub(replace_path, text)
 
 
 def _reject_json_constant(value: str) -> None:

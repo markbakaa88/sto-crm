@@ -2693,6 +2693,19 @@ class StoCrmTests(unittest.TestCase):
             "api-secret",
             sto_crm.redact_sensitive_query("GET /?access_token=api-secret HTTP/1.1"),
         )
+    def test_local_path_redaction_does_not_corrupt_https_urls(self):
+        message = (
+            "Не удалось получить https://github.com/owner/repo/releases/latest; "
+            "локальная база /home/zxc/private/sto_crm.sqlite3; "
+            "Windows C:/Users/Ivan/AppData/Local/STO_CRM/STO_CRM.exe"
+        )
+        redacted = sto_crm.redact_local_paths(message)
+
+        self.assertIn("https://github.com/owner/repo/releases/latest", redacted)
+        self.assertNotIn("/home/zxc/private/sto_crm.sqlite3", redacted)
+        self.assertNotIn("C:/Users/Ivan/AppData/Local/STO_CRM/STO_CRM.exe", redacted)
+        self.assertIn("~/private/sto_crm.sqlite3", redacted)
+        self.assertIn("STO_CRM.exe", redacted)
 
     def test_create_server_binds_without_separate_port_probe(self):
         server = sto_crm.create_server(0)

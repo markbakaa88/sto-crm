@@ -261,18 +261,23 @@ def attach_items_and_totals(
 ) -> None:
     if not orders:
         return
+    chunk_size = 900
     order_ids = [int(order["id"]) for order in orders]
-    placeholders = ",".join("?" for _ in order_ids)
-    rows = conn.execute(
-        f"""
-        SELECT oi.*, i.sku AS inventory_sku, i.name AS inventory_name, i.deleted_at AS inventory_deleted_at
-        FROM order_items oi
-        LEFT JOIN inventory i ON i.id = oi.inventory_id
-        WHERE oi.order_id IN ({placeholders})
-        ORDER BY oi.id
-        """,  # nosec B608
-        order_ids,
-    ).fetchall()
+    rows = []
+    for i in range(0, len(order_ids), chunk_size):
+        chunk = order_ids[i:i + chunk_size]
+        placeholders = ",".join("?" for _ in chunk)
+        chunk_rows = conn.execute(
+            f"""
+            SELECT oi.*, i.sku AS inventory_sku, i.name AS inventory_name, i.deleted_at AS inventory_deleted_at
+            FROM order_items oi
+            LEFT JOIN inventory i ON i.id = oi.inventory_id
+            WHERE oi.order_id IN ({placeholders})
+            ORDER BY oi.id
+            """,  # nosec B608
+            chunk,
+        ).fetchall()
+        rows.extend(chunk_rows)
     grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         grouped[int(row["order_id"])].append(dict(row))
