@@ -4532,11 +4532,11 @@ document.addEventListener("click", event => {
     else if (action === "vehicle") saveEntity("vehicles", id).catch(showError);
     else if (action === "inventory") saveEntity("inventory", id).catch(showError);
     else if (action === "order") saveOrder(id).catch(showError);
-    else if (action === "delete-customer") deleteEntity("customers", id).catch(showError);
-    else if (action === "delete-vehicle") deleteEntity("vehicles", id).catch(showError);
-    else if (action === "delete-inventory") deleteEntity("inventory", id).catch(showError);
-    else if (action === "delete-appointment") deleteEntity("appointments", id).catch(showError);
-    else if (action === "delete-order") deleteEntity("orders", id).catch(showError);
+    else if (action === "delete-customer") deleteEntity("customers", id, event).catch(showError);
+    else if (action === "delete-vehicle") deleteEntity("vehicles", id, event).catch(showError);
+    else if (action === "delete-inventory") deleteEntity("inventory", id, event).catch(showError);
+    else if (action === "delete-appointment") deleteEntity("appointments", id, event).catch(showError);
+    else if (action === "delete-order") deleteEntity("orders", id, event).catch(showError);
     else if (action === "print-order") openPrintOrder(id).catch(showError);
 });
 

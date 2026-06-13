@@ -244,21 +244,7 @@ body.dark, [data-theme="dark"] {
     --glass-blur: blur(12px);
 }
 
-/* Advanced Scrollbar Styling */
-::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-}
-::-webkit-scrollbar-track {
-    background: transparent;
-}
-::-webkit-scrollbar-thumb {
-    background-color: var(--line-strong);
-    border-radius: var(--radius-xl);
-}
-::-webkit-scrollbar-thumb:hover {
-    background-color: var(--ink-faint);
-}
+
 
 
 
@@ -2124,25 +2110,7 @@ input:not(.items-table input):focus, select:not(.items-table select):focus, text
     }
 }
 
-::-webkit-scrollbar {
-    width: 14px;
-    height: 14px;
-}
-::-webkit-scrollbar-track {
-    background-color: transparent;
-}
-::-webkit-scrollbar-thumb {
-    background-color: rgba(144, 153, 169, 0.4);
-    border-radius: 9999px;
-    border: 4px solid transparent;
-    background-clip: content-box;
-}
-::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(144, 153, 169, 0.65);
-}
-::-webkit-scrollbar-corner {
-    background-color: transparent;
-}
+
 
 .section-card:hover, .panel:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); border-color: var(--brand-mid); }
 
@@ -2282,21 +2250,7 @@ input[type="radio"]:checked {
     opacity: 1;
 }
 
-/* Beautiful custom scrollbars */
-::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-}
-::-webkit-scrollbar-track {
-    background: transparent;
-}
-::-webkit-scrollbar-thumb {
-    background: var(--line-strong);
-    border-radius: 10px;
-}
-::-webkit-scrollbar-thumb:hover {
-    background: var(--brand-mid);
-}
+
 
 /* Enhancing active navigation item */
 .nav-section button.active {
@@ -2528,25 +2482,25 @@ body.dark .field .field-hint {
     color: var(--ink-soft) !important;
 }
 
-/* 11. Кастомные скроллбары для потрясающей плавности */
-::-webkit-scrollbar {
+/* 11. Кастомные скроллбары для потрясающей плавности и единого стиля */
+*::-webkit-scrollbar {
     width: 8px;
     height: 8px;
 }
-::-webkit-scrollbar-track {
+*::-webkit-scrollbar-track {
     background: transparent;
 }
-::-webkit-scrollbar-thumb {
+*::-webkit-scrollbar-thumb {
     background: var(--line);
     border-radius: 4px;
 }
-::-webkit-scrollbar-thumb:hover {
+*::-webkit-scrollbar-thumb:hover {
     background: var(--ink-faint);
 }
-body.dark ::-webkit-scrollbar-thumb {
+body.dark *::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.12);
 }
-body.dark ::-webkit-scrollbar-thumb:hover {
+body.dark *::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.24);
 }
 * {

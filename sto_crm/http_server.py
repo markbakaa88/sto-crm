@@ -263,7 +263,10 @@ class CRMHandler(BaseHTTPRequestHandler):
                 self.send_json(result)
                 if result.get("updated"):
                     safe_log("Получена команда перезагрузки для установки обновлений. Планирование мягкого завершения работы...")
-                    self.server.graceful_shutdown_flag = True
+                    if isinstance(self.server, CRMServer):
+                        self.server.graceful_shutdown_flag = True
+                    else:
+                        setattr(self.server, "graceful_shutdown_flag", True)
                     timer = threading.Timer(0.3, self.server.shutdown)
                     timer.daemon = True
                     timer.start()
@@ -271,7 +274,10 @@ class CRMHandler(BaseHTTPRequestHandler):
             if entity == "shutdown" and len(parts) == 2 and method == "POST":
                 self.send_json({"ok": True})
                 safe_log("Получена команда перехода в оффлайн. Планирование мягкого завершения работы...")
-                self.server.graceful_shutdown_flag = True
+                if isinstance(self.server, CRMServer):
+                    self.server.graceful_shutdown_flag = True
+                else:
+                    setattr(self.server, "graceful_shutdown_flag", True)
                 timer = threading.Timer(0.3, self.server.shutdown)
                 timer.daemon = True
                 timer.start()
