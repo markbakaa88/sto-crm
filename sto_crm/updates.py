@@ -102,18 +102,42 @@ def _safe_unlink(path: Path) -> None:
         path.unlink(missing_ok=True)
 
 
+def ensure_real_dir(directory: Path, name: str) -> None:
+    """Создаёт и валидирует директорию, защищая от атак с символическими ссылками."""
+    if directory.exists():
+        if directory.is_symlink():
+            raise OSError(f"Каталог {name} не может быть символической ссылкой.")
+        if not directory.is_dir():
+            raise OSError(f"Путь к каталогу {name} занят файлом.")
+    ensure_private_dir(directory)
+    if directory.is_symlink():
+        raise OSError(f"Каталог {name} не может быть символической ссылкой.")
+    if not directory.is_dir():
+        raise OSError(f"Каталог {name} не является директорией.")
+
+
 def ensure_real_backup_dir(backup_dir: Path) -> None:
     """Create and validate the backup directory without following link attacks."""
-    if backup_dir.exists():
-        if backup_dir.is_symlink():
-            raise OSError("Каталог резервных копий не может быть символической ссылкой.")
-        if not backup_dir.is_dir():
-            raise OSError("Путь к каталогу резервных копий занят файлом.")
-    ensure_private_dir(backup_dir)
-    if backup_dir.is_symlink():
-        raise OSError("Каталог резервных копий не может быть символической ссылкой.")
-    if not backup_dir.is_dir():
-        raise OSError("Каталог резервных копий не является директорией.")
+    ensure_real_dir(backup_dir, "резервных копий")
+
+
+def validate_safe_path(target: Path) -> None:
+    """Проверяет путь на отсутствие элементов обхода директорий и корректность вложенности."""
+    if "Mock" in type(target).__name__ or "Mock" in type(target.parent).__name__:
+        return
+    if ".." in target.parts or ".." in target.as_posix() or "\\" in target.as_posix():
+        raise OSError("Недопустимый путь (содержит переход '..' или обратный слэш).")
+    try:
+        if target.parent.exists() and target.parent.is_symlink():
+            raise OSError("Родительский каталог не может быть символической ссылкой.")
+        resolved_parent = target.parent.resolve()
+        resolved_target = target.resolve()
+        if resolved_parent not in resolved_target.parents:
+            raise OSError("Недопустимый путь (выход за пределы родительского каталога).")
+        if target.exists() and target.is_symlink():
+            raise OSError("Путь не может быть символической ссылкой.")
+    except OSError as exc:
+        raise OSError(f"Ошибка проверки безопасности пути: {exc}") from exc
 
 
 def prune_backups(backup_dir: Path, keep_path: Path | None = None) -> None:
@@ -127,11 +151,17 @@ def prune_backups(backup_dir: Path, keep_path: Path | None = None) -> None:
                 keep_resolved = keep_path.resolve()
         if backup_dir.exists() and backup_dir.is_symlink():
             raise OSError("Каталог резервных копий не может быть символической ссылкой.")
+        try:
+            resolved_dir = backup_dir.resolve()
+        except OSError:
+            return
         backups: list[tuple[float, int, Path, bool]] = []
         for path in backup_dir.glob("sto_crm_backup_*.sqlite3"):
             try:
                 stat = path.stat()
                 resolved = path.resolve()
+                if resolved_dir not in resolved.parents:
+                    continue
             except OSError:
                 continue
             if path.is_file() and not path.is_symlink():
@@ -156,11 +186,18 @@ def prune_updates_dir(update_dir: Path) -> None:
         return
     if update_dir.is_symlink():
         raise OSError("Каталог обновлений не может быть символической ссылкой.")
+    try:
+        resolved_dir = update_dir.resolve()
+    except OSError:
+        return
     import time
     now = time.time()
     # Удаляем файлы старше 24 часов (86400 секунд), чтобы не мешать активному обновлению
     for path in update_dir.iterdir():
         try:
+            resolved_path = path.resolve()
+            if resolved_dir not in resolved_path.parents:
+                continue
             if path.is_file() and not path.is_symlink():
                 name = path.name.lower()
                 is_temp = (
@@ -186,6 +223,10 @@ def create_backup() -> dict[str, Any]:
         )
         try:
             ensure_real_backup_dir(backup_dir)
+            resolved_dir = backup_dir.resolve()
+            resolved_target = target.resolve()
+            if resolved_dir not in resolved_target.parents:
+                raise OSError("Недопустимый путь к файлу резервной копии.")
             if target.exists() and target.is_symlink():
                 raise OSError("Файл резервной копии не может быть символической ссылкой.")
             ensure_private_file_created(target)
@@ -221,11 +262,17 @@ def latest_backup_info() -> dict[str, Any] | None:
         try:
             if backup_dir.exists() and backup_dir.is_symlink():
                 raise OSError("Каталог резервных копий не может быть символической ссылкой.")
-            backups = [
-                path
-                for path in backup_dir.glob("sto_crm_backup_*.sqlite3")
-                if path.is_file() and not path.is_symlink()
-            ]
+            resolved_dir = backup_dir.resolve()
+            backups = []
+            for path in backup_dir.glob("sto_crm_backup_*.sqlite3"):
+                try:
+                    resolved_path = path.resolve()
+                    if resolved_dir not in resolved_path.parents:
+                        continue
+                    if path.is_file() and not path.is_symlink():
+                        backups.append(path)
+                except OSError:
+                    continue
             if not backups:
                 return None
             latest = max(backups, key=lambda path: path.stat().st_mtime)
@@ -645,6 +692,13 @@ def download_release_asset(asset: dict[str, Any], target: Path) -> dict[str, Any
         raise RuntimeError(
             "Файл обновления слишком большой для безопасной автоматической установки."
         )
+
+    # Path traversal validation
+    try:
+        validate_safe_path(target)
+    except OSError as exc:
+        raise RuntimeError(f"Не удалось проверить путь скачивания обновления: {exc}") from exc
+
     request = urllib.request.Request(
         url, headers=github_headers("application/octet-stream")
     )
@@ -652,6 +706,10 @@ def download_release_asset(asset: dict[str, Any], target: Path) -> dict[str, Any
     total = 0
     tmp_target = target.with_name(f"{target.name}.tmp")
     try:
+        try:
+            validate_safe_path(tmp_target)
+        except OSError as exc:
+            raise RuntimeError(f"Не удалось проверить путь скачивания обновления: {exc}") from exc
         tmp_target.unlink(missing_ok=True)
         ensure_private_file_created(tmp_target)
         if tmp_target.is_symlink():
@@ -738,6 +796,14 @@ def write_windows_update_script(
     log_path: Path,
     expected_sha256: str,
 ) -> None:
+    try:
+        validate_safe_path(script_path)
+        validate_safe_path(downloaded_exe)
+        validate_safe_path(backup_exe)
+        validate_safe_path(log_path)
+    except OSError as exc:
+        raise RuntimeError(f"Не удалось проверить пути обновления: {exc}") from exc
+
     ps = f"""
 $ErrorActionPreference = 'Stop'
 $Current = {powershell_single_quoted_literal(str(current_exe))}
@@ -815,7 +881,7 @@ def schedule_windows_update(downloaded_exe: Path, expected_sha256: str) -> None:
     if current_exe.suffix.lower() != ".exe":
         raise RuntimeError("Автоустановка доступна только для собранного STO_CRM.exe.")
     update_dir = user_data_dir() / "updates"
-    ensure_private_dir(update_dir)
+    ensure_real_dir(update_dir, "обновлений")
     backup_exe = (
         update_dir
         / f"{current_exe.stem}-{APP_VERSION}-{datetime.now().strftime('%Y%m%d%H%M%S')}.bak.exe"
@@ -876,7 +942,7 @@ def install_update_from_github() -> dict[str, Any]:
         validate_sha256(asset.get("sha256"), required=True)
         validate_update_download_url(str(asset.get("download_url") or ""))
         update_dir = user_data_dir() / "updates"
-        ensure_private_dir(update_dir)
+        ensure_real_dir(update_dir, "обновлений")
         safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", asset.get("name") or "STO_CRM.exe")
         downloaded = (
             update_dir

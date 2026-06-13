@@ -346,6 +346,11 @@ class CRMHandler(BaseHTTPRequestHandler):
             self.close_connection = True
             self.send_error_json(408, "Тело запроса не получено вовремя.")
         except OSError:
+            graceful = getattr(self.server, "graceful_shutdown_flag", False)
+            if graceful and not isinstance(graceful, bool):
+                graceful = False
+            if graceful:
+                return
             if getattr(sys, "stderr", None):
                 import logging
 
@@ -354,6 +359,11 @@ class CRMHandler(BaseHTTPRequestHandler):
                 )
             self.send_error_json(500, INTERNAL_ERROR_MESSAGE)
         except Exception:
+            graceful = getattr(self.server, "graceful_shutdown_flag", False)
+            if graceful and not isinstance(graceful, bool):
+                graceful = False
+            if graceful:
+                return
             if getattr(sys, "stderr", None):
                 import logging
 
@@ -665,6 +675,7 @@ class CRMServer(ThreadingHTTPServer):
         super().__init__(*args, **kwargs)
         self.graceful_shutdown_flag = False
         self._active_threads: set[threading.Thread] = set()
+        self._active_requests: set[Any] = set()
         self._active_threads_lock = threading.Lock()
 
     def process_request(self, request: Any, client_address: Any) -> None:
@@ -675,17 +686,20 @@ class CRMServer(ThreadingHTTPServer):
         t.daemon = self.daemon_threads
         with self._active_threads_lock:
             self._active_threads.add(t)
+            self._active_requests.add(request)
         t.start()
 
     def process_request_thread(self, request: Any, client_address: Any) -> None:
         current_thr = threading.current_thread()
         with self._active_threads_lock:
             self._active_threads.add(current_thr)
+            self._active_requests.add(request)
         try:
             super().process_request_thread(request, client_address)
         finally:
             with self._active_threads_lock:
                 self._active_threads.discard(current_thr)
+                self._active_requests.discard(request)
 
     def wait_for_active_threads(self, timeout: float = 5.0) -> None:
         start_time = time.monotonic()
@@ -698,6 +712,24 @@ class CRMServer(ThreadingHTTPServer):
             if rem <= 0:
                 break
             t.join(timeout=rem)
+
+        # Force terminate remaining sockets
+        with self._active_threads_lock:
+            remaining_sockets = list(self._active_requests)
+            remaining_threads = [t for t in self._active_threads if t is not current and t.is_alive()]
+
+        for sock in remaining_sockets:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+        for t in remaining_threads:
+            t.join(timeout=1.0)
 
 
 class CRMServerV6(CRMServer):

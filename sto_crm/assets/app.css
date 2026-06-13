@@ -333,7 +333,7 @@ body.sidebar-collapsed .app { grid-template-columns: var(--sidebar-w-collapsed) 
 /* Sidebar */
 .sidebar {
     background: var(--sidebar-bg-glass);
-    -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
     color: var(--sidebar-ink);
     display: flex;
     flex-direction: column;
@@ -414,7 +414,7 @@ body.sidebar-collapsed .nav-section-label { display: none; }
 }
 .nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 body.sidebar-collapsed .nav-label { display: none; }
-body.sidebar-collapsed .sidebar { padding-inline: var(--sidebar-collapsed-pad);  background: var(--sidebar-bg-glass); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+body.sidebar-collapsed .sidebar { padding-inline: var(--sidebar-collapsed-pad);  background: var(--sidebar-bg-glass); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
 body.sidebar-collapsed .brand { justify-content: center; padding-right: 0; }
 body.sidebar-collapsed .brand-mark { width: var(--sidebar-icon-size); height: var(--sidebar-icon-size); }
 body.sidebar-collapsed .nav { align-items: center; padding-right: 0; overflow-y: auto; overflow-x: visible; }
@@ -1897,15 +1897,15 @@ body.compact .bell-count { top: -4px; right: -4px; }
     body { --header-h: 104px; }
     body.compact { --header-h: 96px; }
     .app { grid-template-columns: 1fr; }
-    .sidebar { position: fixed; top: 0; left: 0; width: 260px; max-width: calc(100vw - var(--space-7)); height: 100dvh; transform: translateX(-100%); transition: transform var(--dur-base) var(--ease-out);  background: var(--sidebar-bg-glass); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+    .sidebar { position: fixed; top: 0; left: 0; width: 260px; max-width: calc(100vw - var(--space-7)); height: 100dvh; transform: translateX(-100%); transition: transform var(--dur-base) var(--ease-out);  background: var(--sidebar-bg-glass); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
     .sidebar-collapse,
     .sidebar-collapse[data-tooltip] { display: none; }
-    body.mobile-nav-open .sidebar { transform: translateX(0); box-shadow: var(--shadow-lg);  background: var(--sidebar-bg-glass); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+    body.mobile-nav-open .sidebar { transform: translateX(0); box-shadow: var(--shadow-lg);  background: var(--sidebar-bg-glass); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
     body.sidebar-collapsed .app { grid-template-columns: 1fr; }
     body.sidebar-collapsed .brand-copy { display: flex; }
     body.sidebar-collapsed .nav-section-label { display: block; }
     body.sidebar-collapsed .nav-label { display: inline; }
-    body.sidebar-collapsed .sidebar { padding-inline: var(--space-4);  background: var(--sidebar-bg-glass); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+    body.sidebar-collapsed .sidebar { padding-inline: var(--space-4);  background: var(--sidebar-bg-glass); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
     body.sidebar-collapsed .brand { justify-content: flex-start; padding-right: 20px; }
     body.sidebar-collapsed .brand-mark { width: 40px; height: 40px; }
     body.sidebar-collapsed .nav { align-items: stretch; padding-right: 2px; }
@@ -2614,171 +2614,171 @@ body.dark * {
 /* 13. Премиальный блок итоговых показателей заказа (Order Totals Redesign) */
 .totals .grand {
     grid-column: 1 / -1;
-    background: var(--brand-soft) !important;
-    border: 1px solid rgba(10, 147, 150, 0.25) !important;
-    padding: calc(var(--space-2) + 2px) var(--space-4) !important;
-    border-radius: var(--radius-md) !important;
-    display: flex !important;
-    flex-direction: row !important;
-    justify-content: space-between !important;
-    align-items: center !important;
-    margin-top: var(--space-2) !important;
+    background: var(--brand-soft);
+    border: 1px solid rgba(10, 147, 150, 0.25);
+    padding: calc(var(--space-2) + 2px) var(--space-4);
+    border-radius: var(--radius-md);
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: var(--space-2);
 }
 body.dark .totals .grand {
-    background: rgba(90, 200, 189, 0.08) !important;
-    border-color: rgba(90, 200, 189, 0.25) !important;
+    background: rgba(90, 200, 189, 0.08);
+    border-color: rgba(90, 200, 189, 0.25);
 }
 .totals .grand small {
-    margin-bottom: 0 !important;
-    font-weight: 600 !important;
-    color: var(--ink-soft) !important;
-    letter-spacing: 0.8px !important;
+    margin-bottom: 0;
+    font-weight: 600;
+    color: var(--ink-soft);
+    letter-spacing: 0.8px;
 }
 .totals .grand strong {
-    font-size: var(--font-size-lg) !important;
-    color: var(--brand-strong) !important;
+    font-size: var(--font-size-lg);
+    color: var(--brand-strong);
 }
 body.dark .totals .grand strong {
-    color: var(--brand) !important;
+    color: var(--brand);
 }
 
 /* 14. Премиальная стилизация карточек задач и индикаторов приоритета */
 .action-card {
-    transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out) !important;
+    transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
 }
-.action-card[data-tone="danger"] { border-left-width: 4px !important; }
-.action-card[data-tone="warning"] { border-left-width: 4px !important; }
-.action-card[data-tone="success"] { border-left-width: 4px !important; }
-.action-card[data-tone="info"] { border-left-width: 4px !important; }
+.action-card[data-tone="danger"] { border-left-width: 4px; }
+.action-card[data-tone="warning"] { border-left-width: 4px; }
+.action-card[data-tone="success"] { border-left-width: 4px; }
+.action-card[data-tone="info"] { border-left-width: 4px; }
 
 .action-card[data-tone="danger"]::before,
 .action-card[data-tone="warning"]::before,
 .action-card[data-tone="success"]::before,
 .action-card[data-tone="info"]::before {
-    display: none !important; /* Убираем наложенную полосу в пользу border-left для нативной поддержки CSP и производительности */
+    display: none; /* Убираем наложенную полосу в пользу border-left для нативной поддержки CSP и производительности */
 }
 
-.action-card[data-tone="danger"] { border-color: rgba(239, 68, 68, 0.4) !important; border-left-color: var(--danger) !important; }
-.action-card[data-tone="warning"] { border-color: rgba(245, 158, 11, 0.4) !important; border-left-color: var(--warn) !important; }
-.action-card[data-tone="success"] { border-color: rgba(16, 185, 129, 0.4) !important; border-left-color: var(--ok) !important; }
-.action-card[data-tone="info"] { border-color: rgba(59, 130, 246, 0.4) !important; border-left-color: var(--info) !important; }
+.action-card[data-tone="danger"] { border-color: rgba(239, 68, 68, 0.4); border-left-color: var(--danger); }
+.action-card[data-tone="warning"] { border-color: rgba(245, 158, 11, 0.4); border-left-color: var(--warn); }
+.action-card[data-tone="success"] { border-color: rgba(16, 185, 129, 0.4); border-left-color: var(--ok); }
+.action-card[data-tone="info"] { border-color: rgba(59, 130, 246, 0.4); border-left-color: var(--info); }
 
-.action-card[data-tone="danger"]:hover { border-color: var(--danger) !important; background: rgba(239, 68, 68, 0.03) !important; }
-.action-card[data-tone="warning"]:hover { border-color: var(--warn) !important; background: rgba(245, 158, 11, 0.03) !important; }
-.action-card[data-tone="success"]:hover { border-color: var(--ok) !important; background: rgba(16, 185, 129, 0.03) !important; }
-.action-card[data-tone="info"]:hover { border-color: var(--info) !important; background: rgba(59, 130, 246, 0.03) !important; }
+.action-card[data-tone="danger"]:hover { border-color: var(--danger); background: rgba(239, 68, 68, 0.03); }
+.action-card[data-tone="warning"]:hover { border-color: var(--warn); background: rgba(245, 158, 11, 0.03); }
+.action-card[data-tone="success"]:hover { border-color: var(--ok); background: rgba(16, 185, 129, 0.03); }
+.action-card[data-tone="info"]:hover { border-color: var(--info); background: rgba(59, 130, 246, 0.03); }
 
-body.dark .action-card[data-tone="danger"]:hover { background: rgba(239, 68, 68, 0.06) !important; }
-body.dark .action-card[data-tone="warning"]:hover { background: rgba(245, 158, 11, 0.06) !important; }
-body.dark .action-card[data-tone="success"]:hover { background: rgba(16, 185, 129, 0.06) !important; }
-body.dark .action-card[data-tone="info"]:hover { background: rgba(59, 130, 246, 0.06) !important; }
+body.dark .action-card[data-tone="danger"]:hover { background: rgba(239, 68, 68, 0.06); }
+body.dark .action-card[data-tone="warning"]:hover { background: rgba(245, 158, 11, 0.06); }
+body.dark .action-card[data-tone="success"]:hover { background: rgba(16, 185, 129, 0.06); }
+body.dark .action-card[data-tone="info"]:hover { background: rgba(59, 130, 246, 0.06); }
 
 .action-priority {
-    font-weight: 600 !important;
-    background: var(--surface-muted) !important;
-    color: var(--ink-soft) !important;
-    border: 1px solid var(--line) !important;
+    font-weight: 600;
+    background: var(--surface-muted);
+    color: var(--ink-soft);
+    border: 1px solid var(--line);
 }
 body.dark .action-priority {
-    background: rgba(255, 255, 255, 0.06) !important;
-    color: var(--ink-soft) !important;
-    border-color: rgba(255, 255, 255, 0.1) !important;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--ink-soft);
+    border-color: rgba(255, 255, 255, 0.1);
 }
 
 /* 15. Улучшение стилистики справочника марок и моделей (Car Catalog Layout Enhancement) */
 .catalog-make {
-    transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out) !important;
-    border-color: var(--line) !important;
+    transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+    border-color: var(--line);
 }
 .catalog-make:hover {
-    transform: translateY(-2px) scale(1.01) !important;
-    border-color: var(--brand-mid) !important;
-    box-shadow: var(--shadow-md) !important;
+    transform: translateY(-2px) scale(1.01);
+    border-color: var(--brand-mid);
+    box-shadow: var(--shadow-md);
 }
 
 .model-pill {
-    background: var(--surface-subtle) !important;
-    border: 1px solid var(--line) !important;
-    color: var(--ink-soft) !important;
-    font-weight: 500 !important;
-    transition: all var(--dur-fast) var(--ease-out) !important;
+    background: var(--surface-subtle);
+    border: 1px solid var(--line);
+    color: var(--ink-soft);
+    font-weight: 500;
+    transition: all var(--dur-fast) var(--ease-out);
 }
 .model-pill:hover {
-    background: var(--brand-soft) !important;
-    border-color: var(--brand-mid) !important;
-    color: var(--brand-strong) !important;
-    transform: translateY(-1px) !important;
-    filter: none !important;
+    background: var(--brand-soft);
+    border-color: var(--brand-mid);
+    color: var(--brand-strong);
+    transform: translateY(-1px);
+    filter: none;
 }
 
 body.dark .model-pill {
-    background: rgba(255, 255, 255, 0.03) !important;
-    border-color: rgba(255, 255, 255, 0.08) !important;
-    color: var(--ink-soft) !important;
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.08);
+    color: var(--ink-soft);
 }
 body.dark .model-pill:hover {
-    background: rgba(90, 200, 189, 0.1) !important;
-    border-color: var(--brand) !important;
-    color: var(--brand) !important;
+    background: rgba(90, 200, 189, 0.1);
+    border-color: var(--brand);
+    color: var(--brand);
 }
 
 .muted-pill {
-    background: var(--surface-muted) !important;
-    border: 1px dashed var(--line) !important;
-    color: var(--ink-muted) !important;
-    font-style: italic !important;
+    background: var(--surface-muted);
+    border: 1px dashed var(--line);
+    color: var(--ink-muted);
+    font-style: italic;
 }
 body.dark .muted-pill {
-    background: rgba(255, 255, 255, 0.02) !important;
-    border-color: rgba(255, 255, 255, 0.06) !important;
+    background: rgba(255, 255, 255, 0.02);
+    border-color: rgba(255, 255, 255, 0.06);
 }
 
 /* 16. Стилизация аналитической шкалы популярности услуг */
 .report-service-item {
-    display: flex !important;
+    display: flex;
     justify-content: space-between;
     align-items: center;
-    padding-bottom: 10px !important;
-    border-bottom: 1px solid var(--line-subtle) !important;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line-subtle);
     position: relative;
 }
 .report-service-info {
-    display: flex !important;
-    flex-direction: column !important;
-    gap: 4px !important;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
     flex: 1;
     min-width: 0;
-    margin-right: var(--space-4) !important;
+    margin-right: var(--space-4);
 }
 .report-service-title {
-    font-weight: 600 !important;
-    color: var(--ink) !important;
-    font-size: var(--font-size-sm) !important;
+    font-weight: 600;
+    color: var(--ink);
+    font-size: var(--font-size-sm);
 }
 .report-progress {
-    width: 80% !important;
-    height: 4px !important;
-    border-radius: var(--radius-xs) !important;
-    border: none !important;
-    background: var(--surface-muted) !important;
+    width: 80%;
+    height: 4px;
+    border-radius: var(--radius-xs);
+    border: none;
+    background: var(--surface-muted);
     overflow: hidden;
 }
 .report-progress::-webkit-progress-bar {
-    background: var(--surface-muted) !important;
+    background: var(--surface-muted);
 }
 .report-progress::-webkit-progress-value {
-    background: linear-gradient(90deg, var(--brand-mid), var(--brand)) !important;
-    border-radius: var(--radius-xs) !important;
+    background: linear-gradient(90deg, var(--brand-mid), var(--brand));
+    border-radius: var(--radius-xs);
 }
 .report-progress::-moz-progress-bar {
-    background: linear-gradient(90deg, var(--brand-mid), var(--brand)) !important;
-    border-radius: var(--radius-xs) !important;
+    background: linear-gradient(90deg, var(--brand-mid), var(--brand));
+    border-radius: var(--radius-xs);
 }
 body.dark .report-progress {
-    background: rgba(255, 255, 255, 0.05) !important;
+    background: rgba(255, 255, 255, 0.05);
 }
 body.dark .report-progress::-webkit-progress-bar {
-    background: rgba(255, 255, 255, 0.05) !important;
+    background: rgba(255, 255, 255, 0.05);
 }
 
 /* ==========================================================================
@@ -2789,8 +2789,8 @@ body.dark .report-progress::-webkit-progress-bar {
 body .section-card, body .panel, body .modal, body .command-palette, body .bell-panel, body .cta-menu, body .system-menu-panel {
     --ink-muted: #2d3748;
     background: rgba(255, 255, 255, 0.68);
-    -webkit-backdrop-filter: blur(14px) saturate(200%);
-    backdrop-filter: blur(14px) saturate(200%);
+    -webkit-backdrop-filter: blur(12px) saturate(200%);
+    backdrop-filter: blur(12px) saturate(200%);
     border: 1px solid rgba(255, 255, 255, 0.55);
     box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.06), 
                 0 1px 2px 0 rgba(0, 0, 0, 0.02),
@@ -2804,8 +2804,8 @@ body .section-card, body .panel, body .modal, body .command-palette, body .bell-
 body.dark .section-card, body.dark .panel, body.dark .modal, body.dark .command-palette, body.dark .bell-panel, body.dark .cta-menu, body.dark .system-menu-panel {
     --ink-muted: #cbd5e1;
     background: rgba(17, 24, 39, 0.68);
-    -webkit-backdrop-filter: blur(14px) saturate(200%);
-    backdrop-filter: blur(14px) saturate(200%);
+    -webkit-backdrop-filter: blur(12px) saturate(200%);
+    backdrop-filter: blur(12px) saturate(200%);
     border: 1px solid rgba(255, 255, 255, 0.09);
     box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37),
                 inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
@@ -2896,7 +2896,7 @@ body .catalog-search input:disabled, body .items-table input:disabled, body .ite
     color: var(--disabled-ink);
     border-color: var(--disabled-border);
     cursor: not-allowed;
-    opacity: 0.8;
+    opacity: 1;
 }
 
 /* Premium Row Hover & Interactive State Transitions */
