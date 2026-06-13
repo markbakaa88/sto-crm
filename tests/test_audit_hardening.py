@@ -3,7 +3,7 @@ import os
 import sqlite3
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 from sto_crm import runtime as _runtime
 from sto_crm.database import db
@@ -16,6 +16,31 @@ from sto_crm.runtime import (
 
 
 class TestAuditHardening(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        import time
+
+        from sto_crm import runtime
+        from sto_crm.database import init_db
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.old_runtime = runtime.RUNTIME
+        runtime.RUNTIME = runtime.Runtime(
+            Path(self.tempdir.name) / "test.sqlite3",
+            time.time(),
+            "test-csrf-token",
+            "test-access-token",
+            "test-bootstrap-token",
+        )
+        init_db()
+
+    def tearDown(self):
+        from sto_crm import runtime
+        if hasattr(self, "tempdir"):
+            try:
+                runtime.RUNTIME = self.old_runtime
+            except Exception:
+                pass
+            self.tempdir.cleanup()
     def test_ensure_private_dir_chmod_fails(self):
         """Test ensure_private_dir handles chmod failures gracefully (e.g. host rules/containers)."""
         with patch("os.chmod") as mock_chmod, patch("os.umask") as mock_umask:
@@ -147,3 +172,165 @@ class TestAuditHardening(unittest.TestCase):
         )
         formatted = formatter.format(record)
         self.assertEqual(formatted, "User request: csrf_token=***")
+
+    def test_database_connect_not_supported_error(self):
+        """Test NotSupportedError handling during SQLite create_function."""
+        import tempfile
+
+        from sto_crm.database import connect
+
+        class MockConnection(sqlite3.Connection):
+            def create_function(self, *args, **kwargs):
+                if kwargs.get("deterministic") or (len(args) >= 4 and args[3] is True):
+                    raise sqlite3.NotSupportedError("Mocked deterministic not supported")
+                return super().create_function(*args, **kwargs)
+
+        orig_connect = sqlite3.connect
+        def mock_connect(*args, **kwargs):
+            kwargs["factory"] = MockConnection
+            return orig_connect(*args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            temp_db = Path(tmpdir) / "temp_empty.sqlite3"
+            new_runtime = _runtime.Runtime(
+                db_path=temp_db,
+                start_time=_runtime.RUNTIME.start_time,
+                csrf_token=_runtime.RUNTIME.csrf_token,
+                access_token=_runtime.RUNTIME.access_token,
+                bootstrap_token=_runtime.RUNTIME.bootstrap_token,
+            )
+            with patch("sto_crm.runtime.RUNTIME", new_runtime):
+                with patch("sqlite3.connect", side_effect=mock_connect):
+                    conn = connect()
+                    conn.close()
+
+    def test_db_in_transaction_raises_error_normal(self):
+        """Test AttributeError fallback when checking in_transaction on normal exit of db()."""
+        from sto_crm.database import db
+
+        mock_conn = MagicMock(spec=sqlite3.Connection)
+        type(mock_conn).in_transaction = PropertyMock(side_effect=AttributeError("no property"))
+
+        with patch("sto_crm.database.connect", return_value=mock_conn):
+            with db() as conn:
+                self.assertEqual(conn, mock_conn)
+
+    def test_db_in_transaction_raises_sqlite_error_exception_path(self):
+        """Test sqlite3.Error fallback when checking in_transaction in exception path of db()."""
+        from sto_crm.database import db
+
+        mock_conn = MagicMock(spec=sqlite3.Connection)
+        type(mock_conn).in_transaction = PropertyMock(side_effect=sqlite3.Error("mock sqlite error"))
+
+        with patch("sto_crm.database.connect", return_value=mock_conn):
+            with self.assertRaises(ValueError):
+                with db():
+                    raise ValueError("test exception")
+
+    def test_write_db_immediate_locked_retry(self):
+        """Test write_db BEGIN IMMEDIATE retries on locked database and succeeds."""
+        from sto_crm.database import write_db
+
+        mock_conn = MagicMock(spec=sqlite3.Connection)
+        call_count = 0
+        def mock_execute(sql, *args, **kwargs):
+            nonlocal call_count
+            if sql == "BEGIN IMMEDIATE":
+                call_count += 1
+                if call_count == 1:
+                    raise sqlite3.OperationalError("database is locked")
+            return MagicMock()
+
+        mock_conn.execute.side_effect = mock_execute
+
+        with patch("sto_crm.database.connect", return_value=mock_conn), patch("time.sleep") as mock_sleep:
+            with write_db() as conn:
+                self.assertEqual(conn, mock_conn)
+            self.assertEqual(call_count, 2)
+            mock_sleep.assert_called_once()
+
+    def test_write_db_immediate_locked_exhausted(self):
+        """Test write_db BEGIN IMMEDIATE retries on locked database, exhausts retries and raises error."""
+        from sto_crm.database import write_db
+
+        mock_conn = MagicMock(spec=sqlite3.Connection)
+        def mock_execute(sql, *args, **kwargs):
+            if sql == "BEGIN IMMEDIATE":
+                raise sqlite3.OperationalError("database is locked")
+            return MagicMock()
+
+        mock_conn.execute.side_effect = mock_execute
+
+        with patch("sto_crm.database.connect", return_value=mock_conn), patch("time.sleep") as mock_sleep:
+            with self.assertRaises(sqlite3.OperationalError):
+                with write_db():
+                    pass
+            self.assertEqual(mock_sleep.call_count, 4)
+
+    def test_init_db_in_transaction_raises_error_exception_path(self):
+        """Test init_db handling AttributeError on in_transaction property on schema failure."""
+        from contextlib import contextmanager
+
+        from sto_crm.database import init_db
+
+        mock_conn = MagicMock(spec=sqlite3.Connection)
+        type(mock_conn).in_transaction = PropertyMock(side_effect=AttributeError("no property"))
+
+        @contextmanager
+        def mock_db():
+            yield mock_conn
+
+        with (
+            patch("sto_crm.database.db", side_effect=mock_db),
+            patch("sto_crm.database.ensure_schema", side_effect=ValueError("schema failure")),
+            patch("sto_crm.database.ensure_private_dir"),
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                init_db()
+            self.assertEqual(str(ctx.exception), "schema failure")
+
+    def test_init_db_rollback_raises_error_exception_path(self):
+        """Test init_db handling sqlite3.Error on rollback() on schema failure."""
+        from contextlib import contextmanager
+
+        from sto_crm.database import init_db
+
+        mock_conn = MagicMock(spec=sqlite3.Connection)
+        type(mock_conn).in_transaction = PropertyMock(return_value=True)
+        mock_conn.rollback.side_effect = sqlite3.Error("rollback error")
+
+        @contextmanager
+        def mock_db():
+            yield mock_conn
+
+        with (
+            patch("sto_crm.database.db", side_effect=mock_db),
+            patch("sto_crm.database.ensure_schema", side_effect=ValueError("schema failure")),
+            patch("sto_crm.database.ensure_private_dir"),
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                init_db()
+            self.assertEqual(str(ctx.exception), "schema failure")
+            mock_conn.rollback.assert_called_once()
+
+    def test_normalize_legacy_unique_values_duplicate_continue(self):
+        """Test search for duplicates in normalize_legacy_unique_values triggers continue on existing match."""
+        from sto_crm.database import db, normalize_legacy_unique_values
+
+        with db() as conn:
+            conn.execute("DROP INDEX IF EXISTS ux_vehicles_vin_active")
+            conn.execute("INSERT OR IGNORE INTO customers (id, name, created_at, updated_at) VALUES (9999, 'Test Cust', '', '')")
+            conn.execute("INSERT INTO vehicles (customer_id, make, model, vin, created_at, updated_at) VALUES (9999, 'Test', 'T', 'ABC', '', '')")
+            conn.execute("INSERT INTO vehicles (customer_id, make, model, vin, created_at, updated_at) VALUES (9999, 'Test', 'T', 'ABC ', '', '')")
+
+            normalize_legacy_unique_values(conn, 'vehicles', 'vin')
+
+            rows = conn.execute("SELECT vin FROM vehicles WHERE customer_id = 9999 ORDER BY id").fetchall()
+            self.assertEqual(rows[0]['vin'], 'ABC')
+            self.assertEqual(rows[1]['vin'], 'ABC ')
+
+            conn.execute("DELETE FROM vehicles WHERE customer_id = 9999")
+            conn.execute("DELETE FROM customers WHERE id = 9999")
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_vehicles_vin_active ON vehicles(CASEFOLD(TRIM(vin))) WHERE deleted_at IS NULL AND TRIM(vin) <> ''"
+            )

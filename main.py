@@ -3,7 +3,7 @@
 
 The implementation lives in the `sto_crm` package; this file is kept so
 existing commands, build scripts and PyInstaller continue to use
-`python sto_crm.py` as the executable entrypoint.
+`python main.py` as the executable entrypoint.
 """
 
 from sto_crm.cli import main

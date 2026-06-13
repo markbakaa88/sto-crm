@@ -544,29 +544,31 @@ def ensure_no_appointment_conflict(
             existing_start_raw = datetime.fromisoformat(
                 str(row["scheduled_at"]).replace("Z", "+00:00")
             )
-            if existing_start_raw.tzinfo is not None and start.tzinfo is not None:
-                existing_start = existing_start_raw.astimezone(start.tzinfo)
-            elif existing_start_raw.tzinfo is not None:
-                # Existing has tz, start does not. Assume start is in local time.
-                existing_start = existing_start_raw.astimezone().replace(tzinfo=None)
-            elif start.tzinfo is not None:
-                # Start has tz, existing does not. Assume existing is in local time.
-                existing_start = existing_start_raw
-                start_compare = start.astimezone().replace(tzinfo=None)
-                end_compare = end.astimezone().replace(tzinfo=None)
-                existing_end = existing_start + timedelta(
-                    minutes=max(parse_int(row["duration_minutes"], 60), 15)
-                )
-                if start_compare < existing_end and end_compare > existing_start:
-                    when = existing_start.strftime("%d.%m.%Y %H:%M")
-                    raise ValueError(
-                        f"На это время уже есть запись: {row['customer_name']} в {when}."
-                    )
-                continue
-            else:
-                existing_start = existing_start_raw
         except ValueError:
             continue
+
+        if existing_start_raw.tzinfo is not None and start.tzinfo is not None:
+            existing_start = existing_start_raw.astimezone(start.tzinfo)
+        elif existing_start_raw.tzinfo is not None:
+            # Existing has tz, start does not. Assume start is in local time.
+            existing_start = existing_start_raw.astimezone().replace(tzinfo=None)
+        elif start.tzinfo is not None:
+            # Start has tz, existing does not. Assume existing is in local time.
+            existing_start = existing_start_raw
+            start_compare = start.astimezone().replace(tzinfo=None)
+            end_compare = end.astimezone().replace(tzinfo=None)
+            existing_end = existing_start + timedelta(
+                minutes=max(parse_int(row["duration_minutes"], 60), 15)
+            )
+            if start_compare < existing_end and end_compare > existing_start:
+                when = existing_start.strftime("%d.%m.%Y %H:%M")
+                raise ValueError(
+                    f"На это время уже есть запись: {row['customer_name']} в {when}."
+                )
+            continue
+        else:
+            existing_start = existing_start_raw
+
         existing_end = existing_start + timedelta(
             minutes=max(parse_int(row["duration_minutes"], 60), 15)
         )

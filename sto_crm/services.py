@@ -642,6 +642,10 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
             allow_deleted_vehicle_id=old_deleted_vehicle_id,
         )
         new_status = data["status"]
+        if str(old["closed_at"] or "") and old_status == "cancelled" and new_status != "cancelled":
+            raise ValueError(
+                "Отменённый после закрытия заказ-наряд нельзя повторно открыть или изменить. Создайте новый корректирующий заказ."
+            )
         ensure_order_status_transition(old_status, new_status)
         closed_at = compute_closed_at(
             old_status, str(old["closed_at"] or ""), new_status

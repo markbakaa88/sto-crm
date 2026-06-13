@@ -21,3 +21,23 @@ class TestLoggingConfig(unittest.TestCase):
         initial_handlers_len = len(logger.handlers)
         setup_logger("test_logging_existing")
         self.assertEqual(len(logger.handlers), initial_handlers_len)
+
+    def test_redacting_formatter_exception_fallback(self):
+        from unittest.mock import patch
+
+        from sto_crm.logging_config import RedactingFormatter
+
+        formatter = RedactingFormatter("%(message)s")
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=10,
+            msg="User request: csrf_token=abcdef",
+            args=(),
+            exc_info=None,
+        )
+
+        with patch("sto_crm.runtime.redact_sensitive_query", side_effect=Exception("mocked error")):
+            formatted = formatter.format(record)
+            self.assertEqual(formatted, "User request: csrf_token=abcdef")

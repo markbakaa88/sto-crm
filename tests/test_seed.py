@@ -19,6 +19,8 @@ class TestSeed(unittest.TestCase):
             )
             sto_crm.init_db()
             seed_demo_data()
+            # Call a second time to cover "if count: return" branch
+            seed_demo_data()
             with sto_crm.db() as conn:
                 count = conn.execute("SELECT COUNT(*) FROM customers").fetchone()[0]
                 self.assertGreater(count, 0)
