@@ -4179,7 +4179,7 @@ function renderOrderItems() {
     if (!host) return;
     host.innerHTML = `<div class="items-table">
         <table aria-label="Позиции заказ-наряда">
-            <thead>${tableHead(["Тип", "Источник запчасти", "Наименование", "Согласование", "Кол-во", "Цена", "Себест.", {text: "Сумма", className: "money"}, ""])}</thead>
+            <thead>${tableHead(["Тип", "Источник запчасти", "Наименование", "Согласование", {text: "Кол-во", className: "money"}, {text: "Цена", className: "money"}, {text: "Себест.", className: "money"}, {text: "Сумма", className: "money"}, ""])}</thead>
             <tbody>
                 ${state.orderDraftItems.map((item, index) => `
                     <tr data-index="${index}">
@@ -4190,9 +4190,9 @@ function renderOrderItems() {
                         <td data-label="Источник"><select class="source-select" data-item="inventory_id" aria-label="Источник запчасти" ${item.kind !== "part" || state.orderDraftReadOnly ? "disabled" : ""}>${partSourceOptions(item)}</select>${partSourceHint(item)}</td>
                         <td data-label="Наименование"><input data-item="title" aria-label="Наименование позиции" value="${esc(item.title)}" required ${state.orderDraftReadOnly ? "disabled" : ""}></td>
                         <td data-label="Согласование"><select data-item="approval_status" aria-label="Статус согласования позиции" ${state.orderDraftReadOnly ? "disabled" : ""}>${itemApprovalOptions(item.approval_status)}</select><div class="cell-note">Согласовано — в сумму; отложено/отказ — без списания и оплаты.</div></td>
-                        <td data-label="Кол-во"><input data-item="quantity" aria-label="Количество" type="number" inputmode="decimal" step="0.01" min="0.01" required value="${esc(item.quantity || 1)}" ${state.orderDraftReadOnly ? "disabled" : ""}></td>
-                        <td data-label="Цена"><input data-item="unit_price" aria-label="Цена" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(item.unit_price || 0)}" ${state.orderDraftReadOnly ? "disabled" : ""}></td>
-                        <td data-label="Себест."><input data-item="unit_cost" aria-label="Себестоимость" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(item.unit_cost || 0)}" ${state.orderDraftReadOnly ? "disabled" : ""}></td>
+                        <td class="money" data-label="Кол-во"><input data-item="quantity" aria-label="Количество" type="number" inputmode="decimal" step="0.01" min="0.01" required value="${esc(item.quantity || 1)}" ${state.orderDraftReadOnly ? "disabled" : ""}></td>
+                        <td class="money" data-label="Цена"><input data-item="unit_price" aria-label="Цена" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(item.unit_price || 0)}" ${state.orderDraftReadOnly ? "disabled" : ""}></td>
+                        <td class="money" data-label="Себест."><input data-item="unit_cost" aria-label="Себестоимость" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(item.unit_cost || 0)}" ${state.orderDraftReadOnly ? "disabled" : ""}></td>
                         <td data-label="Сумма" class="money" data-row-total>${money((item.approval_status || "approved") === "approved" ? num(item.quantity) * num(item.unit_price) : 0)}</td>
                         <td data-label="Действия"><button class="btn icon" type="button" data-remove-item="${index}" title="Удалить" aria-label="Удалить позицию заказ-наряда" ${state.orderDraftReadOnly ? "disabled" : ""}>×</button></td>
                     </tr>`).join("")}

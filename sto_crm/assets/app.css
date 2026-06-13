@@ -116,13 +116,20 @@
 
     --ok: #0f766e;
     --ok-soft: #e6f4f2;
+    --ok-border: rgba(15, 118, 110, 0.25);
     --warn: #a16207;
     --warn-soft: #fef7df;
+    --warn-border: rgba(161, 98, 7, 0.2);
     --danger: #b42318;
     --danger-soft: #fff1f2;
+    --danger-border: rgba(180, 35, 24, 0.2);
     --info: #1d4ed8;
     --info-soft: #eff6ff;
+    --info-border: rgba(29, 78, 216, 0.2);
     --neutral-soft: #eef2f7;
+    --neutral-border: rgba(30, 41, 59, 0.18);
+    --brand-border: rgba(0, 95, 115, 0.2);
+    --estimate-border: rgba(147, 51, 234, 0.2);
     --disabled-bg: #f1f5f9;
     --disabled-ink: #334155;
     --disabled-border: #cbd5e1;
@@ -197,13 +204,20 @@ body.dark, [data-theme="dark"] {
 
     --ok: #34d399;
     --ok-soft: rgba(52, 211, 153, 0.15);
+    --ok-border: rgba(52, 211, 153, 0.3);
     --warn: #f59e0b;
-    --warn-soft: rgba(245, 158, 11, 0.14);
+    --warn-soft: rgba(245, 158, 11, 0.15);
+    --warn-border: rgba(245, 158, 11, 0.3);
     --danger: #fb7185;
-    --danger-soft: rgba(251, 113, 133, 0.14);
+    --danger-soft: rgba(251, 113, 133, 0.15);
+    --danger-border: rgba(251, 113, 133, 0.3);
     --info: #60a5fa;
-    --info-soft: rgba(96, 165, 250, 0.16);
+    --info-soft: rgba(96, 165, 250, 0.15);
+    --info-border: rgba(96, 165, 250, 0.3);
     --neutral-soft: rgba(255, 255, 255, 0.08);
+    --neutral-border: rgba(255, 255, 255, 0.16);
+    --brand-border: rgba(90, 200, 189, 0.3);
+    --estimate-border: rgba(168, 85, 247, 0.3);
     --disabled-bg: rgba(148, 163, 184, 0.08);
     --disabled-ink: #e2e8f0;
     --disabled-border: rgba(148, 163, 184, 0.24);
@@ -528,7 +542,7 @@ body.sidebar-collapsed .db-path { display: none; }
                 box-shadow var(--dur-fast) var(--ease-out);
 }
 .btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); background: var(--surface-subtle); border-color: var(--line-strong); }
-.btn:active { transform: scale(0.96) translateY(2px); transition: transform 0.05s; }
+.btn:active { transform: scale(0.96); transition: transform 0.05s; }
 .btn:disabled, .btn[aria-disabled="true"] {
     cursor: not-allowed; transform: none;
     background: var(--disabled-bg); color: var(--disabled-ink); border-color: var(--disabled-border);
@@ -1266,25 +1280,25 @@ body.compact .row-actions .btn {  height: 26px; padding: 0 8px; font-size: var(-
 .status[data-tone="info"],
 .status.s-new,
 .status.s-estimate,
-.status.s-in_progress { background: var(--info-soft); color: var(--info); border-color: transparent; }
+.status.s-in_progress { background: var(--info-soft); color: var(--info); border-color: var(--info-border); }
 .status[data-tone="warning"],
 .status[data-tone="warn"],
-.status.s-diagnostics { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.status.s-diagnostics { background: var(--warn-soft); color: var(--warn); border-color: var(--warn-border); }
 .status[data-tone="success"],
 .status[data-tone="ok"],
 .status.s-approved,
-.status.s-done { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+.status.s-done { background: var(--ok-soft); color: var(--ok); border-color: var(--ok-border); }
 .status[data-tone="neutral"],
-.status.s-closed { background: var(--neutral-soft); color: var(--ink-muted); border-color: transparent; }
+.status.s-closed { background: var(--neutral-soft); color: var(--ink-muted); border-color: var(--neutral-border); }
 .status[data-tone="danger"],
-.status.s-cancelled { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
+.status.s-cancelled { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-border); }
 
-.status.a-scheduled { background: var(--info-soft); color: var(--info); border-color: transparent; }
-.status.a-confirmed { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
-.status.a-arrived { background: var(--brand-soft); color: var(--brand-strong); border-color: transparent; }
-.status.a-done { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
-.status.a-no_show { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
-.status.a-cancelled { background: var(--neutral-soft); color: var(--ink-muted); border-color: transparent; }
+.status.a-scheduled { background: var(--info-soft); color: var(--info); border-color: var(--info-border); }
+.status.a-confirmed { background: var(--ok-soft); color: var(--ok); border-color: var(--ok-border); }
+.status.a-arrived { background: var(--brand-soft); color: var(--brand-strong); border-color: var(--brand-border); }
+.status.a-done { background: var(--ok-soft); color: var(--ok); border-color: var(--ok-border); }
+.status.a-no_show { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-border); }
+.status.a-cancelled { background: var(--neutral-soft); color: var(--ink-muted); border-color: var(--neutral-border); }
 
 .status.item-approved { background: var(--ok-soft); color: var(--ok); }
 .status.item-deferred { background: var(--warn-soft); color: var(--warn); }
@@ -2318,9 +2332,10 @@ html[data-initial-theme="dark"] tr:nth-child(even) {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    border: 1px solid transparent;
 }
-.status-badge.success { background: var(--ok-soft); color: var(--ok); }
-.status-badge.danger { background: var(--danger-soft); color: var(--danger); }
+.status-badge.success { background: var(--ok-soft); color: var(--ok); border-color: var(--ok-border); }
+.status-badge.danger { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-border); }
 .link-muted { color: var(--ink-muted); text-decoration: none; transition: color 0.15s; }
 .link-muted:hover { color: var(--brand); text-decoration: underline; }
 .truncate-text { max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; }
@@ -2414,7 +2429,10 @@ html[data-initial-theme="dark"] .modern-hover tbody tr:hover {
 
 /* 9. Тонкие UI-доработки и повышение доступности (A11y & Alignment) */
 .table-wrap th.money,
-.table-wrap td.money {
+.table-wrap td.money,
+.items-table th.money,
+.items-table td.money,
+.items-table td.money input {
     text-align: right !important;
 }
 
@@ -2428,26 +2446,34 @@ html[data-initial-theme="dark"] .modern-hover tbody tr:hover {
 .status.s-in_progress {
     background: var(--brand-soft) !important;
     color: var(--brand-strong) !important;
+    border-color: var(--brand-border) !important;
 }
 .status.s-estimate {
     background: rgba(147, 51, 234, 0.12) !important;
     color: rgb(147, 51, 234) !important;
+    border-color: var(--estimate-border) !important;
 }
 body.dark .status.s-estimate {
-    background: rgba(168, 85, 247, 0.16) !important;
+    background: rgba(168, 85, 247, 0.15) !important;
     color: rgb(192, 132, 252) !important;
+    border-color: rgba(168, 85, 247, 0.3) !important;
+}
+body.dark .status.s-in_progress {
+    background: rgba(90, 200, 189, 0.15) !important;
+    color: #5ac8bd !important;
+    border-color: rgba(90, 200, 189, 0.3) !important;
 }
 
 /* Улучшение контрастности бейджей оплаты в темном режиме */
 body.dark .status-badge.danger {
     background: rgba(251, 113, 133, 0.15) !important;
     color: #fda4af !important;
-    border: 1px solid rgba(251, 113, 133, 0.3);
+    border: 1px solid rgba(251, 113, 133, 0.3) !important;
 }
 body.dark .status-badge.success {
     background: rgba(52, 211, 153, 0.15) !important;
     color: #6ee7b7 !important;
-    border: 1px solid rgba(52, 211, 153, 0.3);
+    border: 1px solid rgba(52, 211, 153, 0.3) !important;
 }
 
 /* 10. Доработки разметки и стилистики модальных окон (Modal Layout & A11y) */
@@ -2821,15 +2847,15 @@ body .modern-hover tbody tr {
 body .modern-hover tbody tr:hover {
     background-color: var(--surface);
     box-shadow: 0 8px 24px rgba(31, 38, 135, 0.06), 
-                inset 4.5px 0 0 var(--brand);
-    transform: scale(1.006) translateX(3px);
+                inset 4px 0 0 var(--brand);
+    transform: scale(1.004) translateX(4px);
     z-index: 5;
 }
 
 body.dark .modern-hover tbody tr:hover {
     background-color: var(--surface-subtle);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 
-                inset 4.5px 0 0 var(--brand);
+                inset 4px 0 0 var(--brand);
 }
 
 /* Elegant Focus States with CSP Compliance (No Inline Styles) */
@@ -2875,7 +2901,7 @@ body .btn:hover {
 }
 
 body .btn:active {
-    transform: scale(0.96) translateY(0);
+    transform: scale(0.96);
 }
 
 body .btn.primary {
@@ -3024,6 +3050,22 @@ body .pipeline-column.drag-over {
 }
 main.rendered #content {
     animation: fadeInUp var(--dur-slow) var(--ease-out) forwards;
+}
+
+/* Kinetic Table Hover & Translation */
+.items-table table tbody tr,
+.table tbody tr,
+.modern-hover tbody tr,
+.table-wrap tbody tr {
+    transition: all var(--dur-fast) var(--ease-out) !important;
+}
+
+.items-table table tbody tr:hover,
+.table tbody tr:hover,
+.modern-hover tbody tr:hover,
+.table-wrap tbody tr:hover {
+    transform: scale(1.004) translateX(4px) !important;
+    box-shadow: inset 4px 0 0 0 var(--brand) !important;
 }
 
 
