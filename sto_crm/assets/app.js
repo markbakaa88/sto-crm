@@ -2750,6 +2750,7 @@ async function installUpdate() {
 }
 
 function dispatchViewAction(source, event = null) {
+    if (state.saving) return;
     if (!source) return;
     const action = source.dataset.action;
     const id = Number(source.dataset.id || 0);
@@ -2827,6 +2828,9 @@ function dispatchViewAction(source, event = null) {
         else if (action === "new-order") openOrderModal();
         else if (action === "edit-order") openOrderModal(findOrderById(id));
         else if (action === "duplicate-order") {
+            if (source.disabled) return;
+            source.disabled = true;
+            setTimeout(() => { source.disabled = false; }, 500);
             const order = findOrderById(id);
             if (requireRecord(order, "Заказ")) openOrderModal(orderDuplicateDraft(order));
         }
@@ -3108,6 +3112,7 @@ function bindModalSubmitHandlers() {
     });
 }
 
+const activePrints = new Set();
 async function openPrintOrder(id) {
     if (!requiresFreshCsrf("печать заказ-наряда")) return;
     const safeId = safeRecordId(id);
@@ -3115,11 +3120,20 @@ async function openPrintOrder(id) {
         toast("Некорректный номер заказ-наряда.", "error");
         return;
     }
+    if (activePrints.has(safeId)) return;
+    activePrints.add(safeId);
+
     const printButton = $(`#modalFoot [data-save="print-order"][data-id="${Number(safeId)}"]`);
+    const listPrintButton = $(`.btn[data-action="print-order"][data-id="${Number(safeId)}"]`);
     const previousDisabled = printButton?.disabled || false;
+    const previousListDisabled = listPrintButton?.disabled || false;
     if (printButton) {
         printButton.disabled = true;
         printButton.setAttribute("aria-busy", "true");
+    }
+    if (listPrintButton) {
+        listPrintButton.disabled = true;
+        listPrintButton.setAttribute("aria-busy", "true");
     }
     const printWindow = window.open("about:blank", "_blank", "noopener");
     if (!printWindow) {
@@ -3127,6 +3141,11 @@ async function openPrintOrder(id) {
             printButton.disabled = previousDisabled;
             printButton.setAttribute("aria-busy", "false");
         }
+        if (listPrintButton) {
+            listPrintButton.disabled = previousListDisabled;
+            listPrintButton.setAttribute("aria-busy", "false");
+        }
+        activePrints.delete(safeId);
         toast("Разрешите всплывающие окна, чтобы открыть печатную форму.", "error");
         return;
     }
@@ -3163,9 +3182,14 @@ async function openPrintOrder(id) {
         printWindow.close();
         throw error;
     } finally {
+        activePrints.delete(safeId);
         if (printButton && document.contains(printButton)) {
             printButton.disabled = previousDisabled;
             printButton.setAttribute("aria-busy", "false");
+        }
+        if (listPrintButton && document.contains(listPrintButton)) {
+            listPrintButton.disabled = previousListDisabled;
+            listPrintButton.setAttribute("aria-busy", "false");
         }
     }
 }
@@ -3731,14 +3755,26 @@ function openOrderModal(order = {}) {
         vehicle.value = "";
         vehicle.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    $("#addService")?.addEventListener("click", () => {
+    $("#addService")?.addEventListener("click", event => {
         if (state.orderDraftReadOnly) return;
+        const btn = event.currentTarget;
+        if (btn.disabled) return;
+        btn.disabled = true;
+        setTimeout(() => {
+            if (!state.orderDraftReadOnly) btn.disabled = false;
+        }, 300);
         markModalDirty();
         state.orderDraftItems.push({ kind: "service", title: "", approval_status: "approved", quantity: 1, unit_price: 0, unit_cost: 0 });
         renderOrderItems();
     });
-    $("#addPart")?.addEventListener("click", () => {
+    $("#addPart")?.addEventListener("click", event => {
         if (state.orderDraftReadOnly) return;
+        const btn = event.currentTarget;
+        if (btn.disabled) return;
+        btn.disabled = true;
+        setTimeout(() => {
+            if (!state.orderDraftReadOnly) btn.disabled = false;
+        }, 300);
         markModalDirty();
         state.orderDraftItems.push({ kind: "part", inventory_id: "", title: "", approval_status: "approved", quantity: 1, unit_price: 0, unit_cost: 0 });
         renderOrderItems();
@@ -4033,8 +4069,11 @@ function markFirstInvalidOrderItem(preferredField, message) {
 
 async function deleteEntity(kind, id) {
     if (state.saving) return;
-    if (!confirm("Удалить запись? Это действие скроет запись из активной базы CRM.")) return;
     setSaveButtonsBusy(true);
+    if (!confirm("Удалить запись? Это действие скроет запись из активной базы CRM.")) {
+        setSaveButtonsBusy(false);
+        return;
+    }
     try {
         await api(entityRecordPath(kind, id), { method: "DELETE" });
         closeModal(true);
@@ -4071,6 +4110,10 @@ function showError(error) {
 document.addEventListener("click", event => {
     const navButton = event.target.closest("#nav button[data-route]");
     if (navButton) {
+        if (state.saving) {
+            event.preventDefault();
+            return;
+        }
         setRoute(navButton.dataset.route);
         setMobileNavOpen(false, { restoreFocus: false });
     }
