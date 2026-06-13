@@ -353,16 +353,19 @@ def money(value: Any) -> str:
 
 
 def csv_cell(value: Any) -> Any:
-    if not isinstance(value, str):
+    if value is None:
+        return ""
+    if isinstance(value, (int, float)):
         return value
+    val_str = str(value)
     # Spreadsheet apps can hide formulas behind leading whitespace, BOMs or
     # direction/zero-width marks.  Strip those characters only for detection and
     # keep the original cell value intact for export fidelity.
     dangerous_leading = " \t\r\n\v\f\ufeff\u200b\u200c\u200d\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
-    stripped = value.lstrip(dangerous_leading)
-    if stripped and stripped[0] in ("=", "+", "-", "@"):
-        return "'" + value
-    return value
+    stripped = val_str.lstrip(dangerous_leading)
+    if stripped and stripped[0] in ("=", "+", "-", "@", "|", "%"):
+        return "'" + val_str
+    return val_str
 
 
 def sql_limit(limit: int | None) -> tuple[str, list[Any]]:

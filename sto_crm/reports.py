@@ -16,16 +16,21 @@ from .runtime import clean_text, money, parse_float, parse_int
 from .validation import item_is_billable
 
 
+def format_vehicle_text(make: Any, model: Any, year: Any, plate: Any) -> str:
+    parts = []
+    for val in [make, model, year, plate]:
+        cleaned = str(val or "").strip()
+        if cleaned:
+            parts.append(cleaned)
+    return " ".join(parts)
+
+
 def order_vehicle_text(order: dict[str, Any]) -> str:
-    return " ".join(
-        str(part)
-        for part in [
-            order.get("vehicle_make"),
-            order.get("vehicle_model"),
-            order.get("vehicle_year"),
-            order.get("vehicle_plate"),
-        ]
-        if part
+    return format_vehicle_text(
+        order.get("vehicle_make"),
+        order.get("vehicle_model"),
+        order.get("vehicle_year"),
+        order.get("vehicle_plate"),
     )
 
 
@@ -53,10 +58,18 @@ def build_reports(
         text = str(value or "").strip().replace(" ", "T")
         if not text:
             return None
-        try:
-            return datetime.fromisoformat(text[:16])
-        except ValueError:
-            return None
+        dt = None
+        for fmt in (text, text[:19], text[:16], text[:10]):
+            try:
+                dt = datetime.fromisoformat(fmt)
+                break
+            except ValueError:
+                continue
+        if dt is not None:
+            if dt.tzinfo is not None:
+                dt = dt.replace(tzinfo=None)
+            return dt
+        return None
 
     def summarize_order(order: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -77,26 +90,34 @@ def build_reports(
             "updated_at": order.get("updated_at"),
         }
 
-    month_closed = [
-        o
-        for o in orders
-        if str(o.get("closed_at", "")).startswith(month_prefix)
-        and o.get("status") == "closed"
-    ]
+    # Использование более точного datetime-парсинга для определения закрытых заказов текущего месяца
+    month_closed = []
+    for o in orders:
+        if o.get("status") != "closed":
+            continue
+        closed_dt = parse_local_datetime(o.get("closed_at"))
+        if closed_dt and closed_dt.year == today.year and closed_dt.month == today.month:
+            month_closed.append(o)
+
     closed_orders = [o for o in orders if o.get("status") == "closed"]
     revenue_month = sum(parse_float(o.get("total")) for o in month_closed)
+    
+    # Безопасный расчет налогооблагаемой базы
     taxable_month = sum(
-        parse_float(o.get("subtotal")) - parse_float(o.get("discount"))
+        max(parse_float(o.get("subtotal")) - parse_float(o.get("discount")), 0.0)
         for o in month_closed
     )
     gross_margin_month = sum(parse_float(o.get("margin")) for o in month_closed)
+    
+    # Защита от деления на околонулевые и нулевые значения
     margin_percent_month = (
-        (gross_margin_month / taxable_month * 100) if taxable_month else 0
+        (gross_margin_month / taxable_month * 100) if abs(taxable_month) > 1e-9 else 0.0
     )
     due_total = sum(
-        parse_float(o.get("due")) for o in orders if o.get("status") != "cancelled"
+        max(parse_float(o.get("due")), 0.0) for o in orders if o.get("status") != "cancelled"
     )
-    avg_check = revenue_month / len(month_closed) if month_closed else 0
+    avg_check = revenue_month / len(month_closed) if month_closed else 0.0
+    
     conversion_base = [
         o
         for o in orders
@@ -108,7 +129,7 @@ def build_reports(
         if o.get("status") in {"approved", "in_progress", "done", "closed"}
     ]
     conversion_rate = (
-        (len(conversion_won) / len(conversion_base) * 100) if conversion_base else 0
+        (len(conversion_won) / len(conversion_base) * 100) if conversion_base else 0.0
     )
     pipeline_value = sum(parse_float(o.get("total")) for o in active_orders)
     pipeline_due = sum(parse_float(o.get("due")) for o in active_orders)
@@ -126,15 +147,19 @@ def build_reports(
     inventory_value = sum(
         parse_float(p.get("quantity")) * parse_float(p.get("cost")) for p in inventory
     )
+
+    # Использование parse_local_datetime для дат и сравнение объектов дат/времени
     promised_today = []
     overdue_orders = []
     for order in active_orders:
         promised_at = str(order.get("promised_at") or "")
         promised_dt = parse_local_datetime(promised_at)
-        if promised_at.startswith(today.isoformat()):
-            promised_today.append(order)
-        if promised_dt and promised_dt < now:
-            overdue_orders.append(order)
+        if promised_dt:
+            if promised_dt.date() == today:
+                promised_today.append(order)
+            if promised_dt < now:
+                overdue_orders.append(order)
+
     reminder_horizon = today + timedelta(days=14)
     service_reminders = []
     for vehicle in vehicles:
@@ -148,10 +173,13 @@ def build_reports(
         due_by_date = False
         if next_service_at:
             try:
-                due_by_date = (
-                    datetime.fromisoformat(next_service_at[:10]).date()
-                    <= reminder_horizon
-                )
+                # Извлекаем чистую дату
+                clean_date = next_service_at.strip().split("T")[0].split(" ")[0]
+                if len(clean_date) >= 10:
+                    due_by_date = (
+                        datetime.fromisoformat(clean_date[:10]).date()
+                        <= reminder_horizon
+                    )
             except ValueError:
                 due_by_date = False
         due_by_mileage = bool(
@@ -165,16 +193,21 @@ def build_reports(
                     "due_by_mileage": due_by_mileage,
                 }
             )
+
     followups_due = []
     for order in orders:
         follow_up_at = str(order.get("follow_up_at") or "")
         if order.get("status") != "closed" or not follow_up_at:
             continue
         try:
-            if datetime.fromisoformat(follow_up_at[:10]).date() <= today:
-                followups_due.append(order)
+            # Извлекаем чистую дату
+            clean_date = follow_up_at.strip().split("T")[0].split(" ")[0]
+            if len(clean_date) >= 10:
+                if datetime.fromisoformat(clean_date[:10]).date() <= today:
+                    followups_due.append(order)
         except ValueError:
             continue
+
     authorizations_pending = [
         order
         for order in orders
@@ -203,30 +236,37 @@ def build_reports(
                         ),
                     }
                 )
+
     appointment_active_statuses = {"scheduled", "confirmed", "arrived"}
-    appointments_today = [
-        appointment
-        for appointment in appointments
-        if appointment.get("status") in appointment_active_statuses
-        and str(appointment.get("scheduled_at") or "").startswith(today.isoformat())
-    ]
-    appointments_upcoming_all = [
-        appointment
-        for appointment in appointments
-        if appointment.get("status") in appointment_active_statuses
-        and str(appointment.get("scheduled_at") or "")[:10] >= today.isoformat()
-    ]
+    
+    # Использование парсинга дат вместо .startswith() и [:10]
+    appointments_today = []
+    appointments_upcoming_all = []
+    for appointment in appointments:
+        if appointment.get("status") not in appointment_active_statuses:
+            continue
+        app_dt = parse_local_datetime(appointment.get("scheduled_at"))
+        if app_dt:
+            app_date = app_dt.date()
+            if app_date == today:
+                appointments_today.append(appointment)
+            if app_date >= today:
+                appointments_upcoming_all.append(appointment)
+
     appointments_upcoming = appointments_upcoming_all[:8]
+    
     appointment_load_7_days = []
     for offset in range(7):
         day = today + timedelta(days=offset)
         day_prefix = day.isoformat()
-        day_appointments = [
-            appointment
-            for appointment in appointments
-            if appointment.get("status") in appointment_active_statuses
-            and str(appointment.get("scheduled_at") or "").startswith(day_prefix)
-        ]
+        day_appointments = []
+        for appointment in appointments:
+            if appointment.get("status") not in appointment_active_statuses:
+                continue
+            app_dt = parse_local_datetime(appointment.get("scheduled_at"))
+            if app_dt and app_dt.date() == day:
+                day_appointments.append(appointment)
+                
         appointment_load_7_days.append(
             {
                 "date": day_prefix,
@@ -235,12 +275,13 @@ def build_reports(
                 "appointments": day_appointments[:5],
             }
         )
+
     procurement_plan = []
     for part in low_stock:
-        quantity = max(parse_float(part.get("quantity")), 0)
-        min_quantity = max(parse_float(part.get("min_quantity")), 0)
-        target_quantity = max(min_quantity * 2, min_quantity + 1, 1)
-        reorder_quantity = max(target_quantity - quantity, 0)
+        quantity = max(parse_float(part.get("quantity")), 0.0)
+        min_quantity = max(parse_float(part.get("min_quantity")), 0.0)
+        target_quantity = max(min_quantity * 2, min_quantity + 1, 1.0)
+        reorder_quantity = max(target_quantity - quantity, 0.0)
         unit_budget = parse_float(part.get("cost")) or parse_float(part.get("price"))
         procurement_plan.append(
             {
@@ -263,12 +304,12 @@ def build_reports(
         )
     )
 
-    overdue_ids = {int(order["id"]) for order in overdue_orders if order.get("id")}
+    overdue_ids = {parse_int(order.get("id")) for order in overdue_orders if order.get("id")}
     pipeline_by_status = []
     for status, label in ORDER_STATUSES.items():
         status_orders = [order for order in orders if order.get("status") == status]
         status_overdue = [
-            order for order in status_orders if int(order.get("id") or 0) in overdue_ids
+            order for order in status_orders if parse_int(order.get("id")) in overdue_ids
         ]
         pipeline_by_status.append(
             {
@@ -307,7 +348,7 @@ def build_reports(
         bucket["orders_count"] += 1
         bucket["total"] += parse_float(order.get("total"))
         bucket["due"] += parse_float(order.get("due"))
-        if int(order.get("id") or 0) in overdue_ids:
+        if parse_int(order.get("id")) in overdue_ids:
             bucket["overdue_count"] += 1
     workload_by_responsible = sorted(
         [
@@ -352,13 +393,15 @@ def build_reports(
 
     retention_by_customer: dict[int, dict[str, Any]] = {}
     for order in orders:
-        if order.get("status") != "closed" or not order.get("customer_id"):
+        if order.get("status") != "closed":
             continue
-        customer_id = int(order["customer_id"])
+        cust_id = parse_int(order.get("customer_id"))
+        if not cust_id:
+            continue
         bucket = retention_by_customer.setdefault(
-            customer_id,
+            cust_id,
             {
-                "customer_id": customer_id,
+                "customer_id": cust_id,
                 "customer_name": order.get("customer_name"),
                 "customer_phone": order.get("customer_phone"),
                 "orders_count": 0,
@@ -371,8 +414,6 @@ def build_reports(
         bucket["revenue"] += parse_float(order.get("total"))
         candidate_text = str(order.get("closed_at") or order.get("updated_at") or "")
         candidate_dt = parse_local_datetime(candidate_text)
-        # Сравниваем по datetime, чтобы смешанные форматы (YYYY-MM-DD vs
-        # YYYY-MM-DDTHH:MM) не ломали определение последней даты.
         if candidate_dt and (
             bucket["_last_order_dt"] is None or candidate_dt > bucket["_last_order_dt"]
         ):
@@ -380,6 +421,7 @@ def build_reports(
             bucket["last_order_at"] = candidate_text
         elif not bucket["last_order_at"]:
             bucket["last_order_at"] = candidate_text
+            
     vip_customers = sorted(
         [
             {
@@ -542,15 +584,11 @@ def build_reports(
         )
 
     for vehicle in service_reminders:
-        vehicle_text = " ".join(
-            str(part)
-            for part in [
-                vehicle.get("make"),
-                vehicle.get("model"),
-                vehicle.get("year"),
-                vehicle.get("plate"),
-            ]
-            if part
+        vehicle_text = format_vehicle_text(
+            vehicle.get("make"),
+            vehicle.get("model"),
+            vehicle.get("year"),
+            vehicle.get("plate"),
         )
         reminder_reasons = []
         if vehicle.get("due_by_date"):
@@ -611,15 +649,11 @@ def build_reports(
 
     for appointment in appointments_today:
         status = str(appointment.get("status") or "scheduled")
-        appointment_vehicle = " ".join(
-            str(part)
-            for part in [
-                appointment.get("vehicle_make"),
-                appointment.get("vehicle_model"),
-                appointment.get("vehicle_year"),
-                appointment.get("vehicle_plate"),
-            ]
-            if part
+        appointment_vehicle = format_vehicle_text(
+            appointment.get("vehicle_make"),
+            appointment.get("vehicle_model"),
+            appointment.get("vehicle_year"),
+            appointment.get("vehicle_plate"),
         )
         add_action(
             "appointment_today",
@@ -659,11 +693,14 @@ def build_reports(
         day_key = f"{month_prefix}-{d:02d}"
         revenue_by_day[day_key] = 0.0
 
+    # Заполнение ежедневной выручки с использованием parse_local_datetime
     for o in month_closed:
-        closed_at = str(o.get("closed_at") or "")
-        if closed_at:
-            day_str = closed_at[:10]
-            revenue_by_day[day_str] += parse_float(o.get("total"))
+        closed_at = o.get("closed_at")
+        dt = parse_local_datetime(closed_at)
+        if dt:
+            day_str = dt.date().isoformat()
+            if day_str in revenue_by_day:
+                revenue_by_day[day_str] += parse_float(o.get("total"))
 
     revenue_by_day_list = [
         {"date": date, "revenue": round(val, 2)}
@@ -677,7 +714,7 @@ def build_reports(
         "customers_total": len(customers)
         if customers is not None
         else len(
-            {int(o.get("customer_id") or 0) for o in orders if o.get("customer_id")}
+            {parse_int(o.get("customer_id")) for o in orders if o.get("customer_id")}
         ),
         "vehicles_total": len(vehicles),
         "revenue_month": round(revenue_month, 2),
