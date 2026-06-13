@@ -1,6 +1,8 @@
 import sqlite3
 import unittest
+
 from sto_crm.services import reserved_quantity
+
 
 class TestServicesReserved(unittest.TestCase):
     def test_reserved_quantity_exclude_order(self):

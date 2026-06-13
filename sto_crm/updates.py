@@ -606,7 +606,7 @@ def update_status() -> dict[str, Any]:
             "repository": repository,
             "repository_url": github_repository_url(repository),
             "releases_url": github_latest_release_url(repository),
-            "can_install": can_install_windows_update(),
+            "can_install": can_install_windows_update() and release["has_asset"] and release["is_newer"],
             "app_path": app_path.name,
             "log_path": display_path(updater_log_path()),
             "release": release,

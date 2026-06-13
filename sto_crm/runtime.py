@@ -136,7 +136,7 @@ def display_path(path: Path) -> str:
         home = Path.home().resolve()
         return "~" if resolved == home else f"~/{resolved.relative_to(home).as_posix()}"
     except (OSError, ValueError):
-        return path.name or str(path)
+        return path.name or path.as_posix()
 
 
 def app_executable_path() -> Path:

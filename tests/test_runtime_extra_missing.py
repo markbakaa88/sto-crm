@@ -1,11 +1,13 @@
 import unittest
 from pathlib import Path
-from sto_crm.runtime import ensure_private_file_created, csv_cell
+
+from sto_crm.runtime import csv_cell, ensure_private_file_created
+
 
 class TestRuntimeExtraMissing(unittest.TestCase):
     def test_ensure_private_file_created_symlink(self):
-        import tempfile
         import os
+        import tempfile
         with tempfile.TemporaryDirectory() as tmpdir:
             real_file = Path(tmpdir) / "real.txt"
             real_file.touch()

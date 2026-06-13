@@ -1,7 +1,9 @@
-import unittest
 import os
+import unittest
 from unittest.mock import patch
+
 from sto_crm.config import _get_env_int
+
 
 class TestConfigEnv(unittest.TestCase):
     def test_get_env_int_missing(self):

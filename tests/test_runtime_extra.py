@@ -20,10 +20,11 @@ class TestRuntimeExtra(unittest.TestCase):
             orig_os_name = os.name
             try:
                 os.name = "posix"
-                self.assertEqual(
-                    runtime.user_data_dir(),
-                    Path.home() / ".local" / "share" / "sto_crm",
-                )
+                with patch("pathlib.Path.home", return_value=Path("/home/user")):
+                    self.assertEqual(
+                        runtime.user_data_dir(),
+                        Path("/home/user/.local/share/sto_crm"),
+                    )
             finally:
                 os.name = orig_os_name
 
