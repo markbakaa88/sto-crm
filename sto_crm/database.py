@@ -631,6 +631,12 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_order_items_inventory ON order_items(inventory_id)"
     )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_orders_vehicle ON orders(vehicle_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_appointments_vehicle ON appointments(vehicle_id)"
+    )
     unique_indexes = (
         (
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_inventory_sku_active ON inventory(CASEFOLD(TRIM(sku))) WHERE deleted_at IS NULL AND TRIM(sku) <> ''",

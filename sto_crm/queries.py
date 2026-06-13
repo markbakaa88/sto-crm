@@ -48,14 +48,11 @@ def list_customers(q: str = "", limit: int | None = 1000) -> list[dict[str, Any]
         rows = conn.execute(
             f"""
             SELECT c.*,
-                   COUNT(DISTINCT v.id) AS vehicles_count,
-                   COUNT(DISTINCT o.id) AS orders_count,
-                   MAX(o.updated_at) AS last_order_at
+                   (SELECT COUNT(*) FROM vehicles v WHERE v.customer_id = c.id AND v.deleted_at IS NULL) AS vehicles_count,
+                   (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id AND o.deleted_at IS NULL) AS orders_count,
+                   (SELECT MAX(o.updated_at) FROM orders o WHERE o.customer_id = c.id AND o.deleted_at IS NULL) AS last_order_at
             FROM customers c
-            LEFT JOIN vehicles v ON v.customer_id = c.id AND v.deleted_at IS NULL
-            LEFT JOIN orders o ON o.customer_id = c.id AND o.deleted_at IS NULL
             {where}
-            GROUP BY c.id
             ORDER BY c.updated_at DESC, c.id DESC
             {limit_sql}
             """,  # nosec B608

@@ -525,8 +525,12 @@ def ensure_no_appointment_conflict(
     if end <= start:
         raise ValueError("Длительность записи должна быть больше нуля.")
 
-    # Since we can query with UTC or local timezone-aware formats, let's load all active entries and compare them in memory.
-    # Why? Local SQLite doesn't natively support tz-aware comparisons easily, so comparing datetime objects directly in Python is 100% robust.
+    start_date = start.date()
+    min_date = (start_date - timedelta(days=2)).isoformat()
+    max_date = (start_date + timedelta(days=2)).isoformat()
+
+    # Since we can query with UTC or local timezone-aware formats, let's load active entries within a small window
+    # around the target date and compare them in memory. This avoids loading the entire historic calendar.
     rows = conn.execute(
         """
         SELECT a.id, a.scheduled_at, a.duration_minutes, c.name AS customer_name
@@ -534,9 +538,11 @@ def ensure_no_appointment_conflict(
         JOIN customers c ON c.id = a.customer_id
         WHERE a.deleted_at IS NULL
           AND a.status IN ('scheduled', 'confirmed', 'arrived')
+          AND a.scheduled_at >= ?
+          AND a.scheduled_at <= ?
           AND (? IS NULL OR a.id <> ?)
         """,
-        (record_id, record_id),
+        (min_date, max_date, record_id, record_id),
     ).fetchall()
 
     for row in rows:
