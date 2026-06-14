@@ -29,7 +29,14 @@ const state = {
     lastBackupAt: "",
     customerPage: 1,
     customerPageSize: 50,
-    catalogLimit: 60
+    catalogLimit: 60,
+    orderPage: 1,
+    orderPageSize: 50,
+    inventoryPage: 1,
+    inventoryPageSize: 50,
+    orderDraftItemsPage: 1,
+    orderDraftItemsPageSize: 15,
+    expandedMakes: {}
 };
 
 const BOOTSTRAP_CACHE_KEY = "sto-crm-bootstrap";
@@ -1157,6 +1164,16 @@ function setRoute(route, updateUrl = true) {
     const needsRouteFilterReload = enteringFilteredOrders || leavingFilteredOrders;
     if (leavingFilteredOrders) state.status = "all";
     state.route = route;
+    if (route === "catalog") {
+        state.catalogLimit = 60;
+        state.expandedMakes = {};
+    }
+    if (route === "orders") {
+        state.orderPage = 1;
+    }
+    if (route === "inventory") {
+        state.inventoryPage = 1;
+    }
     if (route === "updates" && !state.updateStatus && !state.updateLoading && !state.updateCheckScheduled) {
         state.updateCheckScheduled = true;
         window.setTimeout(() => checkForUpdates(false).catch(showError), 0);
@@ -2889,9 +2906,22 @@ function filteredCatalogEntries() {
 }
 
 function catalogMakeHtml(make, models) {
-    const list = models.length
-        ? models.map(model => `<span class="model-pill" title="${esc(make)} ${esc(model)}">${esc(model)}</span>`).join("")
-        : `<span class="model-pill muted-pill">модели не указаны</span>`;
+    const limit = 15;
+    const expanded = state.expandedMakes[make] === true;
+    let list;
+    if (!models.length) {
+        list = `<span class="model-pill muted-pill">модели не указаны</span>`;
+    } else {
+        const visibleModels = expanded ? models : models.slice(0, limit);
+        list = visibleModels.map(model => `<span class="model-pill" title="${esc(make)} ${esc(model)}">${esc(model)}</span>`).join("");
+        if (models.length > limit) {
+            if (expanded) {
+                list += `<button class="btn btn-sm ghost expand-models-btn" type="button" data-action="collapse-make" data-make="${esc(make)}">Свернуть</button>`;
+            } else {
+                list += `<button class="btn btn-sm ghost expand-models-btn" type="button" data-action="expand-make" data-make="${esc(make)}">Показать ещё ${models.length - limit}</button>`;
+            }
+        }
+    }
     return `<article class="catalog-make">
         <div class="catalog-make-head">
             <strong title="${esc(make)}">${esc(make)}</strong>
@@ -2908,6 +2938,7 @@ function bindCatalogFilter(root) {
     input.addEventListener("input", event => {
         state.catalogQ = event.target.value;
         state.catalogLimit = 60;
+        state.expandedMakes = {};
         clearTimeout(catalogTimer);
         const selectionStart = input.selectionStart;
         const selectionEnd = input.selectionEnd;
@@ -2928,7 +2959,14 @@ function bindCatalogFilter(root) {
 function renderInventory() {
     const rows = state.data.inventory;
     const lowCount = rows.filter(part => Number(part.is_low)).length;
-    const body = rows.map(p => `
+    const total = rows.length;
+    const pageSize = state.inventoryPageSize || 50;
+    const maxPage = Math.max(1, Math.ceil(total / pageSize));
+    state.inventoryPage = Math.min(Math.max(1, state.inventoryPage || 1), maxPage);
+    const offset = (state.inventoryPage - 1) * pageSize;
+    const paged = rows.slice(offset, offset + pageSize);
+
+    const body = paged.map(p => `
                         <tr>
                             <td data-label="Номенклатура"><div class="cell-title"><strong class="inventory-name">${esc(p.name)}</strong>${Number(p.is_low) ? `<div class="mt-1"><span class="status-badge danger" title="Остаток ниже минимального">Требуется закупка</span></div>` : ""}</div></td>
                             <td data-label="Артикул"><span class="sku-badge">${esc(p.sku) || "—"}</span></td>
@@ -2948,16 +2986,17 @@ function renderInventory() {
             { label: "+ Добавить деталь", action: "new-inventory", className: "" }
         ])}
         <section class="insight-grid mb-5">
-            ${insightCard("Всего позиций", rows.length, "Записей в номенклатуре", "▦")}
+            ${insightCard("Всего позиций", total, "Записей в номенклатуре", "▦")}
             ${insightCard("Дефицит", lowCount, "Позиций ниже минимального запаса", "⚠")}
             ${insightCard("Активы склада", money(state.data.reports.inventory_value || 0), "Общая сумма по себестоимости", "₽")}
         </section>
-        ${rows.length ? `<div class="table-wrap responsive-table-wrap">
+        ${paged.length ? `<div class="table-wrap responsive-table-wrap">
             <table class="responsive-table modern-hover" aria-label="Таблица складских позиций">
                 <thead>${tableHead(["Номенклатура", "Артикул", "Бренд", "Наличие", {text: "Цена клиенту", className: "money"}, {text: "Себестоимость", className: "money"}, "Поставщик", ""])}</thead>
                 <tbody>${body}</tbody>
             </table>
-        </div>` : emptyState("Номенклатура пуста", "Добавьте запчасти или материалы, чтобы списывать их в заказ-нарядах.", `<button class="btn primary shadow-btn" type="button" data-action="new-inventory">+ Оприходовать деталь</button>`, "📦")}
+        </div>
+        ${paginationControls("inventory", state.inventoryPage, maxPage, total, pageSize)}` : emptyState("Номенклатура пуста", "Добавьте запчасти или материалы, чтобы списывать их в заказ-нарядах.", `<button class="btn primary shadow-btn" type="button" data-action="new-inventory">+ Оприходовать деталь</button>`, "📦")}
     `;
 }
 
