@@ -505,6 +505,7 @@ class TestValidationExtra(unittest.TestCase):
     def test_ensure_no_appointment_conflict_invalid_date_format(self):
         from sto_crm.validation import ensure_no_appointment_conflict
         conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
         conn.execute(
             """
             CREATE TABLE customers (
@@ -532,7 +533,7 @@ class TestValidationExtra(unittest.TestCase):
         )
         conn.execute(
             "INSERT INTO appointments (id, customer_id, vehicle_id, scheduled_at, duration_minutes, status, deleted_at)"
-            " VALUES (1, 1, NULL, 'invalid-date-format', 60, 'scheduled', NULL)"
+            " VALUES (1, 1, NULL, '2026-06-12Tinvalid-date', 60, 'scheduled', NULL)"
         )
         try:
             # should bypass the invalid-date-format appointment and not throw
