@@ -103,3 +103,51 @@ class TestUpdatesWindowsMock(unittest.TestCase):
         self.assertFalse(res["updated"])
         self.assertEqual(res["message"], "Стабильных обновлений нет.")
         mock_finish.assert_called_once()
+
+    def test_validate_safe_path_failures(self):
+        from sto_crm.updates import validate_safe_path
+        import tempfile
+        import shutil
+
+        # 1. contains ".." or "\\"
+        with self.assertRaises(OSError) as ctx:
+            validate_safe_path(Path("foo/../bar"))
+        self.assertIn("Недопустимый путь", str(ctx.exception))
+
+        with self.assertRaises(OSError) as ctx:
+            validate_safe_path(Path("foo\\bar"))
+        self.assertIn("Недопустимый путь", str(ctx.exception))
+
+        # 2. Target or Parent is a symlink, or escapes parent
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir).resolve()
+            parent = base / "parent"
+            parent.mkdir()
+            target = parent / "file.txt"
+            target.write_text("hello", encoding="utf-8")
+
+            # should pass for regular file inside parent
+            validate_safe_path(target)
+
+            # Target is a symlink
+            sym_target = parent / "sym_target.txt"
+            try:
+                sym_target.symlink_to(target)
+                with self.assertRaises(OSError) as ctx:
+                    validate_safe_path(sym_target)
+                self.assertIn("Путь не может быть символической ссылкой", str(ctx.exception))
+            except (OSError, NotImplementedError):
+                # Symlinks might not be supported on some Windows test runners without admin privileges
+                pass
+
+            # Parent is a symlink
+            sym_parent = base / "sym_parent"
+            try:
+                sym_parent.symlink_to(parent, target_is_directory=True)
+                sym_target2 = sym_parent / "file2.txt"
+                with self.assertRaises(OSError) as ctx:
+                    validate_safe_path(sym_target2)
+                self.assertIn("Родительский каталог не может быть символической ссылкой", str(ctx.exception))
+            except (OSError, NotImplementedError):
+                pass
+
