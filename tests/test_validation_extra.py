@@ -17,6 +17,38 @@ from sto_crm.validation import (
 
 
 class TestValidationExtra(unittest.TestCase):
+    def test_validate_customer_invalid_type(self):
+        with self.assertRaisesRegex(ValueError, "Некорректный формат данных."):
+            validate_customer([])  # type: ignore
+
+    def test_validate_vehicle_invalid_type(self):
+        conn = sqlite3.connect(":memory:")
+        try:
+            with self.assertRaisesRegex(ValueError, "Некорректный формат данных."):
+                validate_vehicle(conn, [])  # type: ignore
+        finally:
+            conn.close()
+
+    def test_validate_inventory_invalid_type(self):
+        with self.assertRaisesRegex(ValueError, "Некорректный формат данных."):
+            validate_inventory([])  # type: ignore
+
+    def test_validate_order_invalid_type(self):
+        conn = sqlite3.connect(":memory:")
+        try:
+            with self.assertRaisesRegex(ValueError, "Некорректный формат данных."):
+                validate_order(conn, [])  # type: ignore
+        finally:
+            conn.close()
+
+    def test_validate_appointment_invalid_type(self):
+        conn = sqlite3.connect(":memory:")
+        try:
+            with self.assertRaisesRegex(ValueError, "Некорректный формат данных."):
+                validate_appointment(conn, [])  # type: ignore
+        finally:
+            conn.close()
+
     def test_validate_customer_missing_name(self):
         with self.assertRaisesRegex(ValueError, "имя клиента"):
             validate_customer({})
@@ -467,6 +499,44 @@ class TestValidationExtra(unittest.TestCase):
             
             with self.assertRaisesRegex(ValueError, "Длительность записи должна быть больше нуля"):
                 ensure_no_appointment_conflict(conn, "2026-06-12T10:00:00", -10)
+        finally:
+            conn.close()
+
+    def test_ensure_no_appointment_conflict_invalid_date_format(self):
+        from sto_crm.validation import ensure_no_appointment_conflict
+        conn = sqlite3.connect(":memory:")
+        conn.execute(
+            """
+            CREATE TABLE customers (
+                id INTEGER PRIMARY KEY,
+                name TEXT,
+                deleted_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE appointments (
+                id INTEGER PRIMARY KEY,
+                customer_id INTEGER,
+                vehicle_id INTEGER,
+                scheduled_at TEXT,
+                duration_minutes INTEGER,
+                status TEXT,
+                deleted_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO customers (id, name, deleted_at) VALUES (1, 'Customer', NULL)"
+        )
+        conn.execute(
+            "INSERT INTO appointments (id, customer_id, vehicle_id, scheduled_at, duration_minutes, status, deleted_at)"
+            " VALUES (1, 1, NULL, 'invalid-date-format', 60, 'scheduled', NULL)"
+        )
+        try:
+            # should bypass the invalid-date-format appointment and not throw
+            ensure_no_appointment_conflict(conn, "2026-06-12T10:00:00", 60)
         finally:
             conn.close()
 
