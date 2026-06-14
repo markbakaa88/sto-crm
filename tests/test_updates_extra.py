@@ -105,9 +105,9 @@ class TestUpdatesWindowsMock(unittest.TestCase):
         mock_finish.assert_called_once()
 
     def test_validate_safe_path_failures(self):
-        from sto_crm.updates import validate_safe_path
         import tempfile
-        import shutil
+
+        from sto_crm.updates import validate_safe_path
 
         # 1. contains ".." or "\\"
         with self.assertRaises(OSError) as ctx:
@@ -152,8 +152,9 @@ class TestUpdatesWindowsMock(unittest.TestCase):
                 pass
 
     def test_ensure_real_dir_validation_errors(self):
-        from sto_crm.updates import ensure_real_dir
         import tempfile
+
+        from sto_crm.updates import ensure_real_dir
 
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir).resolve()
@@ -179,8 +180,9 @@ class TestUpdatesWindowsMock(unittest.TestCase):
                 pass
 
     def test_prune_backups_error_handling(self):
-        from sto_crm.updates import prune_backups
         import tempfile
+
+        from sto_crm.updates import prune_backups
 
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir).resolve()
