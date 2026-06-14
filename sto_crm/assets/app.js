@@ -3402,6 +3402,9 @@ function closeModal(force = false, options = {}) {
 }
 
 let confirmResolve = null;
+let lastFocusedConfirmElement = null;
+let confirmFocusTrapListener = null;
+
 function showConfirmOverlay(options = {}) {
     const title = options.title || "Несохраненные изменения";
     const message = options.message || "Закрыть окно без сохранения изменений?";
@@ -3413,6 +3416,8 @@ function showConfirmOverlay(options = {}) {
         confirmResolve = resolve;
         const confirmB = $("#confirmBackdrop");
         if (!confirmB) return resolve(false);
+
+        lastFocusedConfirmElement = document.activeElement;
 
         const titleEl = $("#confirmTitle");
         if (titleEl) titleEl.textContent = title;
@@ -3427,9 +3432,22 @@ function showConfirmOverlay(options = {}) {
         if (cancelEl) cancelEl.textContent = cancelText;
 
         confirmB.hidden = false;
+        void confirmB.offsetWidth;
         confirmB.classList.add("open");
         setAppInert(true);
         $("#confirmCancel")?.focus({ preventScroll: true });
+
+        if (confirmFocusTrapListener) {
+            document.removeEventListener("focusin", confirmFocusTrapListener, true);
+        }
+        confirmFocusTrapListener = (event) => {
+            if (!confirmB.contains(event.target)) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                $("#confirmCancel")?.focus({ preventScroll: true });
+            }
+        };
+        document.addEventListener("focusin", confirmFocusTrapListener, true);
     });
 }
 
@@ -3437,11 +3455,23 @@ function closeConfirmOverlay(confirmed) {
     const confirmB = $("#confirmBackdrop");
     if (confirmB) {
         confirmB.classList.remove("open");
-        confirmB.hidden = true;
-        setAppInert(false);
+        setTimeout(() => {
+            if (!confirmB.classList.contains("open")) {
+                confirmB.hidden = true;
+                setAppInert(false);
+            }
+        }, 200);
+    }
+    if (confirmFocusTrapListener) {
+        document.removeEventListener("focusin", confirmFocusTrapListener, true);
+        confirmFocusTrapListener = null;
     }
     const resolve = confirmResolve;
     confirmResolve = null;
+    if (lastFocusedConfirmElement && document.contains(lastFocusedConfirmElement)) {
+        lastFocusedConfirmElement.focus({ preventScroll: true });
+    }
+    lastFocusedConfirmElement = null;
     if (resolve) resolve(confirmed);
 }
 
