@@ -151,3 +151,55 @@ class TestUpdatesWindowsMock(unittest.TestCase):
             except (OSError, NotImplementedError):
                 pass
 
+    def test_ensure_real_dir_validation_errors(self):
+        from sto_crm.updates import ensure_real_dir
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir).resolve()
+            directory = base / "test_dir"
+            ensure_real_dir(directory, "тестовой папки")
+            self.assertTrue(directory.is_dir())
+
+            # Path occupied by a file
+            file_path = base / "occupied"
+            file_path.write_text("content", encoding="utf-8")
+            with self.assertRaises(OSError) as ctx:
+                ensure_real_dir(file_path, "занятого пути")
+            self.assertIn("Путь к каталогу занятого пути занят файлом", str(ctx.exception))
+
+            # Directory is a symlink
+            sym_dir = base / "sym_dir"
+            try:
+                sym_dir.symlink_to(directory, target_is_directory=True)
+                with self.assertRaises(OSError) as ctx:
+                    ensure_real_dir(sym_dir, "символической ссылки")
+                self.assertIn("Каталог символической ссылки не может быть символической ссылкой", str(ctx.exception))
+            except (OSError, NotImplementedError):
+                pass
+
+    def test_prune_backups_error_handling(self):
+        from sto_crm.updates import prune_backups
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir).resolve()
+            backup_dir = base / "backups"
+            backup_dir.mkdir()
+
+            # write three normal backup files
+            f1 = backup_dir / "sto_crm_backup_1.sqlite3"
+            f2 = backup_dir / "sto_crm_backup_2.sqlite3"
+            f3 = backup_dir / "sto_crm_backup_3.sqlite3"
+            f1.write_text("db1", encoding="utf-8")
+            f2.write_text("db2", encoding="utf-8")
+            f3.write_text("db3", encoding="utf-8")
+
+            # Pruning backups with MAX_BACKUP_FILES = 2 override via mock/patch
+            with patch("sto_crm.updates.MAX_BACKUP_FILES", 2), patch("sto_crm.updates.MAX_BACKUP_TOTAL_BYTES", 0):
+                prune_backups(backup_dir)
+                # One of them should be removed since we have 3 but limit is 2
+                remaining = list(backup_dir.glob("sto_crm_backup_*.sqlite3"))
+                self.assertEqual(len(remaining), 2)
+
+

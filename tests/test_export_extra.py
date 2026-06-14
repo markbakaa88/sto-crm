@@ -31,3 +31,16 @@ class TestExportExtra(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             bootstrap_payload(status="invalid_status_val")
         self.assertEqual(str(ctx.exception), "Некорректный статус заказа.")
+
+    def test_csv_cell_escapes_formula_prefixes(self):
+        from sto_crm.runtime import csv_cell
+        self.assertEqual(csv_cell("=1+2"), "'=1+2")
+        self.assertEqual(csv_cell("+79991112233"), "'+79991112233")
+        self.assertEqual(csv_cell("-50"), "'-50")
+        self.assertEqual(csv_cell("@username"), "'@username")
+        self.assertEqual(csv_cell("|cmd"), "'|cmd")
+        self.assertEqual(csv_cell("%50"), "'%50")
+        self.assertEqual(csv_cell("normal text"), "normal text")
+        self.assertEqual(csv_cell(123), 123)
+        self.assertEqual(csv_cell(None), "")
+
