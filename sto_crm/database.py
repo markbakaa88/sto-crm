@@ -600,6 +600,9 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_vehicles_active_customer ON vehicles(deleted_at, customer_id)"
     )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_vehicles_customer ON vehicles(customer_id)"
+    )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_vehicles_plate ON vehicles(plate)")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_inventory_active_name ON inventory(deleted_at, name)"
