@@ -222,13 +222,39 @@ function moneyCompact(value) {
     return RUB_FORMAT_COMPACT.format(Number(value || 0));
 }
 
+const PLURAL_MAP = {
+    "задача": ["задача", "задачи", "задач"],
+    "заказ": ["заказ", "заказа", "заказов"],
+    "активный заказ": ["активный заказ", "активных заказа", "активных заказов"],
+    "Активный заказ": ["Активный заказ", "Активных заказа", "Активных заказов"],
+    "событие": ["событие", "события", "событий"],
+    "Запись сегодня": ["Запись сегодня", "Записи сегодня", "Записей сегодня"],
+    "Дефицитная позиция": ["Дефицитная позиция", "Дефицитные позиции", "Дефицитных позиций"],
+    "раз": ["раз", "раза", "раз"]
+};
+
 function pluralRu(value, one, few, many) {
     const number = Math.abs(Number(value || 0));
     const mod10 = number % 10;
     const mod100 = number % 100;
-    if (mod10 === 1 && mod100 !== 11) return one;
-    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
-    return many;
+    let oneForm = one;
+    let fewForm = few;
+    let manyForm = many;
+    if (typeof one === "string" && few === undefined && many === undefined) {
+        const mapped = PLURAL_MAP[one] || PLURAL_MAP[one.toLowerCase()];
+        if (mapped) {
+            oneForm = mapped[0];
+            fewForm = mapped[1];
+            manyForm = mapped[2];
+        } else {
+            oneForm = one;
+            fewForm = one;
+            manyForm = one;
+        }
+    }
+    if (mod10 === 1 && mod100 !== 11) return oneForm;
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return fewForm;
+    return manyForm;
 }
 
 function bytesText(value) {
@@ -466,11 +492,11 @@ function contextStripHtml() {
     const healthScore = Math.max(0, Math.min(100, Number(r.business_health_score || 0)));
     return `<section class="context-strip" aria-label="Операционный статус CRM">
         ${contextPill("Смена", `${healthScore}/100 · ${r.business_health_label || "Контроль"}`, "Индекс здоровья сервиса", healthToneFromScore(healthScore))}
-        ${contextPill("Воронка", moneyCompact(r.pipeline_value || 0), `${r.active_orders || 0} ${pluralRu(r.active_orders, "активный заказ", "активных заказа", "активных заказов")}`, "info")}
+        ${contextPill("Воронка", moneyCompact(r.pipeline_value || 0), `${r.active_orders || 0} ${pluralRu(r.active_orders, "активный заказ")}`, "info")}
         ${contextPill("К оплате", moneyCompact(r.due_total || 0), "Дебиторская задолженность", dueTone(r))}
         ${contextPill(
             "План смены",
-            `${r.action_plan_total || 0} ${pluralRu(r.action_plan_total || 0, "задача", "задачи", "задач")}`,
+            `${r.action_plan_total || 0} ${pluralRu(r.action_plan_total || 0, "задача")}`,
             "Важные действия смены",
             r.risk_total ? "warning" : "success"
         )}
@@ -1363,7 +1389,7 @@ function renderBell() {
     }
     if (emptyEl) emptyEl.hidden = true;
     if (count) { count.hidden = false; count.textContent = String(items.length > 99 ? "99+" : items.length); }
-    $("#bellBtn")?.setAttribute("aria-label", `Уведомления: ${items.length} ${pluralRu(items.length, "событие", "события", "событий")}`);
+    $("#bellBtn")?.setAttribute("aria-label", `Уведомления: ${items.length} ${pluralRu(items.length, "событие")}`);
     list.innerHTML = items.map(item => `
         <button type="button" class="bell-item" data-tone="${esc(toneToken(item.tone || "info"))}"
             data-bell-action="${esc(item.action)}"
@@ -2095,7 +2121,7 @@ function renderDashboard() {
             hero: true,
             eyebrow: "Профессиональная панель",
             summary: [
-                { label: "План", value: `${r.action_plan_total || 0} ${pluralRu(r.action_plan_total || 0, "задача", "задачи", "задач")}`, tone: r.risk_total ? "warning" : "info" },
+                { label: "План", value: `${r.action_plan_total || 0} ${pluralRu(r.action_plan_total || 0, "задача")}`, tone: r.risk_total ? "warning" : "info" },
                 { label: "Выручка", value: moneyCompact(r.revenue_month || 0), tone: "success" },
                 { label: "Риски", value: r.risk_total || 0, tone: r.risk_total ? "warning" : "success" }
             ],
@@ -2104,9 +2130,9 @@ function renderDashboard() {
                 { label: "Отчёты", action: "open-reports", className: "ghost" }
             ],
             stats: [
-                { label: pluralRu(r.active_orders || 0, "Активный заказ", "Активных заказа", "Активных заказов"), value: r.active_orders || 0 },
-                { label: pluralRu(r.appointments_today_count || 0, "Запись сегодня", "Записи сегодня", "Записей сегодня"), value: r.appointments_today_count || 0 },
-                { label: pluralRu(procurement.length, "Дефицитная позиция", "Дефицитные позиции", "Дефицитных позиций"), value: procurement.length }
+                { label: pluralRu(r.active_orders || 0, "Активный заказ"), value: r.active_orders || 0 },
+                { label: pluralRu(r.appointments_today_count || 0, "Запись сегодня"), value: r.appointments_today_count || 0 },
+                { label: pluralRu(procurement.length, "Дефицитная позиция"), value: procurement.length }
             ]
         })}
         <section class="primary-kpi-grid" aria-label="Ключевые показатели смены">
@@ -2312,7 +2338,7 @@ function actionPlanList(items = []) {
     }
     const visible = items.slice(0, 8);
     const hiddenCount = Math.max(0, items.length - visible.length);
-    const hiddenNote = hiddenCount ? `<div class="action-more muted">Ещё ${hiddenCount} ${pluralRu(hiddenCount, "задача", "задачи", "задач")} — откройте профильный раздел.</div>` : "";
+    const hiddenNote = hiddenCount ? `<div class="action-more muted">Ещё ${hiddenCount} ${pluralRu(hiddenCount, "задача")} — откройте профильный раздел.</div>` : "";
     return `<div class="action-stream">${visible.map(item => {
         const meta = [
             item.customer_name,
@@ -2864,7 +2890,7 @@ function renderReports() {
                                         </div>
                                     </div>
                                     <div class="text-right report-service-meta">
-                                        <strong>${ts.count} ${pluralRu(ts.count, "раз", "раза", "раз")}</strong>
+                                        <strong>${ts.count} ${pluralRu(ts.count, "раз")}</strong>
                                         <div class="text-success text-sm">${money(ts.revenue)}</div>
                                     </div>
                                 </li>
@@ -4343,15 +4369,25 @@ async function refreshAfterMutation(successMessage) {
 }
 
 async function saveEntity(kind, id) {
+    if (state.saving) return;
     const form = $("#entityForm");
     if (!form) return;
-    if (!validateLocalizedNumberInputs(form)) return;
-    if (!reportFormValidity(form)) return;
-    if (kind === "appointments" && !updateAppointmentConflictNotice(true)) return;
+    setSaveButtonsBusy(true);
+    if (!validateLocalizedNumberInputs(form)) {
+        setSaveButtonsBusy(false);
+        return;
+    }
+    if (!reportFormValidity(form)) {
+        setSaveButtonsBusy(false);
+        return;
+    }
+    if (kind === "appointments" && !updateAppointmentConflictNotice(true)) {
+        setSaveButtonsBusy(false);
+        return;
+    }
     const data = collectForm(form);
     const path = id ? entityRecordPath(kind, id) : entityCollectionPath(kind);
     const method = id ? "PUT" : "POST";
-    setSaveButtonsBusy(true);
     try {
         await api(path, { method, body: JSON.stringify(data) });
         closeModal(true);
@@ -4364,10 +4400,21 @@ async function saveEntity(kind, id) {
 }
 
 async function saveOrder(id) {
+    if (state.saving) return;
     const form = $("#orderForm");
-    if (!validateLocalizedNumberInputs(form, { excludeSelector: "[data-item]" })) return;
-    if (!validateOrderItemNumberInputs()) return;
-    if (form && !reportFormValidity(form, "[data-item]")) return;
+    setSaveButtonsBusy(true);
+    if (!validateLocalizedNumberInputs(form, { excludeSelector: "[data-item]" })) {
+        setSaveButtonsBusy(false);
+        return;
+    }
+    if (!validateOrderItemNumberInputs()) {
+        setSaveButtonsBusy(false);
+        return;
+    }
+    if (form && !reportFormValidity(form, "[data-item]")) {
+        setSaveButtonsBusy(false);
+        return;
+    }
     const data = collectForm(form);
     syncAllOrderItems();
     const invalidItems = state.orderDraftItems.filter(item => !String(item.title || "").trim() || num(item.quantity, 0) <= 0);
@@ -4378,6 +4425,7 @@ async function saveOrder(id) {
         if (missingTitle) parts.push("укажите наименование позиции");
         if (missingQty) parts.push("количество должно быть больше нуля");
         markFirstInvalidOrderItem(missingTitle ? "title" : "quantity", `Проверьте позиции заказ-наряда: ${parts.join("; ")} (строк с ошибкой: ${invalidItems.length}).`);
+        setSaveButtonsBusy(false);
         return;
     }
     data.items = state.orderDraftItems.map(item => ({
@@ -4392,11 +4440,11 @@ async function saveOrder(id) {
     const stockMessage = insufficientStockMessage(data.status);
     if (stockMessage) {
         markFirstInvalidOrderItem("quantity", stockMessage);
+        setSaveButtonsBusy(false);
         return;
     }
     const path = id ? entityRecordPath("orders", id) : entityCollectionPath("orders");
     const method = id ? "PUT" : "POST";
-    setSaveButtonsBusy(true);
     try {
         await api(path, { method, body: JSON.stringify(data) });
         closeModal(true);
