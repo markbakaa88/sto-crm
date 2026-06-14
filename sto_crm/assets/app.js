@@ -1024,7 +1024,7 @@ async function reconcileDataVersions(localData, serverData) {
             const warningDiv = document.createElement("div");
             warningDiv.id = "conflictNotice";
             warningDiv.className = "notice danger";
-            warningDiv.innerHTML = `<strong>Конфликт версий!</strong><p>Этот объект (${conflictDetails}) был изменен на сервере, пока вы были оффлайн. Рекомендуется закрыть это окно без сохранения и открыть заново, чтобы не затереть чужие изменения.</p>`;
+            warningDiv.innerHTML = `<strong>Конфликт версий!</strong><p>Этот объект (${esc(conflictDetails)}) был изменен на сервере, пока вы были оффлайн. Рекомендуется закрыть это окно без сохранения и открыть заново, чтобы не затереть чужие изменения.</p>`;
             form.prepend(warningDiv);
         }
     }
