@@ -428,7 +428,7 @@ def validate_order_item(
         raise ValueError("Некорректный статус согласования позиции заказ-наряда.")
 
     if kind == "part" and inventory_id:
-        if parts_map is not None:
+        if parts_map is not None and inventory_id in parts_map:
             part = parts_map.get(inventory_id)
         else:
             part = conn.execute(
@@ -526,7 +526,7 @@ def ensure_vehicle_belongs_to_customer(
         if required:
             raise ValueError("Выберите действующий автомобиль.")
         return None
-    if allow_deleted_vehicle_id and int(vehicle_id) == int(allow_deleted_vehicle_id):
+    if allow_deleted_vehicle_id is not None and vehicle_id == allow_deleted_vehicle_id:
         vehicle_owner = conn.execute(
             "SELECT customer_id FROM vehicles WHERE id = ?",
             (vehicle_id,),
@@ -538,7 +538,7 @@ def ensure_vehicle_belongs_to_customer(
         ).fetchone()
     if not vehicle_owner:
         raise ValueError("Выберите действующий автомобиль.")
-    if int(vehicle_owner["customer_id"]) != customer_id:
+    if vehicle_owner["customer_id"] != customer_id:
         raise ValueError("Выбранный автомобиль принадлежит другому клиенту.")
     return vehicle_id
 

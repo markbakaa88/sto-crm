@@ -990,7 +990,7 @@ def closed_order_signature(
         str(order["advisor"] or ""),
         str(order["mechanic"] or ""),
         str(order["promised_at"] or ""),
-        int(parse_int(order["odometer"])),
+        parse_int(order["odometer"]),
         str(order["complaint"] or ""),
         str(order["diagnosis"] or ""),
         str(order["recommendations"] or ""),
