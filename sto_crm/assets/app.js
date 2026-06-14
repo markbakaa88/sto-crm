@@ -731,14 +731,135 @@ async function api(path, options = {}, retries = null) {
     }
 }
 
-function cacheBootstrap(data, loadedAt = new Date().toISOString(), query = {}) {
+const DB_NAME = "sto-crm-db";
+const STORE_NAME = "cache";
+
+function getIndexedDB() {
+    return new Promise((resolve) => {
+        if (!window.indexedDB) {
+            resolve(null);
+            return;
+        }
+        try {
+            const request = indexedDB.open(DB_NAME, 1);
+            request.onupgradeneeded = event => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(STORE_NAME)) {
+                    db.createObjectStore(STORE_NAME);
+                }
+            };
+            request.onsuccess = event => {
+                resolve(event.target.result);
+            };
+            request.onerror = () => {
+                resolve(null);
+            };
+        } catch {
+            resolve(null);
+        }
+    });
+}
+
+function idbGet(key) {
+    return new Promise(resolve => {
+        getIndexedDB().then(db => {
+            if (!db) {
+                resolve(null);
+                return;
+            }
+            try {
+                const transaction = db.transaction(STORE_NAME, "readonly");
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.get(key);
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => resolve(null);
+            } catch {
+                resolve(null);
+            }
+        }).catch(() => resolve(null));
+    });
+}
+
+function idbSet(key, value) {
+    return new Promise(resolve => {
+        getIndexedDB().then(db => {
+            if (!db) {
+                resolve(false);
+                return;
+            }
+            try {
+                const transaction = db.transaction(STORE_NAME, "readwrite");
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.put(value, key);
+                request.onsuccess = () => resolve(true);
+                request.onerror = () => resolve(false);
+            } catch {
+                resolve(false);
+            }
+        }).catch(() => resolve(false));
+    });
+}
+
+function idbDel(key) {
+    return new Promise(resolve => {
+        getIndexedDB().then(db => {
+            if (!db) {
+                resolve(false);
+                return;
+            }
+            try {
+                const transaction = db.transaction(STORE_NAME, "readwrite");
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.delete(key);
+                request.onsuccess = () => resolve(true);
+                request.onerror = () => resolve(false);
+            } catch {
+                resolve(false);
+            }
+        }).catch(() => resolve(false));
+    });
+}
+
+async function dbGet(key) {
+    let raw = await idbGet(key);
+    if (!raw) {
+        try {
+            raw = localStorage.getItem(key);
+            if (raw) return JSON.parse(raw);
+        } catch {
+            return null;
+        }
+    }
+    return raw;
+}
+
+async function dbSet(key, value) {
+    let ok = await idbSet(key, value);
+    if (!ok) {
+        try {
+            localStorage.setItem(key, JSON.stringify(value));
+        } catch {
+            // storage disabled
+        }
+    }
+}
+
+async function dbDel(key) {
+    await idbDel(key);
     try {
-        if (!window.sessionStorage) return;
+        localStorage.removeItem(key);
+    } catch {
+        // storage disabled
+    }
+}
+
+async function cacheBootstrap(data, loadedAt = new Date().toISOString(), query = {}) {
+    try {
         const q = String(query.q || "");
         const status = String(query.status || "all");
         const route = String(query.route || state.route || "dashboard");
         if (q || status !== "all") {
-            clearCachedBootstrap();
+            await clearCachedBootstrap();
             return;
         }
         const cached = JSON.parse(JSON.stringify(data || {}));
@@ -755,54 +876,149 @@ function cacheBootstrap(data, loadedAt = new Date().toISOString(), query = {}) {
             query: { q, status, route },
             data: cached
         };
-        sessionStorage.setItem(BOOTSTRAP_CACHE_KEY, JSON.stringify(payload));
-    } catch { /* sessionStorage can be unavailable in locked-down browsers */ }
+        await dbSet(BOOTSTRAP_CACHE_KEY, payload);
+    } catch (e) {
+        console.error(e);
+    }
 }
 
-function clearCachedBootstrap() {
+async function clearCachedBootstrap() {
     try {
-        if (window.sessionStorage) sessionStorage.removeItem(BOOTSTRAP_CACHE_KEY);
-    } catch { /* sessionStorage can be unavailable in locked-down browsers */ }
+        await dbDel(BOOTSTRAP_CACHE_KEY);
+    } catch (e) {
+        console.error(e);
+    }
 }
 
-function readCachedBootstrap() {
+async function readCachedBootstrap() {
     try {
-        if (!window.sessionStorage) return null;
-        const raw = sessionStorage.getItem(BOOTSTRAP_CACHE_KEY);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
+        const parsed = await dbGet(BOOTSTRAP_CACHE_KEY);
+        if (!parsed) return null;
         if (parsed?.data && typeof parsed.data === "object") {
             if (parsed.schemaVersion !== BOOTSTRAP_CACHE_SCHEMA_VERSION) {
-                clearCachedBootstrap();
+                await clearCachedBootstrap();
                 return null;
             }
             const query = parsed.query || {};
             if (String(query.q || "") || String(query.status || "all") !== "all") {
-                clearCachedBootstrap();
+                await clearCachedBootstrap();
                 return null;
             }
             const cachedAt = Number(parsed.cachedAt || 0);
             if (!Number.isFinite(cachedAt) || Date.now() - cachedAt > BOOTSTRAP_CACHE_TTL_MS) {
-                clearCachedBootstrap();
+                await clearCachedBootstrap();
                 return null;
             }
             return parsed;
         }
         if (parsed?.app) {
-            clearCachedBootstrap();
+            await clearCachedBootstrap();
             return null;
         }
-    } catch {
-        // sessionStorage can be unavailable or contain stale data; clear it once.
-        clearCachedBootstrap();
+    } catch (e) {
+        console.error(e);
+        await clearCachedBootstrap();
     }
     return null;
 }
 
-function restoreCachedBootstrap() {
+async function reconcileDataVersions(localData, serverData) {
+    if (!localData || !serverData) return;
+    
+    if (localData.app?.db_path && serverData.app?.db_path && localData.app.db_path !== serverData.app.db_path) {
+        toast("Внимание: На сервере изменилась активная база данных!", "warning");
+        return;
+    }
+    
+    const collectionKeys = ["orders", "appointments", "customers", "vehicles", "inventory"];
+    const kindPluralMap = {
+        appointment: "appointments",
+        customer: "customers",
+        vehicle: "vehicles",
+        inventory: "inventory",
+        order: "orders"
+    };
+    
+    const saveBtn = $("#modalFoot [data-save]:not([data-save='cancel']):not([data-save^='delete']):not([data-save='print-order'])");
+    let editingKind = null;
+    let editingId = null;
+    if (saveBtn) {
+        editingKind = kindPluralMap[saveBtn.dataset.save];
+        editingId = saveBtn.dataset.id ? Number(saveBtn.dataset.id) : null;
+    }
+    
+    let conflictFound = false;
+    let conflictDetails = "";
+    const updates = {};
+    
+    for (const key of collectionKeys) {
+        const localList = localData[key] || [];
+        const serverList = serverData[key] || [];
+        
+        const localMap = new Map(localList.map(item => [Number(item.id), item]));
+        const serverMap = new Map(serverList.map(item => [Number(item.id), item]));
+        
+        let updatedCount = 0;
+        for (const [id, serverItem] of serverMap.entries()) {
+            const localItem = localMap.get(id);
+            if (localItem) {
+                if (serverItem.updated_at !== localItem.updated_at) {
+                    updatedCount++;
+                    if (key === editingKind && id === editingId) {
+                        conflictFound = true;
+                        if (key === "orders") {
+                            conflictDetails = `заказ-наряд ${serverItem.number || id}`;
+                        } else if (key === "customers") {
+                            conflictDetails = `клиент "${serverItem.name}"`;
+                        } else if (key === "vehicles") {
+                            conflictDetails = `автомобиль "${serverItem.make} ${serverItem.model}"`;
+                        } else if (key === "inventory") {
+                            conflictDetails = `запчасть/услуга "${serverItem.name}"`;
+                        } else if (key === "appointments") {
+                            conflictDetails = `запись для клиента ${serverItem.customer_name || id}`;
+                        }
+                    }
+                }
+            }
+        }
+        if (updatedCount > 0) {
+            updates[key] = updatedCount;
+        }
+    }
+    
+    const updateSummary = Object.entries(updates)
+        .map(([k, count]) => {
+            const labels = {
+                orders: "заказ-нарядов",
+                appointments: "записей",
+                customers: "клиентов",
+                vehicles: "автомобилей",
+                inventory: "склада"
+            };
+            return `${labels[k] || k}: ${count}`;
+        })
+        .join(", ");
+        
+    if (updateSummary) {
+        toast(`На сервере обновились данные во время оффлайна: ${updateSummary}`, "info");
+    }
+    
+    if (conflictFound) {
+        toast(`Внимание! Редактируемый вами объект (${conflictDetails}) был обновлен другим пользователем на сервере.`, "error");
+        const form = $("#entityForm") || $("#orderForm");
+        if (form && !$("#conflictNotice")) {
+            const warningDiv = document.createElement("div");
+            warningDiv.id = "conflictNotice";
+            warningDiv.className = "notice danger";
+            warningDiv.innerHTML = `<strong>Конфликт версий!</strong><p>Этот объект (${conflictDetails}) был изменен на сервере, пока вы были оффлайн. Рекомендуется закрыть это окно без сохранения и открыть заново, чтобы не затереть чужие изменения.</p>`;
+            form.prepend(warningDiv);
+        }
+    }
+}
+
+async function restoreCachedBootstrap() {
     try {
-        if (!window.sessionStorage) return false;
-        const cached = readCachedBootstrap();
+        const cached = await readCachedBootstrap();
         if (!cached?.data?.app) return false;
         const data = cached.data;
         if (state.data?.app?.csrf_token) data.app.csrf_token = state.data.app.csrf_token;
@@ -871,6 +1087,17 @@ async function loadData() {
     if (state.bootstrapAbortController) state.bootstrapAbortController.abort();
     const controller = new AbortController();
     state.bootstrapAbortController = controller;
+    
+    let localData = null;
+    try {
+        const cached = await readCachedBootstrap();
+        if (cached?.data) {
+            localData = cached.data;
+        }
+    } catch (e) {
+        console.error("Failed to read cached data for reconciliation:", e);
+    }
+
     setLoadingState(true);
     const params = new URLSearchParams({ q: state.q });
     const requestStatus = state.route === "orders" ? state.status : "all";
@@ -881,12 +1108,21 @@ async function loadData() {
         const data = await api(`/api/bootstrap?${params}`, { signal: controller.signal });
         if (seq !== state.loadSeq) return;
         const loadedAt = new Date().toISOString();
+        
+        if (state.offlineMode && localData) {
+            try {
+                await reconcileDataVersions(localData, data);
+            } catch (reconError) {
+                console.error("Reconciliation error:", reconError);
+            }
+        }
+
         state.data = data;
         if (data.app?.access_token) state.accessToken = data.app.access_token;
         state.bootstrapToken = "";
         state.lastLoadedAt = loadedAt;
         state.offlineMode = false;
-        cacheBootstrap(data, loadedAt, { q: state.q, status: requestStatus, route: state.route });
+        await cacheBootstrap(data, loadedAt, { q: state.q, status: requestStatus, route: state.route });
         state.lastError = "";
         setOnlineState(true);
         const dbPath = $("#dbPath");
@@ -4647,13 +4883,15 @@ function showError(error) {
     applyFormError(error);
     const modalOpen = $("#modalBackdrop")?.classList.contains("open");
     if (!state.data) {
-        if (!restoreCachedBootstrap()) {
-            const content = $("#content");
-            if (content) {
-                content.innerHTML = `${offlineBannerHtml(true)}<div class="notice" role="alert"><strong>Не удалось загрузить данные.</strong><p>${esc(message)}</p><button class="btn primary" type="button" data-action="retry-load">Повторить</button></div>`;
-                bindViewActions(content);
+        restoreCachedBootstrap().then(success => {
+            if (!success) {
+                const content = $("#content");
+                if (content) {
+                    content.innerHTML = `${offlineBannerHtml(true)}<div class="notice" role="alert"><strong>Не удалось загрузить данные.</strong><p>${esc(message)}</p><button class="btn primary" type="button" data-action="retry-load">Повторить</button></div>`;
+                    bindViewActions(content);
+                }
             }
-        }
+        });
     } else if (!modalOpen) {
         render();
     }
@@ -4973,7 +5211,17 @@ initShell();
 window.addEventListener("popstate", () => setRoute(routeFromLocation(), false));
 window.addEventListener("hashchange", () => setRoute(routeFromLocation(), false));
 setRoute(state.route, false);
-loadData().catch(showError);
+
+readCachedBootstrap().then(cached => {
+    if (cached) {
+        if (!state.data) {
+            restoreCachedBootstrap();
+        }
+    }
+    loadData().catch(showError);
+}).catch(() => {
+    loadData().catch(showError);
+});
 
 
 window.addEventListener("beforeunload", event => {
