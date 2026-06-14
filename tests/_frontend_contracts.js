@@ -212,7 +212,7 @@ const REQUIRED_SUBSTRINGS = [
   "if (attempt === maxRetries || !retryable) throw error;",
   'if (method !== "GET" && !state.data?.app?.csrf_token)',
   "function readCachedBootstrap() {",
-  "sessionStorage can be unavailable or contain stale data",
+  "clearCachedBootstrap()",
   "if (state.updateLoading) return;",
   "state.updateCheckScheduled = true;",
   'const content = $("#content");\n    if (!content) return;',
