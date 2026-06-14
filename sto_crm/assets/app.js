@@ -3660,7 +3660,7 @@ function markModalDirty() {
 function setSaveButtonsBusy(isBusy) {
     state.saving = isBusy;
     $("#modalBackdrop")?.classList.toggle("saving", isBusy);
-    $$("#modalFoot [data-save], #modalClose").forEach(button => {
+    $$("#modalFoot [data-save], #modalClose, #addService, #addPart").forEach(button => {
         if (isBusy) {
             button.dataset.wasDisabled = button.disabled ? "1" : "0";
             button.disabled = true;
@@ -4217,7 +4217,8 @@ function openOrderModal(order = {}) {
     $("#addService")?.addEventListener("click", event => {
         if (state.orderDraftReadOnly) return;
         const btn = event.currentTarget;
-        if (btn.disabled) return;
+        if (btn.disabled || btn.dataset.debounced === "true") return;
+        btn.dataset.debounced = "true";
         btn.disabled = true;
         btn.setAttribute("aria-busy", "true");
         setTimeout(() => {
@@ -4225,6 +4226,7 @@ function openOrderModal(order = {}) {
                 btn.disabled = false;
                 btn.setAttribute("aria-busy", "false");
             }
+            delete btn.dataset.debounced;
         }, 300);
         markModalDirty();
         state.orderDraftItems.push({ kind: "service", title: "", approval_status: "approved", quantity: 1, unit_price: 0, unit_cost: 0 });
@@ -4233,7 +4235,8 @@ function openOrderModal(order = {}) {
     $("#addPart")?.addEventListener("click", event => {
         if (state.orderDraftReadOnly) return;
         const btn = event.currentTarget;
-        if (btn.disabled) return;
+        if (btn.disabled || btn.dataset.debounced === "true") return;
+        btn.dataset.debounced = "true";
         btn.disabled = true;
         btn.setAttribute("aria-busy", "true");
         setTimeout(() => {
@@ -4241,6 +4244,7 @@ function openOrderModal(order = {}) {
                 btn.disabled = false;
                 btn.setAttribute("aria-busy", "false");
             }
+            delete btn.dataset.debounced;
         }, 300);
         markModalDirty();
         state.orderDraftItems.push({ kind: "part", inventory_id: "", title: "", approval_status: "approved", quantity: 1, unit_price: 0, unit_cost: 0 });
