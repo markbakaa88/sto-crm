@@ -36,7 +36,14 @@ const state = {
     inventoryPageSize: 50,
     orderDraftItemsPage: 1,
     orderDraftItemsPageSize: 15,
-    expandedMakes: {}
+    expandedMakes: {},
+    sort: {
+        appointments: { key: "", dir: "" },
+        orders: { key: "", dir: "" },
+        customers: { key: "id", dir: "desc" },
+        vehicles: { key: "", dir: "" },
+        inventory: { key: "", dir: "" }
+    }
 };
 
 const BOOTSTRAP_CACHE_KEY = "sto-crm-bootstrap";
@@ -2296,18 +2303,116 @@ function viewHeading(title, text, meta = [], actions = []) {
     return `<section class="view-heading"><div><h2>${esc(title)}</h2><p>${esc(text)}</p>${metaHtml}</div>${actionsHtml}</section>`;
 }
 
-function tableHead(labels) {
+function tableHead(labels, entityName) {
     return `<tr>${labels.map(label => {
+        let text;
+        let className = "";
+        let sortKey = null;
         if (typeof label === "string") {
-            const text = label || "Действия";
-            const content = label ? esc(label) : `<span class="sr-only">${esc(text)}</span>`;
-            return `<th scope="col">${content}</th>`;
+            text = label;
+        } else {
+            text = label.text || "";
+            if (label.className) className = label.className;
+            sortKey = label.sortKey;
         }
-        const text = label.text || "Действия";
-        const className = label.className ? ` class="${esc(label.className)}"` : "";
-        const content = label.text ? esc(label.text) : `<span class="sr-only">${esc(text)}</span>`;
-        return `<th scope="col"${className}>${content}</th>`;
+        const cellText = text;
+        if (!cellText) {
+            const fallback = "Действия";
+            return `<th scope="col">${`<span class="sr-only">${esc(fallback)}</span>`}</th>`;
+        }
+        if (sortKey && entityName) {
+            const activeSort = state.sort && state.sort[entityName];
+            const isActive = activeSort && activeSort.key === sortKey;
+            const sortDir = isActive ? activeSort.dir : "none";
+            const ariaSort = sortDir === "asc" ? "ascending" : (sortDir === "desc" ? "descending" : "none");
+            const arrow = sortDir === "asc" ? " ▲" : (sortDir === "desc" ? " ▼" : "");
+            
+            const classes = [];
+            if (className) classes.push(className);
+            classes.push("sortable-header");
+            const classAttr = ` class="${esc(classes.join(" "))}"`;
+            
+            return `<th scope="col" tabindex="0" role="columnheader" aria-sort="${ariaSort}" data-entity="${esc(entityName)}" data-sort-key="${esc(sortKey)}"${classAttr}>${esc(cellText)}${arrow}</th>`;
+        }
+        const classAttr = className ? ` class="${esc(className)}"` : "";
+        return `<th scope="col"${classAttr}>${esc(cellText)}</th>`;
     }).join("")}</tr>`;
+}
+
+function sortCollection(array, entityName) {
+    const sortInfo = state.sort && state.sort[entityName];
+    if (!sortInfo || !sortInfo.key || !sortInfo.dir) {
+        if (entityName === "customers") {
+            return [...array].sort((a, b) => b.id - a.id);
+        }
+        return [...array];
+    }
+    
+    const key = sortInfo.key;
+    const dir = sortInfo.dir;
+    
+    return [...array].sort((a, b) => {
+        let valA = a[key];
+        let valB = b[key];
+        
+        if (entityName === "vehicles" && key === "vehicle_name") {
+            valA = vehicleName(a);
+            valB = vehicleName(b);
+        }
+        if (entityName === "appointments" && key === "vehicle_name") {
+            valA = appointmentVehicle(a);
+            valB = appointmentVehicle(b);
+        }
+        
+        if (valA === undefined || valA === null) valA = "";
+        if (valB === undefined || valB === null) valB = "";
+        
+        if (typeof valA === "number" && typeof valB === "number") {
+            return dir === "asc" ? valA - valB : valB - valA;
+        }
+        
+        const numA = parseFloat(valA);
+        const numB = parseFloat(valB);
+        if (!isNaN(numA) && !isNaN(numB) && String(numA) === String(valA) && String(numB) === String(valB)) {
+            return dir === "asc" ? numA - numB : numB - numA;
+        }
+        
+        const strA = String(valA).toLowerCase();
+        const strB = String(valB).toLowerCase();
+        if (strA < strB) return dir === "asc" ? -1 : 1;
+        if (strA > strB) return dir === "asc" ? 1 : -1;
+        return 0;
+    });
+}
+
+function handleHeaderSort(header) {
+    const entity = header.dataset.entity;
+    const sortKey = header.dataset.sortKey;
+    if (!entity || !sortKey) return;
+    
+    if (!state.sort) state.sort = {};
+    if (!state.sort[entity]) state.sort[entity] = { key: "", dir: "" };
+    
+    const current = state.sort[entity];
+    if (current.key === sortKey) {
+        if (current.dir === "asc") {
+            current.dir = "desc";
+        } else if (current.dir === "desc") {
+            current.key = "";
+            current.dir = "";
+        } else {
+            current.dir = "asc";
+        }
+    } else {
+        current.key = sortKey;
+        current.dir = "asc";
+    }
+    render();
+    
+    const newHeader = document.querySelector(`.sortable-header[data-entity="${entity}"][data-sort-key="${sortKey}"]`);
+    if (newHeader) {
+        newHeader.focus();
+    }
 }
 
 function labeledField(id, label, controlHtml, span = "", hint = "") {
@@ -2531,7 +2636,7 @@ function pipelineBoard(statuses = []) {
                 ${(column.orders || []).slice(0, 3).map(order => {
                     const overdue = (state.data?.reports?.overdue_orders || []).some(item => Number(item.id) === Number(order.id));
                     return `
-                    <div class="deal-card ${overdue ? "overdue" : ""}" draggable="true" data-id="${safeRecordId(order.id)}">
+                    <div class="deal-card ${overdue ? "overdue" : ""}" draggable="true" tabindex="0" data-id="${safeRecordId(order.id)}">
                         <strong>${esc(order.number || "Без номера")}</strong>
                         <div class="muted">${esc(order.customer_name || "")} · ${esc(order.vehicle || "Авто не выбрано")}</div>
                         <div>${money(order.total)} · ${esc(priorityLabels[order.priority] || order.priority || "")}</div>
@@ -2619,7 +2724,8 @@ function actionPlanList(items = []) {
 function renderAppointments() {
     const rows = state.data.appointments || [];
     const upcoming = state.data.reports?.appointments_upcoming || [];
-    const body = rows.map(appointment => `
+    const sorted = sortCollection(rows, "appointments");
+    const body = sorted.map(appointment => `
                         <tr>
                             <td class="nowrap" data-label="Запланировано"><div class="cell-title"><strong>${dateShort(appointment.scheduled_at)}</strong><div class="muted text-sm">~${Number(appointment.duration_minutes || 0)} мин</div></div></td>
                             <td data-label="О клиенте"><div class="cell-title"><strong>${linkCustomerHtml(appointment.customer_id, appointment.customer_name)}</strong><div class="muted d-flex align-items-center"><span class="icon-contact" aria-hidden="true">📱</span> ${esc(appointment.customer_phone)}</div></div></td>
@@ -2640,7 +2746,15 @@ function renderAppointments() {
         ])}
         ${rows.length ? `<div class="table-wrap responsive-table-wrap">
             <table class="responsive-table modern-hover" aria-label="Таблица календаря визитов">
-                <thead>${tableHead(["Запланировано", "О клиенте", "Транспорт", "Статус визита", "Приёмщик", "Повод обращения", ""])}</thead>
+                <thead>${tableHead([
+                    { text: "Запланировано", sortKey: "scheduled_at" },
+                    { text: "О клиенте", sortKey: "customer_name" },
+                    { text: "Транспорт", sortKey: "vehicle_name" },
+                    { text: "Статус визита", sortKey: "status" },
+                    { text: "Приёмщик", sortKey: "advisor" },
+                    { text: "Повод обращения", sortKey: "reason" },
+                    ""
+                ], "appointments")}</thead>
                 <tbody>${body}</tbody>
             </table>
         </div>` : emptyState("Нет записей в календаре", "Запланируйте первую встречу с клиентом, чтобы запустить бизнес-процесс.", `<button class="btn primary shadow-btn" type="button" data-action="new-appointment">+ Создать запись</button>`, "📅")}
@@ -2687,7 +2801,7 @@ function renderOrders() {
                 }).join("")}
             </div>
         </div>
-        ${ordersTable(state.data.orders, false)}
+        ${ordersTable(sortCollection(state.data.orders, "orders"), false)}
     `;
 }
 
@@ -2706,7 +2820,13 @@ function ordersTable(orders, compact) {
     if (compact) {
         return `<div class="table-wrap responsive-table-wrap">
             <table class="compact-table responsive-table modern-hover" aria-label="Таблица последних заказ-нарядов">
-                <thead>${tableHead(["Номер", "Клиент и авто", "Статус", {text: "Итого", className: "money"}, ""])}</thead>
+                <thead>${tableHead([
+                    { text: "Номер", sortKey: "number" },
+                    { text: "Клиент и авто", sortKey: "customer_name" },
+                    { text: "Статус", sortKey: "status" },
+                    { text: "Итого", className: "money", sortKey: "total" },
+                    ""
+                ], "orders")}</thead>
                 <tbody>
                     ${orders.map(order => `
                         <tr>
@@ -2723,7 +2843,16 @@ function ordersTable(orders, compact) {
     }
     return `<div class="table-wrap responsive-table-wrap">
         <table class="responsive-table modern-hover" aria-label="Таблица заказ-нарядов">
-            <thead>${tableHead(["Номер", "Клиент и авто", "Статус", "Срок", "Мастер", {text: "Итого", className: "money"}, {text: "К оплате", className: "money"}, ""])}</thead>
+            <thead>${tableHead([
+                { text: "Номер", sortKey: "number" },
+                { text: "Клиент и авто", sortKey: "customer_name" },
+                { text: "Статус", sortKey: "status" },
+                { text: "Срок", sortKey: "promised_at" },
+                { text: "Мастер", sortKey: "mechanic" },
+                { text: "Итого", className: "money", sortKey: "total" },
+                { text: "К оплате", className: "money", sortKey: "due" },
+                ""
+            ], "orders")}</thead>
             <tbody>
                 ${orders.map(order => `
                     <tr>
@@ -2753,7 +2882,7 @@ function renderCustomers() {
     const maxPage = Math.max(1, Math.ceil(total / pageSize));
     state.customerPage = Math.min(Math.max(1, state.customerPage || 1), maxPage);
     const offset = (state.customerPage - 1) * pageSize;
-    const sorted = [...rows].sort((a, b) => b.id - a.id);
+    const sorted = sortCollection(rows, "customers");
     const paged = sorted.slice(offset, offset + pageSize);
 
     const body = paged.length ? paged.map(c => `
@@ -2770,7 +2899,15 @@ function renderCustomers() {
 
     const table = paged.length ? `<div class="table-wrap responsive-table-wrap">
         <table class="responsive-table modern-hover" aria-label="Таблица клиентов">
-            <thead>${tableHead(["ID", "Клиент", "Email", "Канал связи", "Уведомления", "Заметки", ""])}</thead>
+            <thead>${tableHead([
+                { text: "ID", sortKey: "id" },
+                { text: "Клиент", sortKey: "name" },
+                { text: "Email", sortKey: "email" },
+                { text: "Канал связи", sortKey: "preferred_channel" },
+                { text: "Уведомления", sortKey: "reminder_consent" },
+                { text: "Заметки", sortKey: "notes" },
+                ""
+            ], "customers")}</thead>
             <tbody>${body}</tbody>
         </table>
     </div>
@@ -2791,7 +2928,8 @@ function renderCustomers() {
 function renderVehicles() {
     const rows = state.data.vehicles;
     const catalog = state.data.car_catalog?.stats || { makes: 0, models: 0 };
-    const body = rows.map(v => `
+    const sorted = sortCollection(rows, "vehicles");
+    const body = sorted.map(v => `
                         <tr>
                             <td data-label="Автомобиль"><div class="cell-title"><strong class="vehicle-name-highlight">${esc(vehicleName(v))}</strong><div class="muted truncate-w-250" title="${esc(v.notes)}">${esc(v.notes)}</div></div></td>
                             <td data-label="Госномер">${v.plate ? `<span class="plate plate-modern">${esc(v.plate)}</span>` : '<span class="muted">—</span>'}</td>
@@ -2813,7 +2951,15 @@ function renderVehicles() {
         ])}
         ${rows.length ? `<div class="table-wrap responsive-table-wrap">
             <table class="responsive-table modern-hover" aria-label="Таблица автомобилей">
-                <thead>${tableHead(["Автомобиль", "Госномер", "VIN", "Владелец", "Пробег", "Следующий ТО", ""])}</thead>
+                <thead>${tableHead([
+                    { text: "Автомобиль", sortKey: "vehicle_name" },
+                    { text: "Госномер", sortKey: "plate" },
+                    { text: "VIN", sortKey: "vin" },
+                    { text: "Владелец", sortKey: "customer_name" },
+                    { text: "Пробег", sortKey: "mileage" },
+                    { text: "Следующий ТО", sortKey: "next_service_at" },
+                    ""
+                ], "vehicles")}</thead>
                 <tbody>${body}</tbody>
             </table>
         </div>` : emptyState("Автомобилей не найдено", "Добавьте автомобиль для учёта заказ-нарядов и пробега.", `<button class="btn primary shadow-btn" type="button" data-action="new-vehicle">+ Новый автомобиль</button>`, "🚗")}
@@ -2963,8 +3109,9 @@ function renderInventory() {
     const pageSize = state.inventoryPageSize || 50;
     const maxPage = Math.max(1, Math.ceil(total / pageSize));
     state.inventoryPage = Math.min(Math.max(1, state.inventoryPage || 1), maxPage);
+    const sorted = sortCollection(rows, "inventory");
     const offset = (state.inventoryPage - 1) * pageSize;
-    const paged = rows.slice(offset, offset + pageSize);
+    const paged = sorted.slice(offset, offset + pageSize);
 
     const body = paged.map(p => `
                         <tr>
@@ -2992,7 +3139,16 @@ function renderInventory() {
         </section>
         ${paged.length ? `<div class="table-wrap responsive-table-wrap">
             <table class="responsive-table modern-hover" aria-label="Таблица складских позиций">
-                <thead>${tableHead(["Номенклатура", "Артикул", "Бренд", "Наличие", {text: "Цена клиенту", className: "money"}, {text: "Себестоимость", className: "money"}, "Поставщик", ""])}</thead>
+                <thead>${tableHead([
+                    { text: "Номенклатура", sortKey: "name" },
+                    { text: "Артикул", sortKey: "sku" },
+                    { text: "Бренд", sortKey: "brand" },
+                    { text: "Наличие", sortKey: "quantity" },
+                    { text: "Цена клиенту", className: "money", sortKey: "price" },
+                    { text: "Себестоимость", className: "money", sortKey: "cost" },
+                    { text: "Поставщик", sortKey: "supplier" },
+                    ""
+                ], "inventory")}</thead>
                 <tbody>${body}</tbody>
             </table>
         </div>
@@ -3382,6 +3538,13 @@ function dispatchViewAction(source, event = null) {
             state.customerPage = Math.min(Math.max(1, Number(source.dataset.page || 1)), maxPage);
             render();
             document.querySelector(".view-heading")?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+        } else if (action === "page-inventory") {
+            const total = state.data?.inventory?.length || 0;
+            const pageSize = state.inventoryPageSize || 50;
+            const maxPage = Math.max(1, Math.ceil(total / pageSize));
+            state.inventoryPage = Math.min(Math.max(1, Number(source.dataset.page || 1)), maxPage);
+            render();
+            document.querySelector(".view-heading")?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
         } else if (action === "catalog-more") {
             state.catalogLimit = Math.min((state.catalogLimit || 60) + 60, filteredCatalogEntries().length);
             render();
@@ -3464,6 +3627,24 @@ async function openBellTarget(action, id, route = "") {
 function bindViewActions(root) {
     root.querySelectorAll("[data-action]").forEach(button => {
         button.addEventListener("click", event => dispatchViewAction(event.currentTarget, event));
+    });
+    root.querySelectorAll(".sortable-header").forEach(header => {
+        header.addEventListener("click", () => handleHeaderSort(header));
+        header.addEventListener("keydown", event => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                handleHeaderSort(header);
+            }
+        });
+    });
+    root.querySelectorAll(".deal-card").forEach(card => {
+        card.addEventListener("keydown", event => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                const openBtn = card.querySelector('[data-action="edit-order"]');
+                if (openBtn) openBtn.click();
+            }
+        });
     });
 }
 

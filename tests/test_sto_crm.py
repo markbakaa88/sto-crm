@@ -4485,7 +4485,7 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn("if (attempt === maxRetries || !retryable) throw error;", html)
         self.assertIn('if (method !== "GET" && !state.data?.app?.csrf_token)', html)
         self.assertIn("function readCachedBootstrap() {", html)
-        self.assertIn("sessionStorage can be unavailable or contain stale data", html)
+        self.assertIn("clearCachedBootstrap()", html)
         self.assertIn("if (state.updateLoading) return;", html)
         self.assertIn("state.updateCheckScheduled = true;", html)
         self.assertIn('const content = $("#content");\n    if (!content) return;', html)

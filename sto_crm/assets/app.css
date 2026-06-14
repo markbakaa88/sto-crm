@@ -1060,6 +1060,7 @@ a.count-pill:hover { filter: brightness(0.96); transform: scale(1.05); text-deco
 .pipeline-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-2); }
 .pipeline-body { display: flex; flex-direction: column; gap: 6px; }
 .deal-card { background: var(--topbar-bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: var(--font-size-xs); transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.deal-card:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .deal-card:hover { border-color: var(--line-strong); box-shadow: var(--shadow-sm); transform: translateY(-1px) translateZ(0); }
 .deal-card.overdue { border-color: var(--danger); }
 .pipeline-empty { color: var(--ink-faint); font-size: var(--font-size-xs); padding: 3px 0; }
@@ -1209,7 +1210,7 @@ body.compact .row-actions .btn {  height: 26px; padding: 0 8px; font-size: var(-
     font-size: var(--font-size-xs); letter-spacing: 1px; text-transform: uppercase;
 }
 
-.scroll-hint { display: none; font-size: var(--font-size-xs); color: var(--ink-muted); padding: 6px var(--space-4); border-top: 1px dashed var(--line); }
+.scroll-hint { display: none; font-size: var(--font-size-xs); color: var(--ink); font-weight: 600; padding: 6px var(--space-4); border-top: 1px dashed var(--line); }
 .has-horizontal-overflow .scroll-hint { display: block; }
 .timeline > .scroll-hint { grid-column: 1 / -1; padding: 4px 0 0; border-top: 0; }
 .timeline.has-horizontal-overflow { padding-bottom: var(--space-2); }
