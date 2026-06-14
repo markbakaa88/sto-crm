@@ -22,10 +22,11 @@ class TestCliCoverage(unittest.TestCase):
             captured_handler = handler
 
         mock_server = MagicMock(spec=[
-            "server_address", "server_port", "serve_forever", "shutdown", "server_close", "graceful_shutdown_flag"
+            "server_address", "server_port", "serve_forever", "shutdown", "server_close", "graceful_shutdown_flag", "shutdown_reason"
         ])
         mock_server.server_address = ("127.0.0.1", 8765)
         mock_server.server_port = 8765
+        mock_server.shutdown_reason = "offline"
         mock_create_server.return_value = mock_server
 
         def trigger_shutdown(*args, **kwargs):

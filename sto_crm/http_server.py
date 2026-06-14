@@ -272,9 +272,12 @@ class CRMHandler(BaseHTTPRequestHandler):
                     )
                     if isinstance(self.server, CRMServer):
                         self.server.graceful_shutdown_flag = True
+                        self.server.shutdown_reason = "reboot"
                     else:
                         server_any: Any = self.server
                         server_any.graceful_shutdown_flag = True
+                        server_any.shutdown_reason = "reboot"
+                    # Shutdown gracefully via delay/lag
                     timer = threading.Timer(0.3, self.server.shutdown)
                     timer.daemon = True
                     timer.start()
@@ -286,9 +289,11 @@ class CRMHandler(BaseHTTPRequestHandler):
                 )
                 if isinstance(self.server, CRMServer):
                     self.server.graceful_shutdown_flag = True
+                    self.server.shutdown_reason = "offline"
                 else:
                     server_any_shutdown: Any = self.server
                     server_any_shutdown.graceful_shutdown_flag = True
+                    server_any_shutdown.shutdown_reason = "offline"
                 timer = threading.Timer(0.3, self.server.shutdown)
                 timer.daemon = True
                 timer.start()
@@ -674,6 +679,7 @@ class CRMServer(ThreadingHTTPServer):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.graceful_shutdown_flag = False
+        self.shutdown_reason = None
         self._active_threads: set[threading.Thread] = set()
         self._active_requests: set[Any] = set()
         self._active_threads_lock = threading.Lock()

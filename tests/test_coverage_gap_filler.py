@@ -106,6 +106,7 @@ class TestCoverageGapFiller(unittest.TestCase):
             mock_server = MagicMock()
             mock_server.server_address = ("127.0.0.1", 8765)
             mock_server.server_port = 8765
+            mock_server.shutdown_reason = "reboot"
             mock_create_server.return_value = mock_server
 
             def trigger_shutdown(*args, **kwargs):

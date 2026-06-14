@@ -393,15 +393,18 @@ class TestHttpServerExtra(unittest.TestCase):
             self.assertEqual(mock_timer.call_args[0][0], 0.3)
             self.assertEqual(mock_timer.call_args[0][1], mock_server.shutdown)
             self.assertTrue(getattr(mock_server, "graceful_shutdown_flag", False))
+            self.assertEqual(getattr(mock_server, "shutdown_reason", None), "offline")
 
         # Test isinstance(mock_server, CRMServer) -> True, triggering if path
         mock_server_class = mock_server.__class__
         with patch("sto_crm.http_server.CRMServer", mock_server_class):
             mock_server.graceful_shutdown_flag = False
+            mock_server.shutdown_reason = None
             with patch("threading.Timer") as mock_timer:
                 handler.handle_request("POST")
                 mock_timer.assert_called_once()
                 self.assertTrue(mock_server.graceful_shutdown_flag)
+                self.assertEqual(mock_server.shutdown_reason, "offline")
 
         # Test update install path with backup dict
         handler.path = "/api/update/install"

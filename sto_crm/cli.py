@@ -150,11 +150,25 @@ def main(argv: list[str] | None = None) -> int:
         server.server_close()
         # Graceful shutdown connection closing lag
         if getattr(server, "graceful_shutdown_flag", False):
-            lag = 0.5
-            safe_log(
-                f"Установка соединения останавливается (мягкое завершение: {lag}с)..."
-            )
-            time.sleep(lag)
+            reason = getattr(server, "shutdown_reason", None)
+            if reason == "offline":
+                lag = 1.0
+                safe_log(
+                    f"Установка соединения останавливается (мягкое завершение при переходе в оффлайн: {lag}с)..."
+                )
+                time.sleep(lag)
+            elif reason == "reboot":
+                lag = 2.0
+                safe_log(
+                    f"Установка соединения останавливается (мягкое завершение при перезагрузке: {lag}с)..."
+                )
+                time.sleep(lag)
+            else:
+                lag = 0.5
+                safe_log(
+                    f"Установка соединения останавливается (мягкое завершение: {lag}с)..."
+                )
+                time.sleep(lag)
         if hasattr(server, "wait_for_active_threads"):
             server.wait_for_active_threads(5.0)
         time.sleep(0.1)
