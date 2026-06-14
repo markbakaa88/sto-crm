@@ -83,6 +83,12 @@ class TestCoverageGapFiller(unittest.TestCase):
             t.start.side_effect = lambda: func()
             return t
 
+        class MockThread:
+            def __init__(self, target, *args, **kwargs):
+                self.target = target
+            def start(self):
+                self.target()
+
         with (
             patch("sto_crm.cli.create_server") as mock_create_server,
             patch("sto_crm.cli.init_db"),
@@ -91,6 +97,7 @@ class TestCoverageGapFiller(unittest.TestCase):
             patch("threading.current_thread") as mock_curr_thread,
             patch("threading.main_thread") as mock_main_thread,
             patch("threading.Timer", side_effect=mock_timer),
+            patch("threading.Thread", side_effect=MockThread),
             patch("time.sleep"),
         ):
             mock_curr_thread.return_value = "main"
