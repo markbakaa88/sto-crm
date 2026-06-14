@@ -3116,6 +3116,19 @@ main.rendered #content {
 }
 
 /* Kinetic Table Hover & Translation */
+.sortable-header {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+}
+.sortable-header:hover {
+    background-color: var(--surface-muted) !important;
+}
+.sortable-header:focus-visible {
+    outline: 2px solid var(--brand) !important;
+    outline-offset: -2px !important;
+}
+
 .items-table table tbody tr,
 .table tbody tr,
 .modern-hover tbody tr,
