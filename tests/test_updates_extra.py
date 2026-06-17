@@ -56,13 +56,15 @@ class TestUpdatesWindowsMock(unittest.TestCase):
     def test_schedule_windows_update_failures(self, mock_app_path):
         from sto_crm.updates import schedule_windows_update
 
+        dummy_path = Path("dummy")
+
         # 1. file not exists
         mock_current = MagicMock(spec=Path)
         mock_current.exists.return_value = False
         mock_app_path.return_value = mock_current
         with patch("os.name", "nt"):
             with self.assertRaises(RuntimeError) as ctx:
-                schedule_windows_update(Path("dummy"), "sha")
+                schedule_windows_update(dummy_path, "sha")
             self.assertIn("Текущий исполняемый файл не найден", str(ctx.exception))
 
         # 2. file suffix is not .exe
@@ -72,7 +74,7 @@ class TestUpdatesWindowsMock(unittest.TestCase):
         mock_app_path.return_value = mock_current
         with patch("os.name", "nt"):
             with self.assertRaises(RuntimeError) as ctx:
-                schedule_windows_update(Path("dummy"), "sha")
+                schedule_windows_update(dummy_path, "sha")
             self.assertIn(
                 "Автоустановка доступна только для собранного", str(ctx.exception)
             )
@@ -135,7 +137,9 @@ class TestUpdatesWindowsMock(unittest.TestCase):
                 sym_target.symlink_to(target)
                 with self.assertRaises(OSError) as ctx:
                     validate_safe_path(sym_target)
-                self.assertIn("Путь не может быть символической ссылкой", str(ctx.exception))
+                self.assertIn(
+                    "Путь не может быть символической ссылкой", str(ctx.exception)
+                )
             except (OSError, NotImplementedError):
                 # Symlinks might not be supported on some Windows test runners without admin privileges
                 pass
@@ -147,7 +151,10 @@ class TestUpdatesWindowsMock(unittest.TestCase):
                 sym_target2 = sym_parent / "file2.txt"
                 with self.assertRaises(OSError) as ctx:
                     validate_safe_path(sym_target2)
-                self.assertIn("Родительский каталог не может быть символической ссылкой", str(ctx.exception))
+                self.assertIn(
+                    "Родительский каталог не может быть символической ссылкой",
+                    str(ctx.exception),
+                )
             except (OSError, NotImplementedError):
                 pass
 
@@ -167,7 +174,9 @@ class TestUpdatesWindowsMock(unittest.TestCase):
             file_path.write_text("content", encoding="utf-8")
             with self.assertRaises(OSError) as ctx:
                 ensure_real_dir(file_path, "занятого пути")
-            self.assertIn("Путь к каталогу занятого пути занят файлом", str(ctx.exception))
+            self.assertIn(
+                "Путь к каталогу занятого пути занят файлом", str(ctx.exception)
+            )
 
             # Directory is a symlink
             sym_dir = base / "sym_dir"
@@ -175,7 +184,10 @@ class TestUpdatesWindowsMock(unittest.TestCase):
                 sym_dir.symlink_to(directory, target_is_directory=True)
                 with self.assertRaises(OSError) as ctx:
                     ensure_real_dir(sym_dir, "символической ссылки")
-                self.assertIn("Каталог символической ссылки не может быть символической ссылкой", str(ctx.exception))
+                self.assertIn(
+                    "Каталог символической ссылки не может быть символической ссылкой",
+                    str(ctx.exception),
+                )
             except (OSError, NotImplementedError):
                 pass
 
@@ -198,10 +210,11 @@ class TestUpdatesWindowsMock(unittest.TestCase):
             f3.write_text("db3", encoding="utf-8")
 
             # Pruning backups with MAX_BACKUP_FILES = 2 override via mock/patch
-            with patch("sto_crm.updates.MAX_BACKUP_FILES", 2), patch("sto_crm.updates.MAX_BACKUP_TOTAL_BYTES", 0):
+            with (
+                patch("sto_crm.updates.MAX_BACKUP_FILES", 2),
+                patch("sto_crm.updates.MAX_BACKUP_TOTAL_BYTES", 0),
+            ):
                 prune_backups(backup_dir)
                 # One of them should be removed since we have 3 but limit is 2
                 remaining = list(backup_dir.glob("sto_crm_backup_*.sqlite3"))
                 self.assertEqual(len(remaining), 2)
-
-

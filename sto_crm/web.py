@@ -37,6 +37,4 @@ INDEX_HTML = load_index_html()
 
 def index_html() -> str:
     html = INDEX_HTML if is_frozen() else load_index_html()
-    return html.replace(
-        "__STO_CRM_BOOTSTRAP_TOKEN__", _runtime.RUNTIME.bootstrap_token
-    )
+    return html.replace("__STO_CRM_BOOTSTRAP_TOKEN__", _runtime.RUNTIME.bootstrap_token)

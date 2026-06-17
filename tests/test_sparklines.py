@@ -1,6 +1,7 @@
 import socket
 import subprocess
 import time
+from pathlib import Path
 
 import pytest
 
@@ -18,7 +19,7 @@ def crm_server():
     port = get_free_port()
     proc = subprocess.Popen(
         ["python3", "main.py", "--port", str(port), "--no-browser", "--demo"],
-        cwd="/home/zxc/CRM",
+        cwd=str(Path(__file__).parent.parent.absolute()),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -58,25 +59,30 @@ def test_sparklines_dashboard_rendering(crm_server):
 
         page.goto(crm_server)
         page.wait_for_selector(".app")
+        page.wait_for_selector("article.metric:has-text('Выручка за 7 дней')")
 
         # 1. Проверяем, что на дашборде появились карточки
         revenue_card_text = page.locator("article.metric:has-text('Выручка за 7 дней')")
         orders_card_text = page.locator("article.metric:has-text('Заказы за 7 дней')")
-        
+
         assert revenue_card_text.count() == 1
         assert orders_card_text.count() == 1
 
         # 2. Проверяем наличие SVG sparklines
-        revenue_svg = page.locator("article.metric:has-text('Выручка за 7 дней') svg.sparkline-revenue")
-        orders_svg = page.locator("article.metric:has-text('Заказы за 7 дней') svg.sparkline-orders")
-        
+        revenue_svg = page.locator(
+            "article.metric:has-text('Выручка за 7 дней') svg.sparkline-revenue"
+        )
+        orders_svg = page.locator(
+            "article.metric:has-text('Заказы за 7 дней') svg.sparkline-orders"
+        )
+
         assert revenue_svg.count() == 1
         assert orders_svg.count() == 1
 
         # 3. Проверяем a11y атрибуты
         assert revenue_svg.get_attribute("role") == "img"
         assert "Динамика выручки" in revenue_svg.get_attribute("aria-label")
-        
+
         assert orders_svg.get_attribute("role") == "img"
         assert "Динамика заказов" in orders_svg.get_attribute("aria-label")
 

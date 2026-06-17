@@ -22,6 +22,7 @@ class TestAuditHardening(unittest.TestCase):
 
         from sto_crm import runtime
         from sto_crm.database import init_db
+
         self.tempdir = tempfile.TemporaryDirectory()
         self.old_runtime = runtime.RUNTIME
         runtime.RUNTIME = runtime.Runtime(
@@ -35,12 +36,14 @@ class TestAuditHardening(unittest.TestCase):
 
     def tearDown(self):
         from sto_crm import runtime
+
         if hasattr(self, "tempdir"):
             try:
                 runtime.RUNTIME = self.old_runtime
             except Exception:
                 pass
             self.tempdir.cleanup()
+
     def test_ensure_private_dir_chmod_fails(self):
         """Test ensure_private_dir handles chmod failures gracefully (e.g. host rules/containers)."""
         with patch("os.chmod") as mock_chmod, patch("os.umask") as mock_umask:
@@ -182,10 +185,13 @@ class TestAuditHardening(unittest.TestCase):
         class MockConnection(sqlite3.Connection):
             def create_function(self, *args, **kwargs):
                 if kwargs.get("deterministic") or (len(args) >= 4 and args[3] is True):
-                    raise sqlite3.NotSupportedError("Mocked deterministic not supported")
+                    raise sqlite3.NotSupportedError(
+                        "Mocked deterministic not supported"
+                    )
                 return super().create_function(*args, **kwargs)
 
         orig_connect = sqlite3.connect
+
         def mock_connect(*args, **kwargs):
             kwargs["factory"] = MockConnection
             return orig_connect(*args, **kwargs)
@@ -209,7 +215,9 @@ class TestAuditHardening(unittest.TestCase):
         from sto_crm.database import db
 
         mock_conn = MagicMock(spec=sqlite3.Connection)
-        type(mock_conn).in_transaction = PropertyMock(side_effect=AttributeError("no property"))
+        type(mock_conn).in_transaction = PropertyMock(
+            side_effect=AttributeError("no property")
+        )
 
         with patch("sto_crm.database.connect", return_value=mock_conn):
             with db() as conn:
@@ -220,7 +228,9 @@ class TestAuditHardening(unittest.TestCase):
         from sto_crm.database import db
 
         mock_conn = MagicMock(spec=sqlite3.Connection)
-        type(mock_conn).in_transaction = PropertyMock(side_effect=sqlite3.Error("mock sqlite error"))
+        type(mock_conn).in_transaction = PropertyMock(
+            side_effect=sqlite3.Error("mock sqlite error")
+        )
 
         with patch("sto_crm.database.connect", return_value=mock_conn):
             with self.assertRaises(ValueError):
@@ -233,6 +243,7 @@ class TestAuditHardening(unittest.TestCase):
 
         mock_conn = MagicMock(spec=sqlite3.Connection)
         call_count = 0
+
         def mock_execute(sql, *args, **kwargs):
             nonlocal call_count
             if sql == "BEGIN IMMEDIATE":
@@ -243,7 +254,10 @@ class TestAuditHardening(unittest.TestCase):
 
         mock_conn.execute.side_effect = mock_execute
 
-        with patch("sto_crm.database.connect", return_value=mock_conn), patch("time.sleep") as mock_sleep:
+        with (
+            patch("sto_crm.database.connect", return_value=mock_conn),
+            patch("time.sleep") as mock_sleep,
+        ):
             with write_db() as conn:
                 self.assertEqual(conn, mock_conn)
             self.assertEqual(call_count, 2)
@@ -254,6 +268,7 @@ class TestAuditHardening(unittest.TestCase):
         from sto_crm.database import write_db
 
         mock_conn = MagicMock(spec=sqlite3.Connection)
+
         def mock_execute(sql, *args, **kwargs):
             if sql == "BEGIN IMMEDIATE":
                 raise sqlite3.OperationalError("database is locked")
@@ -261,7 +276,10 @@ class TestAuditHardening(unittest.TestCase):
 
         mock_conn.execute.side_effect = mock_execute
 
-        with patch("sto_crm.database.connect", return_value=mock_conn), patch("time.sleep") as mock_sleep:
+        with (
+            patch("sto_crm.database.connect", return_value=mock_conn),
+            patch("time.sleep") as mock_sleep,
+        ):
             with self.assertRaises(sqlite3.OperationalError):
                 with write_db():
                     pass
@@ -274,7 +292,9 @@ class TestAuditHardening(unittest.TestCase):
         from sto_crm.database import init_db
 
         mock_conn = MagicMock(spec=sqlite3.Connection)
-        type(mock_conn).in_transaction = PropertyMock(side_effect=AttributeError("no property"))
+        type(mock_conn).in_transaction = PropertyMock(
+            side_effect=AttributeError("no property")
+        )
 
         @contextmanager
         def mock_db():
@@ -282,7 +302,10 @@ class TestAuditHardening(unittest.TestCase):
 
         with (
             patch("sto_crm.database.db", side_effect=mock_db),
-            patch("sto_crm.database.ensure_schema", side_effect=ValueError("schema failure")),
+            patch(
+                "sto_crm.database.ensure_schema",
+                side_effect=ValueError("schema failure"),
+            ),
             patch("sto_crm.database.ensure_private_dir"),
         ):
             with self.assertRaises(ValueError) as ctx:
@@ -305,7 +328,10 @@ class TestAuditHardening(unittest.TestCase):
 
         with (
             patch("sto_crm.database.db", side_effect=mock_db),
-            patch("sto_crm.database.ensure_schema", side_effect=ValueError("schema failure")),
+            patch(
+                "sto_crm.database.ensure_schema",
+                side_effect=ValueError("schema failure"),
+            ),
             patch("sto_crm.database.ensure_private_dir"),
         ):
             with self.assertRaises(ValueError) as ctx:
@@ -319,17 +345,27 @@ class TestAuditHardening(unittest.TestCase):
 
         with db() as conn:
             conn.execute("DROP INDEX IF EXISTS ux_vehicles_vin_active")
-            conn.execute("INSERT OR IGNORE INTO customers (id, name, created_at, updated_at) VALUES (9999, 'Test Cust', '', '')")
-            conn.execute("INSERT INTO vehicles (customer_id, make, model, vin, created_at, updated_at) VALUES (9999, 'Test', 'T', 'ABC', '', '')")
-            conn.execute("INSERT INTO vehicles (customer_id, make, model, vin, created_at, updated_at) VALUES (9999, 'Test', 'T', 'ABC ', '', '')")
-            conn.execute("INSERT INTO vehicles (customer_id, make, model, vin, created_at, updated_at) VALUES (9999, 'Test', 'T', 'DEF ', '', '')")
+            conn.execute(
+                "INSERT OR IGNORE INTO customers (id, name, created_at, updated_at) VALUES (9999, 'Test Cust', '', '')"
+            )
+            conn.execute(
+                "INSERT INTO vehicles (customer_id, make, model, vin, created_at, updated_at) VALUES (9999, 'Test', 'T', 'ABC', '', '')"
+            )
+            conn.execute(
+                "INSERT INTO vehicles (customer_id, make, model, vin, created_at, updated_at) VALUES (9999, 'Test', 'T', 'ABC ', '', '')"
+            )
+            conn.execute(
+                "INSERT INTO vehicles (customer_id, make, model, vin, created_at, updated_at) VALUES (9999, 'Test', 'T', 'DEF ', '', '')"
+            )
 
-            normalize_legacy_unique_values(conn, 'vehicles', 'vin')
+            normalize_legacy_unique_values(conn, "vehicles", "vin")
 
-            rows = conn.execute("SELECT vin FROM vehicles WHERE customer_id = 9999 ORDER BY id").fetchall()
-            self.assertEqual(rows[0]['vin'], 'ABC')
-            self.assertEqual(rows[1]['vin'], 'ABC ')
-            self.assertEqual(rows[2]['vin'], 'DEF')
+            rows = conn.execute(
+                "SELECT vin FROM vehicles WHERE customer_id = 9999 ORDER BY id"
+            ).fetchall()
+            self.assertEqual(rows[0]["vin"], "ABC")
+            self.assertEqual(rows[1]["vin"], "ABC ")
+            self.assertEqual(rows[2]["vin"], "DEF")
 
             conn.execute("DELETE FROM vehicles WHERE customer_id = 9999")
             conn.execute("DELETE FROM customers WHERE id = 9999")

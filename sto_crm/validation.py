@@ -264,7 +264,9 @@ def validate_order(
             continue
         kind = clean_text(item.get("kind"), 20, "service")
         if kind == "part":
-            inventory_id = parse_int_field(item.get("inventory_id"), "складская позиция")
+            inventory_id = parse_int_field(
+                item.get("inventory_id"), "складская позиция"
+            )
             if inventory_id is not None and inventory_id > 0:
                 part_ids.append(inventory_id)
     if part_ids:

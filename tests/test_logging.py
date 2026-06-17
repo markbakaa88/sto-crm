@@ -38,6 +38,9 @@ class TestLoggingConfig(unittest.TestCase):
             exc_info=None,
         )
 
-        with patch("sto_crm.runtime.redact_sensitive_query", side_effect=Exception("mocked error")):
+        with patch(
+            "sto_crm.runtime.redact_sensitive_query",
+            side_effect=Exception("mocked error"),
+        ):
             formatted = formatter.format(record)
             self.assertEqual(formatted, "User request: csrf_token=abcdef")

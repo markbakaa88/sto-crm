@@ -19,7 +19,7 @@ def crm_server():
     port = get_free_port()
     proc = subprocess.Popen(
         ["python3", "main.py", "--port", str(port), "--no-browser", "--demo"],
-        cwd="/home/zxc/CRM",
+        cwd=str(__import__("pathlib").Path(__file__).parent.parent.absolute()),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -86,7 +86,7 @@ def test_skeletons_loading_rendering(crm_server):
 
         # Имитируем loading=true
         page.evaluate("setLoadingState(true)")
-        
+
         # Проверяем, что в таблице заказов отображаются строки скелетонов
         has_skeletons = page.locator("[data-view='orders'] tr.skeleton-row").count()
         assert has_skeletons > 0

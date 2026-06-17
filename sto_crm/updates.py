@@ -133,7 +133,9 @@ def validate_safe_path(target: Path) -> None:
         resolved_parent = target.parent.resolve()
         resolved_target = target.resolve()
         if resolved_parent not in resolved_target.parents:
-            raise OSError("Недопустимый путь (выход за пределы родительского каталога).")
+            raise OSError(
+                "Недопустимый путь (выход за пределы родительского каталога)."
+            )
         if target.exists() and target.is_symlink():
             raise OSError("Путь не может быть символической ссылкой.")
     except OSError as exc:
@@ -150,7 +152,9 @@ def prune_backups(backup_dir: Path, keep_path: Path | None = None) -> None:
             with contextlib.suppress(OSError):
                 keep_resolved = keep_path.resolve()
         if backup_dir.exists() and backup_dir.is_symlink():
-            raise OSError("Каталог резервных копий не может быть символической ссылкой.")
+            raise OSError(
+                "Каталог резервных копий не может быть символической ссылкой."
+            )
         try:
             resolved_dir = backup_dir.resolve()
         except OSError:
@@ -169,7 +173,7 @@ def prune_backups(backup_dir: Path, keep_path: Path | None = None) -> None:
                     (stat.st_mtime, stat.st_size, path, resolved == keep_resolved)
                 )
         backups.sort(key=lambda row: (row[3], row[0]), reverse=True)
-    
+
         total = 0
         for index, (_mtime, size, path, is_keep_path) in enumerate(backups):
             total += size
@@ -191,6 +195,7 @@ def prune_updates_dir(update_dir: Path) -> None:
     except OSError:
         return
     import time
+
     now = time.time()
     # Удаляем файлы старше 24 часов (86400 секунд), чтобы не мешать активному обновлению
     for path in update_dir.iterdir():
@@ -228,10 +233,14 @@ def create_backup() -> dict[str, Any]:
             if resolved_dir not in resolved_target.parents:
                 raise OSError("Недопустимый путь к файлу резервной копии.")
             if target.exists() and target.is_symlink():
-                raise OSError("Файл резервной копии не может быть символической ссылкой.")
+                raise OSError(
+                    "Файл резервной копии не может быть символической ссылкой."
+                )
             ensure_private_file_created(target)
             if target.is_symlink():
-                raise OSError("Файл резервной копии не может быть символической ссылкой.")
+                raise OSError(
+                    "Файл резервной копии не может быть символической ссылкой."
+                )
             with (
                 closing(connect()) as source,
                 closing(sqlite3.connect(target, timeout=30)) as destination,
@@ -244,7 +253,9 @@ def create_backup() -> dict[str, Any]:
         except (OSError, sqlite3.Error) as exc:
             with contextlib.suppress(OSError):
                 target.unlink(missing_ok=True)
-            raise RuntimeError(f"Не удалось создать резервную копию базы: {exc}") from exc
+            raise RuntimeError(
+                f"Не удалось создать резервную копию базы: {exc}"
+            ) from exc
         return {
             "path": str(target),
             "display_path": display_path(target),
@@ -261,7 +272,9 @@ def latest_backup_info() -> dict[str, Any] | None:
         backup_dir = _runtime.RUNTIME.db_path.parent / "backups"
         try:
             if backup_dir.exists() and backup_dir.is_symlink():
-                raise OSError("Каталог резервных копий не может быть символической ссылкой.")
+                raise OSError(
+                    "Каталог резервных копий не может быть символической ссылкой."
+                )
             resolved_dir = backup_dir.resolve()
             backups = []
             for path in backup_dir.glob("sto_crm_backup_*.sqlite3"):
@@ -653,7 +666,9 @@ def update_status() -> dict[str, Any]:
             "repository": repository,
             "repository_url": github_repository_url(repository),
             "releases_url": github_latest_release_url(repository),
-            "can_install": can_install_windows_update() and release["has_asset"] and release["is_newer"],
+            "can_install": can_install_windows_update()
+            and release["has_asset"]
+            and release["is_newer"],
             "app_path": app_path.name,
             "log_path": display_path(updater_log_path()),
             "release": release,
@@ -697,7 +712,9 @@ def download_release_asset(asset: dict[str, Any], target: Path) -> dict[str, Any
     try:
         validate_safe_path(target)
     except OSError as exc:
-        raise RuntimeError(f"Не удалось проверить путь скачивания обновления: {exc}") from exc
+        raise RuntimeError(
+            f"Не удалось проверить путь скачивания обновления: {exc}"
+        ) from exc
 
     request = urllib.request.Request(
         url, headers=github_headers("application/octet-stream")
@@ -709,11 +726,15 @@ def download_release_asset(asset: dict[str, Any], target: Path) -> dict[str, Any
         try:
             validate_safe_path(tmp_target)
         except OSError as exc:
-            raise RuntimeError(f"Не удалось проверить путь скачивания обновления: {exc}") from exc
+            raise RuntimeError(
+                f"Не удалось проверить путь скачивания обновления: {exc}"
+            ) from exc
         tmp_target.unlink(missing_ok=True)
         ensure_private_file_created(tmp_target)
         if tmp_target.is_symlink():
-            raise OSError("Временный файл обновления не может быть символической ссылкой.")
+            raise OSError(
+                "Временный файл обновления не может быть символической ссылкой."
+            )
         with (
             urllib.request.urlopen(request, timeout=GITHUB_UPDATE_TIMEOUT) as response,  # nosec B310
             tmp_target.open("r+b") as output,

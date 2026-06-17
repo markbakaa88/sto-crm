@@ -31,11 +31,19 @@ class TestServicesReserved(unittest.TestCase):
             """
         )
         # Seed test orders and order items
-        conn.execute("INSERT INTO orders (id, number, status, deleted_at) VALUES (1, 'ORD-001', 'approved', NULL)")
-        conn.execute("INSERT INTO orders (id, number, status, deleted_at) VALUES (2, 'ORD-002', 'approved', NULL)")
-        conn.execute("INSERT INTO order_items (id, order_id, kind, inventory_id, approval_status, quantity) VALUES (1, 1, 'part', 10, 'approved', 5.0)")
-        conn.execute("INSERT INTO order_items (id, order_id, kind, inventory_id, approval_status, quantity) VALUES (2, 2, 'part', 10, 'approved', 3.0)")
-        
+        conn.execute(
+            "INSERT INTO orders (id, number, status, deleted_at) VALUES (1, 'ORD-001', 'approved', NULL)"
+        )
+        conn.execute(
+            "INSERT INTO orders (id, number, status, deleted_at) VALUES (2, 'ORD-002', 'approved', NULL)"
+        )
+        conn.execute(
+            "INSERT INTO order_items (id, order_id, kind, inventory_id, approval_status, quantity) VALUES (1, 1, 'part', 10, 'approved', 5.0)"
+        )
+        conn.execute(
+            "INSERT INTO order_items (id, order_id, kind, inventory_id, approval_status, quantity) VALUES (2, 2, 'part', 10, 'approved', 3.0)"
+        )
+
         try:
             self.assertEqual(reserved_quantity(conn, 10), 8.0)
             self.assertEqual(reserved_quantity(conn, 10, exclude_order_id=1), 3.0)

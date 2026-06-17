@@ -86,6 +86,7 @@ class TestCoverageGapFiller(unittest.TestCase):
         class MockThread:
             def __init__(self, target, *args, **kwargs):
                 self.target = target
+
             def start(self):
                 self.target()
 

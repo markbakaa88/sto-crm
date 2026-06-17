@@ -88,6 +88,7 @@ class TestRuntimeExtra(unittest.TestCase):
     def test_user_data_dir_windows_os_name(self):
         import os
         from unittest.mock import MagicMock, patch
+
         with patch("sto_crm.runtime.Path") as mock_path:
             mock_home = MagicMock()
             mock_path.home.return_value = mock_home
@@ -95,6 +96,7 @@ class TestRuntimeExtra(unittest.TestCase):
             try:
                 os.name = "nt"
                 from sto_crm import runtime
+
                 with patch.dict(os.environ, {}, clear=True):
                     runtime.user_data_dir()
                 mock_path.home.assert_called_once()
@@ -104,12 +106,14 @@ class TestRuntimeExtra(unittest.TestCase):
 
     def test_ensure_private_file_nonexistent(self):
         from sto_crm.runtime import ensure_private_file
+
         ensure_private_file(Path("/nonexistent/file/path/123"))
 
     def test_ensure_private_file_created_windows(self):
         import os
 
         from sto_crm.runtime import ensure_private_file_created
+
         orig_os_name = os.name
         try:
             os.name = "nt"
@@ -124,11 +128,13 @@ class TestRuntimeExtra(unittest.TestCase):
         import os
 
         from sto_crm.runtime import ensure_private_file_created
+
         orig_o_nofollow = getattr(os, "O_NOFOLLOW", None)
         if hasattr(os, "O_NOFOLLOW"):
             delattr(os, "O_NOFOLLOW")
         # create a temporary file
         import tempfile
+
         tmp = tempfile.NamedTemporaryFile(delete=False)
         tmp.close()
         try:
@@ -142,28 +148,40 @@ class TestRuntimeExtra(unittest.TestCase):
         import sys
 
         from sto_crm.runtime import app_executable_path
-        with patch.object(sys, "frozen", True, create=True), \
-             patch.object(sys, "executable", "/tmp/fake_exec"):
+
+        with (
+            patch.object(sys, "frozen", True, create=True),
+            patch.object(sys, "executable", "/tmp/fake_exec"),
+        ):
             self.assertEqual(app_executable_path(), Path("/tmp/fake_exec").resolve())
 
     def test_normalize_github_repository_variants(self):
         from sto_crm.runtime import normalize_github_repository
+
         # raw is empty or None
         self.assertEqual(normalize_github_repository(""), "markbakaa88/sto-crm")
         # non-github domain
-        self.assertEqual(normalize_github_repository("https://gitlab.com/foo/bar"), "markbakaa88/sto-crm")
+        self.assertEqual(
+            normalize_github_repository("https://gitlab.com/foo/bar"),
+            "markbakaa88/sto-crm",
+        )
         # parts < 2
-        self.assertEqual(normalize_github_repository("https://github.com/foo"), "markbakaa88/sto-crm")
+        self.assertEqual(
+            normalize_github_repository("https://github.com/foo"), "markbakaa88/sto-crm"
+        )
 
     def test_parse_int_error_handling(self):
         from sto_crm.runtime import parse_int
+
         class BadObject:
             def __str__(self):
                 raise ValueError("Bad")
+
         self.assertEqual(parse_int(BadObject(), default=999), 999)
 
     def test_parse_int_field_float_and_float_str(self):
         from sto_crm.runtime import parse_int_field
+
         # float input
         self.assertEqual(parse_int_field(5.0, "field"), 5)
         # string representing float
@@ -173,6 +191,7 @@ class TestRuntimeExtra(unittest.TestCase):
     def test_redact_sensitive_query_exception_and_empty_runtime(self):
         import sto_crm.runtime as runtime_mod
         from sto_crm.runtime import redact_sensitive_query
+
         orig_runtime = runtime_mod.RUNTIME
         try:
             # Empty / None runtime
@@ -185,6 +204,7 @@ class TestRuntimeExtra(unittest.TestCase):
                 @property
                 def csrf_token(self):
                     raise ValueError("Blocked")
+
             runtime_mod.RUNTIME = BadRuntimeObj()  # type: ignore
             res = redact_sensitive_query("some_query")
             self.assertEqual(res, "some_query")
@@ -193,6 +213,7 @@ class TestRuntimeExtra(unittest.TestCase):
 
     def test_redact_local_paths_url_and_empty_raw(self):
         from sto_crm.runtime import redact_local_paths
+
         # URL path preservation
         msg = "Go to https://example.com/usr/local/bin/prog for detail"
         self.assertEqual(redact_local_paths(msg), msg)
@@ -208,6 +229,6 @@ class TestRuntimeExtra(unittest.TestCase):
 
     def test_strict_json_loads_large_float(self):
         from sto_crm.runtime import strict_json_loads
+
         with self.assertRaises(ValueError):
             strict_json_loads('{"val": 1e1000}')
-

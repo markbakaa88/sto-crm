@@ -89,6 +89,7 @@ class TestUpdatesPruneCoverage(unittest.TestCase):
             # Set mtime for f1 to be 2 days ago
             old_time = time.time() - (86400 * 2)
             import os
+
             os.utime(f1, (old_time, old_time))
 
             prune_updates_dir(update_dir)
@@ -106,6 +107,7 @@ class TestUpdatesPruneCoverage(unittest.TestCase):
         from unittest.mock import MagicMock, patch
 
         from sto_crm.updates import prune_updates_dir
+
         with tempfile.TemporaryDirectory() as tmpdir:
             update_dir = Path(tmpdir)
             with patch.object(Path, "iterdir") as mock_iterdir:
@@ -113,6 +115,3 @@ class TestUpdatesPruneCoverage(unittest.TestCase):
                 bad_path.is_file.side_effect = OSError("Simulated path access error")
                 mock_iterdir.return_value = [bad_path]
                 prune_updates_dir(update_dir)
-
-
-

@@ -96,28 +96,34 @@ def build_reports(
         if o.get("status") != "closed":
             continue
         closed_dt = parse_local_datetime(o.get("closed_at"))
-        if closed_dt and closed_dt.year == today.year and closed_dt.month == today.month:
+        if (
+            closed_dt
+            and closed_dt.year == today.year
+            and closed_dt.month == today.month
+        ):
             month_closed.append(o)
 
     closed_orders = [o for o in orders if o.get("status") == "closed"]
     revenue_month = sum(parse_float(o.get("total")) for o in month_closed)
-    
+
     # Безопасный расчет налогооблагаемой базы
     taxable_month = sum(
         max(parse_float(o.get("subtotal")) - parse_float(o.get("discount")), 0.0)
         for o in month_closed
     )
     gross_margin_month = sum(parse_float(o.get("margin")) for o in month_closed)
-    
+
     # Защита от деления на околонулевые и нулевые значения
     margin_percent_month = (
         (gross_margin_month / taxable_month * 100) if abs(taxable_month) > 1e-9 else 0.0
     )
     due_total = sum(
-        max(parse_float(o.get("due")), 0.0) for o in orders if o.get("status") != "cancelled"
+        max(parse_float(o.get("due")), 0.0)
+        for o in orders
+        if o.get("status") != "cancelled"
     )
     avg_check = revenue_month / len(month_closed) if month_closed else 0.0
-    
+
     conversion_base = [
         o
         for o in orders
@@ -238,7 +244,7 @@ def build_reports(
                 )
 
     appointment_active_statuses = {"scheduled", "confirmed", "arrived"}
-    
+
     # Использование парсинга дат вместо .startswith() и [:10]
     appointments_today = []
     appointments_upcoming_all = []
@@ -254,7 +260,7 @@ def build_reports(
                 appointments_upcoming_all.append(appointment)
 
     appointments_upcoming = appointments_upcoming_all[:8]
-    
+
     appointment_load_7_days = []
     for offset in range(7):
         day = today + timedelta(days=offset)
@@ -266,7 +272,7 @@ def build_reports(
             app_dt = parse_local_datetime(appointment.get("scheduled_at"))
             if app_dt and app_dt.date() == day:
                 day_appointments.append(appointment)
-                
+
         appointment_load_7_days.append(
             {
                 "date": day_prefix,
@@ -304,12 +310,16 @@ def build_reports(
         )
     )
 
-    overdue_ids = {parse_int(order.get("id")) for order in overdue_orders if order.get("id")}
+    overdue_ids = {
+        parse_int(order.get("id")) for order in overdue_orders if order.get("id")
+    }
     pipeline_by_status = []
     for status, label in ORDER_STATUSES.items():
         status_orders = [order for order in orders if order.get("status") == status]
         status_overdue = [
-            order for order in status_orders if parse_int(order.get("id")) in overdue_ids
+            order
+            for order in status_orders
+            if parse_int(order.get("id")) in overdue_ids
         ]
         pipeline_by_status.append(
             {
@@ -421,7 +431,7 @@ def build_reports(
             bucket["last_order_at"] = candidate_text
         elif not bucket["last_order_at"]:
             bucket["last_order_at"] = candidate_text
-            
+
     vip_customers = sorted(
         [
             {

@@ -341,6 +341,7 @@ class CRMHandler(BaseHTTPRequestHandler):
             )
         except RuntimeError as exc:
             import logging
+
             logging.getLogger("sto_crm").error(
                 f"HTTP runtime error: {redact_sensitive_query(str(exc))}", exc_info=True
             )
@@ -722,7 +723,9 @@ class CRMServer(ThreadingHTTPServer):
         # Force terminate remaining sockets
         with self._active_threads_lock:
             remaining_sockets = list(self._active_requests)
-            remaining_threads = [t for t in self._active_threads if t is not current and t.is_alive()]
+            remaining_threads = [
+                t for t in self._active_threads if t is not current and t.is_alive()
+            ]
 
         for sock in remaining_sockets:
             try:

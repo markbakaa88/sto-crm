@@ -26,6 +26,7 @@ const state = {
     accessToken: "",
     compactMode: false,
     searchTimer: null,
+    catalogSearchTimer: null,
     lastBackupAt: "",
     customerPage: 1,
     customerPageSize: 50,
@@ -630,30 +631,104 @@ function announce(message, urgent = false) {
     });
 }
 
+const toastQueue = [];
+let isToastActive = false;
+let isToastFadingOut = false;
+
 function toast(message, type = "info") {
-    const isError = type === "error";
+    toastQueue.push({ message, type });
+    showNextToast();
+}
+
+function showNextToast() {
+    if (isToastActive || isToastFadingOut || toastQueue.length === 0) return;
+
+    const current = toastQueue.shift();
+    isToastActive = true;
+
+    let normType = "info";
+    if (current.type === "success" || current.type === "ok") {
+        normType = "success";
+    } else if (current.type === "warning" || current.type === "warn") {
+        normType = "warning";
+    } else if (current.type === "danger" || current.type === "error") {
+        normType = "danger";
+    }
+
+    const isError = normType === "danger";
     const node = $("#toast");
     if (!node) {
-        announce(message, isError);
+        announce(current.message, isError);
+        isToastActive = false;
+        showNextToast();
         return;
     }
-    // Professional icon injection based on type
-    const icon = isError ? "⚠️ " : "✅ ";
-    node.innerHTML = `<strong>${icon}</strong> <span>${esc(message)}</span>`;
-    node.classList.toggle("error", isError);
+
+    let icon = "ℹ️ ";
+    if (normType === "success") {
+        icon = "✅ ";
+    } else if (normType === "warning") {
+        icon = "🔸 ";
+    } else if (normType === "danger") {
+        icon = "⚠️ ";
+    }
+
+    node.innerHTML = `<strong>${icon}</strong> <span>${esc(current.message)}</span><button class="toast-close" aria-label="Закрыть уведомление" tabindex="-1">&times;</button>`;
+    node.classList.remove("success", "warning", "danger", "error", "info");
+    node.classList.add(normType);
+    if (normType === "danger") {
+        node.classList.add("error");
+    }
+
     node.setAttribute("aria-live", isError ? "assertive" : "polite");
     node.setAttribute("aria-atomic", "true");
-    // Provide tactile animation reset by class swap (CSP compliant)
+    
+    node.setAttribute("role", "button");
+    node.setAttribute("tabindex", "0");
+    node.setAttribute("aria-label", `${current.message}. Нажмите, чтобы закрыть.`);
+
+    if (!node.dataset.toastHandlerAttached) {
+        node.dataset.toastHandlerAttached = "true";
+        node.addEventListener("click", () => {
+            dismissCurrentToast();
+        });
+        node.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                dismissCurrentToast();
+            }
+        });
+    }
+
     node.classList.remove("show");
     node.offsetHeight; /* trigger reflow */
     node.classList.add("show");
     
-    announce(message, isError);
+    announce(current.message, isError);
+    
+    const duration = (normType === "danger" || normType === "warning") ? 6000 : 3500;
+    
     clearTimeout(node.timer);
     node.timer = setTimeout(() => {
-        node.classList.remove("show");
+        dismissCurrentToast();
+    }, duration);
+}
+
+function dismissCurrentToast() {
+    const node = $("#toast");
+    if (!node || !isToastActive || isToastFadingOut) return;
+    
+    isToastFadingOut = true;
+    clearTimeout(node.timer);
+    node.classList.remove("show");
+    node.removeAttribute("tabindex");
+    
+    setTimeout(() => {
         node.innerHTML = "";
-    }, isError ? 6000 : 3500);
+        isToastActive = false;
+        isToastFadingOut = false;
+        showNextToast();
+    }, 200);
 }
 
 function clearAllFormErrors(form) {
@@ -2168,6 +2243,7 @@ function initShell() {
     bindShellShortcuts();
     if (!shellRefreshInterval) shellRefreshInterval = setInterval(renderShell, 30000);
     renderShell();
+    bindCatalogScroll();
 }
 
 function bindShellShortcuts() {
@@ -3591,27 +3667,105 @@ function catalogMakeHtml(make, models) {
     </article>`;
 }
 
+function updateCatalogList() {
+    const catalog = (state.data && state.data.car_catalog) || { makes: [], models: {}, stats: { makes: 0, models: 0, empty_makes: 0 } };
+    const stats = catalog.stats || { makes: 0, models: 0, empty_makes: 0 };
+    const entries = filteredCatalogEntries();
+    const visibleEntries = entries.slice(0, Math.max(1, state.catalogLimit || 60));
+    const hiddenEntries = Math.max(0, entries.length - visibleEntries.length);
+
+    const headingDiv = document.querySelector(".view-heading > div");
+    if (headingDiv) {
+        const viewMeta = headingDiv.querySelector(".view-meta");
+        const metaList = [
+            `${stats.makes} производителей`,
+            `${stats.models} моделей`,
+            `${entries.length} в подборке`,
+            `${visibleEntries.length} показано`
+        ];
+        const newMetaHtml = metaList.length ? `<div class="view-meta">${metaList.map(item => `<span class="count-pill">${esc(item)}</span>`).join("")}</div>` : "";
+        if (viewMeta) {
+            viewMeta.outerHTML = newMetaHtml;
+        } else {
+            headingDiv.insertAdjacentHTML("beforeend", newMetaHtml);
+        }
+    }
+
+    const summarySec = document.querySelector(".catalog-summary");
+    if (summarySec) {
+        summarySec.innerHTML = `
+            ${metric("Производители", stats.makes, "Полный офлайн-справочник марок", { icon: "М" })}
+            ${metric("Модели", stats.models, "Доступны в карточке авто", { icon: "▦" })}
+            ${metric("Без моделей", stats.empty_makes || 0, "Редкие производители из официального списка", { icon: "○", tone: stats.empty_makes ? "warning" : "" })}
+            ${metric("В подборке", entries.length, `${visibleEntries.length} показано`, { icon: "⌕", tone: "info" })}
+        `;
+    }
+
+    const gridSec = document.querySelector(".catalog-grid");
+    if (gridSec) {
+        gridSec.innerHTML = visibleEntries.map(entry => catalogMakeHtml(entry.make, entry.models)).join("") || emptyState("В каталоге ничего не найдено", "Измените фильтр по марке или модели.", "", "🔍");
+        bindViewActions(gridSec);
+    }
+
+    let loadMoreDiv = document.querySelector(".load-more");
+    if (hiddenEntries > 0) {
+        const btnHtml = `<button class="btn" type="button" data-action="catalog-more">Показать ещё ${Math.min(60, hiddenEntries)} из ${hiddenEntries}</button>`;
+        if (loadMoreDiv) {
+            loadMoreDiv.innerHTML = btnHtml;
+            loadMoreDiv.style.display = "";
+            bindViewActions(loadMoreDiv);
+        } else {
+            loadMoreDiv = document.createElement("div");
+            loadMoreDiv.className = "load-more";
+            loadMoreDiv.innerHTML = btnHtml;
+            if (gridSec) {
+                gridSec.after(loadMoreDiv);
+            }
+            bindViewActions(loadMoreDiv);
+        }
+    } else {
+        if (loadMoreDiv) {
+            loadMoreDiv.style.display = "none";
+        }
+    }
+}
+
+function bindCatalogScroll() {
+    if (window.catalogScrollBound) return;
+    window.catalogScrollBound = true;
+    let isScrolling = false;
+    window.addEventListener("scroll", () => {
+        if (state.route !== "catalog") return;
+        if (isScrolling) return;
+        isScrolling = true;
+        requestAnimationFrame(() => {
+            isScrolling = false;
+            const threshold = 350; // px
+            const scrollHeight = document.documentElement.scrollHeight;
+            const clientHeight = window.innerHeight;
+            const scrollTop = window.scrollY || document.documentElement.scrollTop;
+
+            if (scrollHeight - clientHeight - scrollTop < threshold) {
+                const totalCount = filteredCatalogEntries().length;
+                if (state.catalogLimit < totalCount) {
+                    state.catalogLimit = Math.min((state.catalogLimit || 60) + 60, totalCount);
+                    updateCatalogList();
+                }
+            }
+        });
+    });
+}
+
 function bindCatalogFilter(root) {
     const input = $("#catalogFilter", root);
     if (!input) return;
-    let catalogTimer;
     input.addEventListener("input", event => {
         state.catalogQ = event.target.value;
         state.catalogLimit = 60;
         state.expandedMakes = {};
-        clearTimeout(catalogTimer);
-        const selectionStart = input.selectionStart;
-        const selectionEnd = input.selectionEnd;
-        const wasFocused = document.activeElement === input;
-        catalogTimer = setTimeout(() => {
-            render();
-            const next = $("#catalogFilter");
-            if (wasFocused && next) {
-                next.focus({ preventScroll: true });
-                if (typeof next.setSelectionRange === "function" && selectionStart !== null && selectionEnd !== null) {
-                    next.setSelectionRange(selectionStart, selectionEnd);
-                }
-            }
+        clearTimeout(state.catalogSearchTimer);
+        state.catalogSearchTimer = setTimeout(() => {
+            updateCatalogList();
         }, 180);
     });
 }
@@ -4065,7 +4219,7 @@ function dispatchViewAction(source, event = null) {
             document.querySelector(".view-heading")?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
         } else if (action === "catalog-more") {
             state.catalogLimit = Math.min((state.catalogLimit || 60) + 60, filteredCatalogEntries().length);
-            render();
+            updateCatalogList();
         } else if (action === "new-appointment") openAppointmentModal();
         else if (action === "edit-appointment") {
             const appointment = findAppointmentById(id);
@@ -4098,11 +4252,11 @@ function dispatchViewAction(source, event = null) {
         }
         else if (action === "expand-make") {
             state.expandedMakes[source.dataset.make] = true;
-            render();
+            updateCatalogList();
         }
         else if (action === "collapse-make") {
             state.expandedMakes[source.dataset.make] = false;
-            render();
+            updateCatalogList();
         }
         else if (action === "new-inventory") openInventoryModal();
         else if (action === "edit-inventory") {

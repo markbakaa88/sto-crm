@@ -19,7 +19,7 @@ def crm_server():
     port = get_free_port()
     proc = subprocess.Popen(
         ["python3", "main.py", "--port", str(port), "--no-browser", "--demo"],
-        cwd="/home/zxc/CRM",
+        cwd=str(__import__("pathlib").Path(__file__).parent.parent.absolute()),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -79,7 +79,9 @@ def test_suggestions_and_palette_a11y(crm_server):
             const active = document.querySelector('#commandList .command-item.active');
             return active ? active.id : '';
         }""")
-        aria_active = page.evaluate("() => document.getElementById('commandSearch').getAttribute('aria-activedescendant')")
+        aria_active = page.evaluate(
+            "() => document.getElementById('commandSearch').getAttribute('aria-activedescendant')"
+        )
         assert active_id != ""
         assert aria_active == active_id
 
@@ -94,7 +96,9 @@ def test_suggestions_and_palette_a11y(crm_server):
         page.wait_for_timeout(200)
 
         # Выпадающий список предложений должен открыться
-        assert not page.evaluate("() => document.getElementById('searchSuggestions').hidden")
+        assert not page.evaluate(
+            "() => document.getElementById('searchSuggestions').hidden"
+        )
 
         # ArrowDown
         page.keyboard.press("ArrowDown")
@@ -102,13 +106,17 @@ def test_suggestions_and_palette_a11y(crm_server):
             const active = document.querySelector('#searchSuggestions .command-item.active');
             return active ? active.id : '';
         }""")
-        aria_active2 = page.evaluate("() => document.getElementById('globalSearch').getAttribute('aria-activedescendant')")
+        aria_active2 = page.evaluate(
+            "() => document.getElementById('globalSearch').getAttribute('aria-activedescendant')"
+        )
         assert active_id2 == "searchOption0"
         assert aria_active2 == "searchOption0"
 
         # Escape скроет Suggestions
         page.keyboard.press("Escape")
         page.wait_for_timeout(200)
-        assert page.evaluate("() => document.getElementById('searchSuggestions').hidden")
+        assert page.evaluate(
+            "() => document.getElementById('searchSuggestions').hidden"
+        )
 
         browser.close()

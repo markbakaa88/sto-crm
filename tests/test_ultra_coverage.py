@@ -22,6 +22,7 @@ class TestUltraCoverage(unittest.TestCase):
         self.orig_runtime = _runtime.RUNTIME
         import tempfile
         from pathlib import Path
+
         self.tmpdir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.tmpdir.name) / "test_ultra.sqlite3"
         _runtime.RUNTIME = _runtime.Runtime(
@@ -44,17 +45,22 @@ class TestUltraCoverage(unittest.TestCase):
         class BrokenConnection:
             def __init__(self):
                 pass
+
             @property
             def in_transaction(self):
                 raise AttributeError("Attribute Error simulated")
+
             def commit(self):
                 raise sqlite3.Error("Commit Error simulated")
+
             def rollback(self):
                 raise sqlite3.Error("Rollback Error simulated")
+
             def close(self):
                 raise AttributeError("Close Error simulated")
 
         import sto_crm.database
+
         orig_connect = sto_crm.database.connect
         sto_crm.database.connect = lambda: BrokenConnection()  # type: ignore
 
@@ -70,14 +76,17 @@ class TestUltraCoverage(unittest.TestCase):
         class BrokenInitConnection:
             def execute(self, *args, **kwargs):
                 raise sqlite3.DatabaseError("init_db failed")
+
             @property
             def in_transaction(self):
                 raise AttributeError("simulated")
+
             def rollback(self):
                 pass
+
             def close(self):
                 pass
-        
+
         mock_connect.return_value = BrokenInitConnection()
         with self.assertRaises(sqlite3.DatabaseError):
             init_db()
@@ -95,6 +104,7 @@ class TestUltraCoverage(unittest.TestCase):
         # We simulate the busy-retry loop in write_db
         # Mock connections execute to fail with a locked error first, then succeed
         call_count = 0
+
         def mock_execute(sql, *args):
             nonlocal call_count
             call_count += 1
@@ -106,7 +116,7 @@ class TestUltraCoverage(unittest.TestCase):
 
         conn = MagicMock()
         conn.execute = mock_execute
-        
+
         # We construct a write_db loop manually or mock conn inside write_db
         with patch("sto_crm.database.db") as mock_db:
             mock_db.return_value.__enter__.return_value = conn
@@ -147,30 +157,33 @@ class TestUltraCoverage(unittest.TestCase):
     def test_http_server_graceful_shutdown_flag(self):
         # Trigger lines 137-138
         from sto_crm.http_server import CRMHandler
+
         mock_server = MagicMock()
         mock_server.graceful_shutdown_flag = True
-        
+
         # Instantiate request handler with stub arguments to satisfy static checkers
         with patch.object(CRMHandler, "__init__", lambda self, *args, **kwargs: None):
             handler = CRMHandler(MagicMock(), ("127.0.0.1", 1000), mock_server)
             handler.server = mock_server
             handler.path = "/api/v1/customers"
             handler.send_error_json = MagicMock()
-            
+
             # Call handle_request
             handler.handle_request("GET")
-            handler.send_error_json.assert_called_once_with(503, "Сервер останавливается.")
+            handler.send_error_json.assert_called_once_with(
+                503, "Сервер останавливается."
+            )
 
     def test_http_server_wait_for_active_threads(self):
         # Trigger lines 681-690: wait_for_active_threads break logic
         mock_server = MagicMock()
         mock_server._active_threads_lock = threading.Lock()
-        
+
         dummy_thread = threading.Thread(target=lambda: time.sleep(0.05))
         dummy_thread2 = threading.Thread(target=lambda: time.sleep(0.05))
         dummy_thread.start()
         dummy_thread2.start()
-        
+
         mock_server._active_threads = {dummy_thread, dummy_thread2}
         CRMServer.wait_for_active_threads(mock_server, timeout=0.001)
         dummy_thread.join()
@@ -180,7 +193,7 @@ class TestUltraCoverage(unittest.TestCase):
         # Trigger natural loop exit in wait_for_active_threads
         mock_server = MagicMock()
         mock_server._active_threads_lock = threading.Lock()
-        
+
         # Test with empty threads list
         mock_server._active_threads = set()
         CRMServer.wait_for_active_threads(mock_server, timeout=5.0)
@@ -189,45 +202,46 @@ class TestUltraCoverage(unittest.TestCase):
 
     def test_update_order_cancelled_after_closed_modify_error(self):
         # Trigger line 663: modification of order in cancelled status (where it has been closed before)
-        order = create_order({
-            "customer_id": 1,
-            "status": "closed",
-            "priority": "normal",
-            "items": [{"title": "Work", "quantity": "1", "unit_price": "100"}]
-        })
-        order_cancelled = update_order(order["id"], {
-            **order,
-            "status": "cancelled"
-        })
+        order = create_order(
+            {
+                "customer_id": 1,
+                "status": "closed",
+                "priority": "normal",
+                "items": [{"title": "Work", "quantity": "1", "unit_price": "100"}],
+            }
+        )
+        order_cancelled = update_order(order["id"], {**order, "status": "cancelled"})
         self.assertEqual(order_cancelled["status"], "cancelled")
 
         # Now try to update it but modify something, which raises ValueError
         modified_payload = {
             **order_cancelled,
-            "complaint": "modifying complaint, which is forbidden"
+            "complaint": "modifying complaint, which is forbidden",
         }
         with self.assertRaises(ValueError) as ctx:
             update_order(order["id"], modified_payload)
-        self.assertIn("Отменённый после закрытия заказ-наряд нельзя повторно открыть или изменить", str(ctx.exception))
+        self.assertIn(
+            "Отменённый после закрытия заказ-наряд нельзя повторно открыть или изменить",
+            str(ctx.exception),
+        )
 
     def test_update_order_cancelled_modify_error(self):
         # Trigger line 682: modifying ordinary cancelled order
-        order = create_order({
-            "customer_id": 1,
-            "status": "new",
-            "priority": "normal",
-            "items": [{"title": "Work", "quantity": "1", "unit_price": "100"}]
-        })
-        order_cancelled = update_order(order["id"], {
-            **order,
-            "status": "cancelled"
-        })
+        order = create_order(
+            {
+                "customer_id": 1,
+                "status": "new",
+                "priority": "normal",
+                "items": [{"title": "Work", "quantity": "1", "unit_price": "100"}],
+            }
+        )
+        order_cancelled = update_order(order["id"], {**order, "status": "cancelled"})
         self.assertEqual(order_cancelled["status"], "cancelled")
 
         # Try to modify items of cancelled order
         modified_payload = {
             **order_cancelled,
-            "items": [{"title": "Mod Work", "quantity": "1", "unit_price": "100"}]
+            "items": [{"title": "Mod Work", "quantity": "1", "unit_price": "100"}],
         }
         with self.assertRaises(ValueError) as ctx:
             update_order(order["id"], modified_payload)
@@ -238,8 +252,10 @@ class TestUltraCoverage(unittest.TestCase):
         with db() as conn:
             # We call apply_inventory_delta with an extremely small difference
             old_items = [{"inventory_id": 1, "quantity": 1.0, "kind": "part"}]
-            new_items = [{"inventory_id": 1, "quantity": 1.00000000000001, "kind": "part"}]
-            
+            new_items = [
+                {"inventory_id": 1, "quantity": 1.00000000000001, "kind": "part"}
+            ]
+
             # Should run without error and bypass actual stock modification
             apply_inventory_delta(conn, "closed", "closed", old_items, new_items)
 
@@ -249,10 +265,13 @@ class TestUltraCoverage(unittest.TestCase):
     def test_fetch_asset_json(self, mock_fetch):
         # Trigger line 429: fetch_asset_json octet-stream headers
         from sto_crm.updates import github_headers
+
         mock_fetch.return_value = {"version": "1.0.0"}
-        res = fetch_asset_json({"browser_download_url": "http://example.com/latest.json"})
+        res = fetch_asset_json(
+            {"browser_download_url": "http://example.com/latest.json"}
+        )
         self.assertEqual(res, {"version": "1.0.0"})
         mock_fetch.assert_called_once_with(
             "http://example.com/latest.json",
-            headers=github_headers("application/octet-stream")
+            headers=github_headers("application/octet-stream"),
         )

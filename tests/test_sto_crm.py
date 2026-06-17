@@ -4564,8 +4564,14 @@ class StoCrmTests(unittest.TestCase):
     def test_print_media_rules_and_elements_hidden_in_app_css_and_templates(self):
         # Проверяем, что в app.css определены правила для печати
         app_css = sto_crm.web._read_asset("app.css")
-        self.assertIn(".items-table tr, .section-card { page-break-inside: avoid; break-inside: avoid; }", app_css)
-        self.assertIn(".btn, .status-badge, .nav-badge, [data-action], [data-save] { display: none !important; }", app_css)
+        self.assertIn(
+            ".items-table tr, .section-card { page-break-inside: avoid; break-inside: avoid; }",
+            app_css,
+        )
+        self.assertIn(
+            ".btn, .status-badge, .nav-badge, [data-action], [data-save] { display: none !important; }",
+            app_css,
+        )
 
         # Проверяем, что в шаблоне print_order_html есть break-inside правила для tr
         order = {
@@ -4580,7 +4586,9 @@ class StoCrmTests(unittest.TestCase):
             "due": 0,
         }
         print_html = sto_crm.print_order_html(order)
-        self.assertIn("tr { page-break-inside: avoid; break-inside: avoid; }", print_html)
+        self.assertIn(
+            "tr { page-break-inside: avoid; break-inside: avoid; }", print_html
+        )
 
 
 if __name__ == "__main__":

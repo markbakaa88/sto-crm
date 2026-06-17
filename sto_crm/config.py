@@ -17,6 +17,8 @@ MAX_NUMERIC_ABS = 1_000_000_000_000.0
 MAX_FINANCIAL_TOTAL = 1_000_000_000_000.0
 MIN_QUANTITY_STEP = 0.01
 UPDATE_STATUS_CACHE_SECONDS = 60
+
+
 def _get_env_int(key: str, default: int) -> int:
     val = os.environ.get(key)
     if val is None:

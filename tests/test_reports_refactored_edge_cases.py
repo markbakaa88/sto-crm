@@ -7,11 +7,19 @@ from sto_crm.reports import build_reports, format_vehicle_text, order_vehicle_te
 class TestReportsRefactoredEdgeCases(unittest.TestCase):
     def test_format_vehicle_text(self):
         # Test basic format
-        self.assertEqual(format_vehicle_text("Toyota", "Camry", 2020, "A123BC77"), "Toyota Camry 2020 A123BC77")
+        self.assertEqual(
+            format_vehicle_text("Toyota", "Camry", 2020, "A123BC77"),
+            "Toyota Camry 2020 A123BC77",
+        )
         # Test None and empty string values
-        self.assertEqual(format_vehicle_text("Toyota", "", None, "A123BC77"), "Toyota A123BC77")
+        self.assertEqual(
+            format_vehicle_text("Toyota", "", None, "A123BC77"), "Toyota A123BC77"
+        )
         # Test only spaces
-        self.assertEqual(format_vehicle_text("  Toyota  ", " ", None, " A123BC77 "), "Toyota A123BC77")
+        self.assertEqual(
+            format_vehicle_text("  Toyota  ", " ", None, " A123BC77 "),
+            "Toyota A123BC77",
+        )
         # Test all empty/None values
         self.assertEqual(format_vehicle_text(None, "", "  ", None), "")
 
@@ -20,7 +28,7 @@ class TestReportsRefactoredEdgeCases(unittest.TestCase):
             "vehicle_make": "Ford",
             "vehicle_model": "Focus",
             "vehicle_year": 2015,
-            "vehicle_plate": "X777XX77"
+            "vehicle_plate": "X777XX77",
         }
         self.assertEqual(order_vehicle_text(order), "Ford Focus 2015 X777XX77")
 
@@ -47,11 +55,13 @@ class TestReportsRefactoredEdgeCases(unittest.TestCase):
                 "total": "0.0",
                 "subtotal": "0.0",
                 "discount": "0.0",
-                "margin": "100.0"
+                "margin": "100.0",
             }
         ]
         # Should not raise ZeroDivisionError and should return 0.0 margin
-        reports = build_reports(orders=orders, inventory=[], vehicles=[], appointments=[])
+        reports = build_reports(
+            orders=orders, inventory=[], vehicles=[], appointments=[]
+        )
         self.assertEqual(reports["margin_percent_month"], 0.0)
 
         # Orders closed in current month with total = 0 and subtotal - discount very close to zero
@@ -63,10 +73,12 @@ class TestReportsRefactoredEdgeCases(unittest.TestCase):
                 "total": "0.0",
                 "subtotal": "0.0000000000001",
                 "discount": "0.0",
-                "margin": "100.0"
+                "margin": "100.0",
             }
         ]
-        reports_tiny = build_reports(orders=orders_tiny, inventory=[], vehicles=[], appointments=[])
+        reports_tiny = build_reports(
+            orders=orders_tiny, inventory=[], vehicles=[], appointments=[]
+        )
         self.assertEqual(reports_tiny["margin_percent_month"], 0.0)
 
     def test_build_reports_timezone_aware_parsing(self):
@@ -82,10 +94,12 @@ class TestReportsRefactoredEdgeCases(unittest.TestCase):
                 "total": "100.0",
                 "subtotal": "100.0",
                 "discount": "0.0",
-                "margin": "50.0"
+                "margin": "50.0",
             }
         ]
-        reports = build_reports(orders=orders, inventory=[], vehicles=[], appointments=[])
+        reports = build_reports(
+            orders=orders, inventory=[], vehicles=[], appointments=[]
+        )
         # Verify that closed_at with timezone is parsed and matched to month_closed
         self.assertEqual(reports["revenue_month"], 100.0)
         self.assertEqual(reports["margin_percent_month"], 50.0)
@@ -101,10 +115,12 @@ class TestReportsRefactoredEdgeCases(unittest.TestCase):
                 "promised_at": past_time,
                 "due": "500.0",
                 "total": "500.0",
-                "priority": "high"
+                "priority": "high",
             }
         ]
-        reports = build_reports(orders=orders, inventory=[], vehicles=[], appointments=[])
+        reports = build_reports(
+            orders=orders, inventory=[], vehicles=[], appointments=[]
+        )
         self.assertEqual(reports["overdue_orders_count"], 1)
         self.assertEqual(len(reports["overdue_orders"]), 1)
         self.assertEqual(reports["overdue_orders"][0]["id"], 1)
@@ -113,33 +129,37 @@ class TestReportsRefactoredEdgeCases(unittest.TestCase):
         now = datetime.now()
         today_date_str = now.date().isoformat()
         tomorrow_date_str = (now.date() + timedelta(days=1)).isoformat()
-        
+
         appointments = [
             {
                 "id": 1,
                 "status": "scheduled",
                 "scheduled_at": f"{today_date_str}T11:00",
                 "customer_name": "John",
-                "vehicle_make": "Tesla"
+                "vehicle_make": "Tesla",
             },
             {
                 "id": 2,
                 "status": "confirmed",
                 "scheduled_at": f"{tomorrow_date_str}T14:00",
                 "customer_name": "Alice",
-                "vehicle_make": "BMW"
+                "vehicle_make": "BMW",
             },
             {
                 "id": 3,
-                "status": "cancelled", # should be ignored because status is not active
+                "status": "cancelled",  # should be ignored because status is not active
                 "scheduled_at": f"{today_date_str}T10:00",
-                "customer_name": "Bob"
-            }
+                "customer_name": "Bob",
+            },
         ]
-        
-        reports = build_reports(orders=[], inventory=[], vehicles=[], appointments=appointments)
+
+        reports = build_reports(
+            orders=[], inventory=[], vehicles=[], appointments=appointments
+        )
         self.assertEqual(reports["appointments_today_count"], 1)
-        self.assertEqual(reports["appointments_upcoming_count"], 2) # today and tomorrow are both >= today
+        self.assertEqual(
+            reports["appointments_upcoming_count"], 2
+        )  # today and tomorrow are both >= today
         self.assertEqual(reports["appointments_today"][0]["id"], 1)
         self.assertEqual(reports["appointments_upcoming"][1]["id"], 2)
 
@@ -151,28 +171,31 @@ class TestReportsRefactoredEdgeCases(unittest.TestCase):
                 "make": "Audi",
                 "customer_reminder_consent": 1,
                 "customer_preferred_channel": "sms",
-                "next_service_at": (now.date() + timedelta(days=5)).isoformat() + "T12:00:00.000Z", # complex format
+                "next_service_at": (now.date() + timedelta(days=5)).isoformat()
+                + "T12:00:00.000Z",  # complex format
                 "next_service_mileage": 0,
-                "mileage": 0
+                "mileage": 0,
             },
             {
                 "id": 2,
                 "make": "Opel",
                 "customer_reminder_consent": 1,
-                "customer_preferred_channel": "none", # should be skipped because of preferred channel
+                "customer_preferred_channel": "none",  # should be skipped because of preferred channel
                 "next_service_at": (now.date() + timedelta(days=5)).isoformat(),
                 "next_service_mileage": 0,
-                "mileage": 0
+                "mileage": 0,
             },
             {
                 "id": 3,
                 "make": "Peugeot",
-                "customer_reminder_consent": 0, # should be skipped because of no consent
+                "customer_reminder_consent": 0,  # should be skipped because of no consent
                 "next_service_at": (now.date() + timedelta(days=5)).isoformat(),
                 "next_service_mileage": 0,
-                "mileage": 0
-            }
+                "mileage": 0,
+            },
         ]
-        reports = build_reports(orders=[], inventory=[], vehicles=vehicles, appointments=[])
+        reports = build_reports(
+            orders=[], inventory=[], vehicles=vehicles, appointments=[]
+        )
         self.assertEqual(len(reports["service_reminders"]), 1)
         self.assertEqual(reports["service_reminders"][0]["id"], 1)

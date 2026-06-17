@@ -248,12 +248,12 @@ class TestServicesExtra(unittest.TestCase):
             {
                 "customer_id": c["id"],
                 "vehicle_id": v["id"],
-                "scheduled_at": "2026-06-17T15:00",
+                "scheduled_at": "2026-06-18T12:00",
                 "duration_minutes": 45,
                 "status": "scheduled",
             },
         )
-        self.assertEqual(updated["scheduled_at"], "2026-06-17T15:00")
+        self.assertEqual(updated["scheduled_at"], "2026-06-18T12:00")
         self.assertEqual(updated["duration_minutes"], 45)
 
         # Удалим запись (покроем delete_appointment)

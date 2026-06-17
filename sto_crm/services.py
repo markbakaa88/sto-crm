@@ -656,7 +656,11 @@ def update_order(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
             allow_deleted_vehicle_id=old_deleted_vehicle_id,
         )
         new_status = data["status"]
-        if str(old["closed_at"] or "") and old_status == "cancelled" and new_status != "cancelled":
+        if (
+            str(old["closed_at"] or "")
+            and old_status == "cancelled"
+            and new_status != "cancelled"
+        ):
             raise ValueError(
                 "Отменённый после закрытия заказ-наряд нельзя повторно открыть или изменить. Создайте новый корректирующий заказ."
             )
@@ -915,7 +919,9 @@ def ensure_inventory_available_for_order(
         """,
         params,
     ).fetchall()
-    reserved_map = {row["inventory_id"]: parse_float(row["reserved"]) for row in reserved_rows}
+    reserved_map = {
+        row["inventory_id"]: parse_float(row["reserved"]) for row in reserved_rows
+    }
 
     for part_id, quantity in requested.items():
         if part_id not in parts_map:
