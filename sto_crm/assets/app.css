@@ -1806,6 +1806,65 @@ body.compact .workspace-toolbar { padding: var(--space-2) 0; }
 .priority-dot[data-priority="normal"]::before { background: var(--ink-faint); }
 .priority-dot[data-priority="low"]::before { background: var(--line-strong); }
 
+
+/* Skeleton loader styles */
+.skeleton-shimmer {
+    position: relative;
+    overflow: hidden;
+    background: var(--surface-muted);
+    border-radius: var(--radius-sm);
+}
+.skeleton-shimmer::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45) 50%, transparent);
+    animation: shimmer-effect 1.5s infinite var(--ease-out);
+    transform: translateX(-100%);
+}
+body.dark .skeleton-shimmer::after {
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08) 50%, transparent);
+}
+@keyframes shimmer-effect {
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+.skeleton-text {
+    height: 12px;
+    margin-bottom: var(--space-2);
+}
+.skeleton-text.short {
+    width: 40%;
+}
+.skeleton-text.medium {
+    width: 65%;
+}
+.skeleton-text.long {
+    width: 85%;
+}
+
+.skeleton-badge {
+    display: inline-block;
+    height: 20px;
+    width: 80px;
+    border-radius: var(--radius-xs);
+}
+
+.skeleton-circle {
+    width: 32px;
+    height: 32px;
+    border-radius: 9999px;
+}
+
+.skeleton-table td {
+    padding: var(--space-3) var(--space-4);
+}
+
 /* Skeleton rows for table refresh */
 .skeleton-bar {
     display: inline-block; height: 10px; border-radius: 4px;

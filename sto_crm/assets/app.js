@@ -1157,6 +1157,11 @@ function setLoadingState(isLoading) {
     const syncChip = $("#syncChip");
     if (syncChip && isLoading) syncChip.dataset.state = "syncing";
     renderShell();
+    if (isLoading) {
+        const routeName = routes[state.route] || "раздела";
+        announce(`Загрузка раздела ${routeName}...`, false);
+    }
+    render();
 }
 
 function updateTopbarOffset() {
@@ -1232,7 +1237,7 @@ async function loadData() {
             dbPath.textContent = `База: ${state.data.app.db_path}`;
             dbPath.title = state.data.app.db_directory ? `Папка базы: ${state.data.app.db_directory}` : "";
         }
-        render();
+        if (seq === state.loadSeq) setLoadingState(false);
         updateSearchClear();
         announce(`Данные обновлены. Раздел: ${routes[state.route]}.`);
     } catch (error) {
@@ -1240,7 +1245,7 @@ async function loadData() {
         throw error;
     } finally {
         if (state.bootstrapAbortController === controller) state.bootstrapAbortController = null;
-        if (seq === state.loadSeq) setLoadingState(false);
+        if (seq === state.loadSeq && state.loading) setLoadingState(false);
     }
 }
 
@@ -1409,7 +1414,7 @@ function render() {
         mainEl.offsetHeight; /* trigger reflow */
         mainEl.classList.add('rendered');
     }
-    if (!state.data) return;
+    if (!state.data && !state.loading) return;
     const content = $("#content");
     if (!content) return;
 
@@ -2531,6 +2536,114 @@ function emptyState(title, text, action = "", icon = "📁") {
     return `<div class="empty"><div class="empty-icon" aria-hidden="true">${esc(icon)}</div><strong>${esc(title)}</strong><span>${esc(text)}</span>${action}</div>`;
 }
 
+const SkeletonBuilder = {
+    bar(widthPercent, height = "12px", classes = "") {
+        return `<span class="skeleton-shimmer ${classes}" style="width: ${widthPercent}%; height: ${height}; display: inline-block; vertical-align: middle;" aria-hidden="true"></span>`;
+    },
+    appointments(count = 5) {
+        let html = "";
+        for (let i = 0; i < count; i++) {
+            html += `
+                <tr class="skeleton-row" aria-hidden="true">
+                    <td class="nowrap" data-label="Запланировано">
+                        <div class="cell-title">
+                            <strong>${this.bar(80, "12px", "skeleton-text")}</strong>
+                            <div class="muted text-sm" style="margin-top: 4px;">${this.bar(40, "10px", "skeleton-text")}</div>
+                        </div>
+                    </td>
+                    <td data-label="О клиенте">
+                        <div class="cell-title">
+                            <strong>${this.bar(60, "12px", "skeleton-text")}</strong>
+                            <div class="muted d-flex align-items-center" style="margin-top: 4px; gap: 4px;">📱 ${this.bar(50, "10px", "skeleton-text")}</div>
+                        </div>
+                    </td>
+                    <td data-label="Транспорт"><strong>${this.bar(70, "12px", "skeleton-text")}</strong></td>
+                    <td data-label="Статус визита">${this.bar(65, "20px", "skeleton-badge")}</td>
+                    <td data-label="Приёмщик"><strong>${this.bar(50, "12px", "skeleton-text")}</strong></td>
+                    <td data-label="Повод обращения">
+                        <div class="cell-title">
+                            <strong>${this.bar(90, "12px", "skeleton-text")}</strong>
+                            <div class="muted text-sm" style="margin-top: 4px;">${this.bar(80, "10px", "skeleton-text")}</div>
+                        </div>
+                    </td>
+                    <td data-label="Действия">${this.bar(60, "28px", "skeleton-badge")}</td>
+                </tr>
+            `;
+        }
+        return html;
+    },
+    orders(count = 5, compact = false) {
+        let html = "";
+        if (compact) {
+            for (let i = 0; i < count; i++) {
+                html += `
+                    <tr class="skeleton-row" aria-hidden="true">
+                        <td data-label="Номер"><div class="cell-title"><strong>${this.bar(40, "12px", "skeleton-text")}</strong></div></td>
+                        <td data-label="Клиент и авто"><div class="cell-title"><strong>${this.bar(60, "12px", "skeleton-text")}</strong><div class="muted" style="margin-top: 4px;">${this.bar(50, "10px", "skeleton-text")}</div></div></td>
+                        <td data-label="Статус">${this.bar(65, "20px", "skeleton-badge")}</td>
+                        <td class="money" data-label="Итого"><strong>${this.bar(40, "12px", "skeleton-text")}</strong></td>
+                        <td data-label="Действия">${this.bar(90, "28px", "skeleton-badge")}</td>
+                    </tr>
+                `;
+            }
+            return html;
+        }
+        for (let i = 0; i < count; i++) {
+            html += `
+                <tr class="skeleton-row" aria-hidden="true">
+                    <td data-label="Номер"><div class="cell-title"><strong>${this.bar(45, "12px", "skeleton-text")}</strong></div></td>
+                    <td data-label="Клиент и авто"><div class="cell-title"><strong>${this.bar(60, "12px", "skeleton-text")}</strong><div class="muted" style="margin-top: 4px;">🚗 ${this.bar(50, "10px", "skeleton-text")}</div></div></td>
+                    <td data-label="Статус">${this.bar(65, "20px", "skeleton-badge")}</td>
+                    <td class="nowrap" data-label="Срок"><strong>${this.bar(50, "12px", "skeleton-text")}</strong></td>
+                    <td data-label="Мастер"><div class="cell-title"><strong>${this.bar(50, "12px", "skeleton-text")}</strong><div class="muted text-sm" style="margin-top: 4px;">${this.bar(40, "10px", "skeleton-text")}</div></div></td>
+                    <td class="money" data-label="Итого"><strong class="text-lg">${this.bar(40, "14px", "skeleton-text")}</strong></td>
+                    <td class="money" data-label="К оплате">${this.bar(65, "20px", "skeleton-badge")}</td>
+                    <td data-label="Действия">${this.bar(90, "28px", "skeleton-badge")}</td>
+                </tr>
+            `;
+        }
+        return html;
+    },
+    customers(count = 5) {
+        let html = "";
+        for (let i = 0; i < count; i++) {
+            html += `
+                <tr class="skeleton-row" aria-hidden="true">
+                    <td data-label="ID"><div class="muted">#${this.bar(20, "12px", "skeleton-text")}</div></td>
+                    <td data-label="Клиент"><div class="cell-title"><strong>${this.bar(60, "12px", "skeleton-text")}</strong><div class="muted d-flex align-items-center" style="margin-top: 4px; gap: 4px;">📱 ${this.bar(50, "10px", "skeleton-text")}</div></div></td>
+                    <td data-label="Email">${this.bar(40, "12px", "skeleton-text")}</td>
+                    <td data-label="Предпочитает">${this.bar(30, "12px", "skeleton-text")}</td>
+                    <td data-label="Согласие">${this.bar(25, "20px", "skeleton-badge")}</td>
+                    <td data-label="Заметки"><div class="muted">${this.bar(70, "12px", "skeleton-text")}</div></td>
+                    <td data-label="Действия">${this.bar(60, "28px", "skeleton-badge")}</td>
+                </tr>
+            `;
+        }
+        return html;
+    },
+    inventory(count = 5) {
+        let html = "";
+        for (let i = 0; i < count; i++) {
+            html += `
+                <tr class="skeleton-row" aria-hidden="true">
+                    <td data-label="Номенклатура"><div class="cell-title"><strong class="inventory-name">${this.bar(80, "12px", "skeleton-text")}</strong></div></td>
+                    <td data-label="Артикул">${this.bar(40, "20px", "skeleton-badge")}</td>
+                    <td data-label="Бренд"><strong>${this.bar(50, "12px", "skeleton-text")}</strong></td>
+                    <td data-label="Наличие">
+                        ${this.bar(30, "12px", "skeleton-text")}
+                        <div class="muted min-qty-hint" style="margin-top: 4px;">${this.bar(20, "10px", "skeleton-text")}</div>
+                    </td>
+                    <td class="money" data-label="Цена клиенту"><strong>${this.bar(45, "12px", "skeleton-text")}</strong></td>
+                    <td class="money" data-label="Себестоимость">${this.bar(35, "12px", "skeleton-text")}</td>
+                    <td data-label="Поставщик"><div class="cell-title"><strong>${this.bar(60, "12px", "skeleton-text")}</strong></div></td>
+                    <td data-label="Действия">${this.bar(60, "28px", "skeleton-badge")}</td>
+                </tr>
+            `;
+        }
+        return html;
+    }
+};
+
 function noticeHtml(tone = "info", title = "", text = "", action = "") {
     const safeTone = new Set(["info", "warning", "error"]).has(tone) ? tone : "info";
     const toneClass = safeTone === "info" ? "notice" : `notice ${safeTone}`;
@@ -2723,8 +2836,8 @@ function textareaField(formScope, name, label, value = "", attributes = "", span
 }
 
 function renderDashboard() {
-    const r = state.data.reports || {};
-    const recent = [...(state.data.orders || [])].slice(0, 5);
+    const r = (state.data && state.data.reports) || {};
+    const recent = state.data ? [...(state.data.orders || [])].slice(0, 5) : [];
     const procurement = r.procurement_plan || [];
     return `
         ${viewHeading("Рабочая смена", "Главный фокус — ближайшие действия. Смотрите план смены, риски и закупку в одном месте.", [], [
@@ -2830,8 +2943,8 @@ function miniLedger(report) {
     const cells = [
         ["Заказов", report.orders_total || 0],
         ["Закрыто", report.closed_orders_count || 0],
-        ["Клиентов", report.customers_total ?? state.data.lookups.customers.length],
-        ["Авто", report.vehicles_total ?? state.data.lookups.vehicles.length]
+        ["Клиентов", report.customers_total ?? (state.data && state.data.lookups?.customers?.length || 0)],
+        ["Авто", report.vehicles_total ?? (state.data && state.data.lookups?.vehicles?.length || 0)]
     ];
     return `<div class="mini-ledger">${cells.map(([label, value]) => `<div class="mini-ledger-card"><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`).join("")}</div>`;
 }
@@ -2978,10 +3091,13 @@ function actionPlanList(items = []) {
 }
 
 function renderAppointments() {
-    const rows = state.data.appointments || [];
-    const upcoming = state.data.reports?.appointments_upcoming || [];
+    const rows = (state.data && state.data.appointments) || [];
+    const upcoming = (state.data && state.data.reports?.appointments_upcoming) || [];
     const sorted = sortCollection(rows, "appointments");
-    const body = sorted.map(appointment => `
+    const todayCount = (state.data && state.data.reports?.appointments_today_count) || 0;
+    const body = state.loading
+        ? SkeletonBuilder.appointments(5)
+        : sorted.map(appointment => `
                         <tr>
                             <td class="nowrap" data-label="Запланировано"><div class="cell-title"><strong>${dateShort(appointment.scheduled_at)}</strong><div class="muted text-sm">~${Number(appointment.duration_minutes || 0)} мин</div></div></td>
                             <td data-label="О клиенте"><div class="cell-title"><strong>${linkCustomerHtml(appointment.customer_id, appointment.customer_name)}</strong><div class="muted d-flex align-items-center"><span class="icon-contact" aria-hidden="true">📱</span> ${esc(appointment.customer_phone)}</div></div></td>
@@ -2993,14 +3109,14 @@ function renderAppointments() {
                         </tr>`).join("");
     return `
         ${viewHeading("Календарь и планирование", "Запланированные визиты, подтверждения и координация приёмки на СТО.", [
-            `${rows.length} в списке`,
-            `${upcoming.length} ближайших`,
-            `${state.data.reports.appointments_today_count || 0} на сегодня`
+            `${state.loading ? '...' : rows.length} в списке`,
+            `${state.loading ? '...' : upcoming.length} ближайших`,
+            `${state.loading ? '...' : todayCount} на сегодня`
         ], [
             { label: "Выгрузить CSV", action: "export-csv", export: "appointments", className: "ghost" },
             { label: "+ Новая запись", action: "new-appointment", className: "" }
         ])}
-        ${rows.length ? `<div class="table-wrap responsive-table-wrap">
+        ${(rows.length || state.loading) ? `<div class="table-wrap responsive-table-wrap">
             <table class="responsive-table modern-hover" aria-label="Таблица календаря визитов">
                 <thead>${tableHead([
                     { text: "Запланировано", sortKey: "scheduled_at" },
@@ -3034,30 +3150,33 @@ function vipCustomerList(customers = []) {
 }
 
 function renderOrders() {
+    const ordersCount = (state.data && state.data.orders?.length) || 0;
+    const activeOrders = (state.data && state.data.reports?.active_orders) || 0;
+    const pipelineVal = (state.data && state.data.reports?.pipeline_value) || 0;
     return `
         ${viewHeading("Заказ-наряды", "Контролируйте статусы ремонта, сроки, оплаты, согласование строк и повторные продажи.", [
-            `${state.data.orders.length} найдено`,
-            `${state.data.reports.active_orders || 0} активных`,
-            `${money(state.data.reports.pipeline_value || 0)} в работе`
+            `${state.loading ? '...' : ordersCount} найдено`,
+            `${state.loading ? '...' : activeOrders} активных`,
+            `${state.loading ? '...' : money(pipelineVal)} в работе`
         ], [
             { label: "CSV", action: "export-csv", export: "orders", className: "ghost" },
             { label: "Новый заказ", action: "new-order", className: "" }
         ])}
         <div class="workspace-toolbar">
             <div class="segmented" role="group" aria-label="Фильтр заказов по статусу">
-                ${[["all", state.data.orders.length], ["new"], ["diagnostics"], ["estimate"], ["approved"], ["in_progress"], ["done"], ["closed"], ["cancelled"]].map(entry => {
+                ${[["all", (state.data && state.data.orders?.length) || 0], ["new"], ["diagnostics"], ["estimate"], ["approved"], ["in_progress"], ["done"], ["closed"], ["cancelled"]].map(entry => {
                     const status = entry[0];
                     const label = status === "all" ? "Все" : esc(state.data.statuses[status]);
-                    const counts = state.data.reports?.status_counts || {};
-                    const count = status === "all"
+                    const counts = (state.data && state.data.reports?.status_counts) || {};
+                    const count = state.loading ? 0 : (status === "all"
                         ? Object.values(counts).reduce((sum, value) => sum + Number(value || 0), 0)
-                        : Number(counts[status] || 0);
+                        : Number(counts[status] || 0));
                     const countHtml = count ? ` <span class="seg-count" aria-hidden="true">${count}</span>` : "";
                     return `<button type="button" data-action="filter-status" data-status="${status}" class="${state.status === status ? "active" : ""}" aria-pressed="${state.status === status ? "true" : "false"}">${label}${countHtml}<span class="sr-only">${count ? ` (${count})` : ""}</span></button>`;
                 }).join("")}
             </div>
         </div>
-        ${ordersTable(sortCollection(state.data.orders, "orders"), false)}
+        ${ordersTable(sortCollection((state.data && state.data.orders) || [], "orders"), false)}
     `;
 }
 
@@ -3071,6 +3190,31 @@ function orderRowActions(order) {
 }
 
 function ordersTable(orders, compact) {
+    if (state.loading) {
+        return `<div class="table-wrap responsive-table-wrap">
+            <table class="${compact ? "compact-table " : ""}responsive-table modern-hover" aria-label="${compact ? "Таблица последних заказ-нарядов" : "Таблица заказ-нарядов"}">
+                <thead>${tableHead(compact ? [
+                    { text: "Номер", sortKey: "number" },
+                    { text: "Клиент и авто", sortKey: "customer_name" },
+                    { text: "Статус", sortKey: "status" },
+                    { text: "Итого", className: "money", sortKey: "total" },
+                    ""
+                ] : [
+                    { text: "Номер", sortKey: "number" },
+                    { text: "Клиент и авто", sortKey: "customer_name" },
+                    { text: "Статус", sortKey: "status" },
+                    { text: "Срок", sortKey: "promised_at" },
+                    { text: "Мастер", sortKey: "mechanic" },
+                    { text: "Итого", className: "money", sortKey: "total" },
+                    { text: "К оплате", className: "money", sortKey: "due" },
+                    ""
+                ], "orders")}</thead>
+                <tbody>
+                    ${SkeletonBuilder.orders(compact ? 3 : 5, compact)}
+                </tbody>
+            </table>
+        </div>`;
+    }
     if (!orders.length) return emptyState("Заказ-нарядов не найдено", "Создайте первый заказ или измените поиск.", `<button class="btn primary" type="button" data-action="new-order">Новый заказ</button>`, "🛠");
     
     if (compact) {
@@ -3132,7 +3276,7 @@ function ordersTable(orders, compact) {
 }
 
 function renderCustomers() {
-    const rows = state.data.customers;
+    const rows = (state.data && state.data.customers) || [];
     const total = rows.length;
     const pageSize = state.customerPageSize || 50;
     const maxPage = Math.max(1, Math.ceil(total / pageSize));
@@ -3141,7 +3285,9 @@ function renderCustomers() {
     const sorted = sortCollection(rows, "customers");
     const paged = sorted.slice(offset, offset + pageSize);
 
-    const body = paged.length ? paged.map(c => `
+    const body = state.loading
+        ? SkeletonBuilder.customers(5)
+        : (paged.length ? paged.map(c => `
         <tr class="customer-row">
             <td data-label="ID"><div class="muted">#${c.id}</div></td>
             <td data-label="Клиент"><div class="cell-title"><strong>${esc(c.name)}</strong><div class="muted d-flex align-items-center"><span class="icon-contact" aria-hidden="true">📱</span> ${esc(c.phone)}</div></div></td>
@@ -3151,9 +3297,9 @@ function renderCustomers() {
             <td data-label="Заметки"><div class="truncate-text" title="${esc(c.notes)}">${esc(c.notes)}</div></td>
             <td data-label="Действия"><button class="btn" type="button" data-action="edit-customer" data-id="${c.id}" aria-label="Открыть клиента ${esc(c.name || c.id)}">Открыть</button></td>
         </tr>
-    `).join("") : emptyState("Клиентов не найдено", "Создайте первого клиента или измените поиск.", `<button class="btn primary" type="button" data-action="new-customer">Новый клиент</button>`, "👥");
+    `).join("") : emptyState("Клиентов не найдено", "Создайте первого клиента или измените поиск.", `<button class="btn primary" type="button" data-action="new-customer">Новый клиент</button>`, "👥"));
 
-    const table = paged.length ? `<div class="table-wrap responsive-table-wrap">
+    const table = (paged.length || state.loading) ? `<div class="table-wrap responsive-table-wrap">
         <table class="responsive-table modern-hover" aria-label="Таблица клиентов">
             <thead>${tableHead([
                 { text: "ID", sortKey: "id" },
@@ -3167,12 +3313,13 @@ function renderCustomers() {
             <tbody>${body}</tbody>
         </table>
     </div>
-    ${paginationControls("customer", state.customerPage, maxPage, total)}` : body;
+    ${state.loading ? "" : paginationControls("customer", state.customerPage, maxPage, total)}` : body;
 
+    const vipCount = (state.data && state.data.reports?.vip_customers?.length) || 0;
     return `
         ${viewHeading("База клиентов", "Управляйте контактами, историей ремонтов и предпочтениями.", [
-            `${total} всего`,
-            `${state.data.reports.vip_customers?.length || 0} VIP`
+            `${state.loading ? '...' : total} всего`,
+            `${state.loading ? '...' : vipCount} VIP`
         ], [
             { label: "CSV", action: "export-csv", export: "customers", className: "ghost" },
             { label: "Новый клиент", action: "new-customer", className: "" }
@@ -3182,8 +3329,8 @@ function renderCustomers() {
 }
 
 function renderVehicles() {
-    const rows = state.data.vehicles;
-    const catalog = state.data.car_catalog?.stats || { makes: 0, models: 0 };
+    const rows = (state.data && state.data.vehicles) || [];
+    const catalog = (state.data && state.data.car_catalog?.stats) || { makes: 0, models: 0 };
     const sorted = sortCollection(rows, "vehicles");
     const body = sorted.map(v => `
                         <tr>
@@ -3199,7 +3346,7 @@ function renderVehicles() {
         ${viewHeading("Автопарк клиентов", "Учет сервисного обслуживания, пробега и VIN-номеров.", [
             `${rows.length} авто`,
             `${catalog.makes} марок`,
-            `${state.data.reports.service_reminders?.length || 0} напоминаний ТО`
+            `${(state.data && state.data.reports?.service_reminders?.length) || 0} напоминаний ТО`
         ], [
             { label: "Справочник ТС", action: "open-catalog", className: "ghost" },
             { label: "Экспорт CSV", action: "export-csv", export: "vehicles", className: "ghost" },
@@ -3256,7 +3403,7 @@ function crmTaskList(report) {
 }
 
 function renderCatalog() {
-    const catalog = state.data.car_catalog || { makes: [], models: {}, stats: { makes: 0, models: 0, empty_makes: 0 } };
+    const catalog = (state.data && state.data.car_catalog) || { makes: [], models: {}, stats: { makes: 0, models: 0, empty_makes: 0 } };
     const stats = catalog.stats || { makes: 0, models: 0, empty_makes: 0 };
     const entries = filteredCatalogEntries();
     const visibleEntries = entries.slice(0, Math.max(1, state.catalogLimit || 60));
@@ -3295,7 +3442,7 @@ function renderCatalog() {
 }
 
 function filteredCatalogEntries() {
-    const catalog = state.data.car_catalog || { makes: [], models: {} };
+    const catalog = (state.data && state.data.car_catalog) || { makes: [], models: {} };
     const needle = String(state.catalogQ || "").trim().toLocaleLowerCase("ru-RU");
     return (catalog.makes || []).map(make => ({
         make,
@@ -3359,7 +3506,7 @@ function bindCatalogFilter(root) {
 }
 
 function renderInventory() {
-    const rows = state.data.inventory;
+    const rows = (state.data && state.data.inventory) || [];
     const lowCount = rows.filter(part => Number(part.is_low)).length;
     const total = rows.length;
     const pageSize = state.inventoryPageSize || 50;
@@ -3369,7 +3516,9 @@ function renderInventory() {
     const offset = (state.inventoryPage - 1) * pageSize;
     const paged = sorted.slice(offset, offset + pageSize);
 
-    const body = paged.map(p => `
+    const body = state.loading
+        ? SkeletonBuilder.inventory(5)
+        : paged.map(p => `
                         <tr>
                             <td data-label="Номенклатура"><div class="cell-title"><strong class="inventory-name">${esc(p.name)}</strong>${Number(p.is_low) ? `<div class="mt-1"><span class="status-badge danger" title="Остаток ниже минимального">Требуется закупка</span></div>` : ""}</div></td>
                             <td data-label="Артикул"><span class="sku-badge">${esc(p.sku) || "—"}</span></td>
@@ -3383,17 +3532,19 @@ function renderInventory() {
                             <td data-label="Поставщик"><div class="cell-title"><strong>${esc(p.supplier) || "—"}</strong></div></td>
                             <td data-label="Действия"><button class="btn ghost btn-sm" type="button" data-action="edit-inventory" data-id="${safeRecordId(p.id)}">Профиль</button></td>
                         </tr>`).join("");
+                        
+    const inventoryVal = (state.data && state.data.reports?.inventory_value) || 0;
     return `
         ${viewHeading("Управление складом", "Учет автозапчастей и материалов. Контроль остатков, цен и закупка у поставщиков.", [], [
             { label: "Экспорт прайса", action: "export-csv", export: "inventory", className: "ghost" },
             { label: "+ Добавить деталь", action: "new-inventory", className: "" }
         ])}
         <section class="insight-grid mb-5">
-            ${insightCard("Всего позиций", total, "Записей в номенклатуре", "▦")}
-            ${insightCard("Дефицит", lowCount, "Позиций ниже минимального запаса", "⚠")}
-            ${insightCard("Активы склада", money(state.data.reports.inventory_value || 0), "Общая сумма по себестоимости", "₽")}
+            ${insightCard("Всего позиций", state.loading ? '...' : total, "Записей в номенклатуре", "▦")}
+            ${insightCard("Дефицит", state.loading ? '...' : lowCount, "Позиций ниже минимального запаса", "⚠")}
+            ${insightCard("Активы склада", state.loading ? '...' : money(inventoryVal), "Общая сумма по себестоимости", "₽")}
         </section>
-        ${paged.length ? `<div class="table-wrap responsive-table-wrap">
+        ${(paged.length || state.loading) ? `<div class="table-wrap responsive-table-wrap">
             <table class="responsive-table modern-hover" aria-label="Таблица складских позиций">
                 <thead>${tableHead([
                     { text: "Номенклатура", sortKey: "name" },
@@ -3408,7 +3559,7 @@ function renderInventory() {
                 <tbody>${body}</tbody>
             </table>
         </div>
-        ${paginationControls("inventory", state.inventoryPage, maxPage, total, pageSize)}` : emptyState("Номенклатура пуста", "Добавьте запчасти или материалы, чтобы списывать их в заказ-нарядах.", `<button class="btn primary shadow-btn" type="button" data-action="new-inventory">+ Оприходовать деталь</button>`, "📦")}
+        ${state.loading ? "" : paginationControls("inventory", state.inventoryPage, maxPage, total, pageSize)}` : emptyState("Номенклатура пуста", "Добавьте запчасти или материалы, чтобы списывать их в заказ-нарядах.", `<button class="btn primary shadow-btn" type="button" data-action="new-inventory">+ Оприходовать деталь</button>`, "📦")}
     `;
 }
 
@@ -3510,7 +3661,7 @@ function renderRevenueChartSVG(data) {
 }
 
 function renderReports() {
-    const r = state.data.reports || {};
+    const r = (state.data && state.data.reports) || {};
     const statusCounts = r.status_counts || {};
     const topServices = r.top_services || [];
     
@@ -3637,7 +3788,7 @@ function updateReleaseHtml(status) {
 }
 
 function renderUpdates() {
-    const app = state.data.app;
+    const app = (state.data && state.data.app) || { version: "—", repository_url: "#", repository: "—", db_path: "—" };
     const status = state.updateStatus;
     const canInstall = Boolean(status?.ok && status.release?.is_newer && status.release?.has_asset && status.can_install);
     const installDisabled = !canInstall || state.updateInstalling;
