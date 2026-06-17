@@ -37,6 +37,7 @@ const state = {
     orderDraftItemsPage: 1,
     orderDraftItemsPageSize: 15,
     expandedMakes: {},
+    routeScrollPositions: {},
     sort: {
         appointments: { key: "", dir: "" },
         orders: { key: "", dir: "" },
@@ -45,6 +46,93 @@ const state = {
         inventory: { key: "", dir: "" }
     }
 };
+
+class SafeLocalStorage {
+    constructor() {
+        this.fallbackStore = new Map();
+        this.isAvailable = this._checkAvailability();
+    }
+
+    _checkAvailability() {
+        try {
+            if (typeof window === "undefined" || !window.localStorage) return false;
+            const testKey = "__sto_crm_storage_test__";
+            window.localStorage.setItem(testKey, testKey);
+            window.localStorage.removeItem(testKey);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    getItem(key) {
+        if (!this.isAvailable) {
+            return this.fallbackStore.has(key) ? this.fallbackStore.get(key) : null;
+        }
+        try {
+            const val = window.localStorage.getItem(key);
+            if (val !== null) return val;
+            return this.fallbackStore.has(key) ? this.fallbackStore.get(key) : null;
+        } catch (e) {
+            console.error(`SafeLocalStorage: failed to get item for key "${key}"`, e);
+            return this.fallbackStore.has(key) ? this.fallbackStore.get(key) : null;
+        }
+    }
+
+    setItem(key, value) {
+        const strValue = String(value);
+        if (!this.isAvailable) {
+            this.fallbackStore.set(key, strValue);
+            return false;
+        }
+        try {
+            window.localStorage.setItem(key, strValue);
+            return true;
+        } catch (e) {
+            console.error(`SafeLocalStorage: failed to set item for key "${key}"`, e);
+            const isQuotaError = e.name === "QuotaExceededError" || 
+                                  e.name === "NS_ERROR_DOM_QUOTA_REACHED" || 
+                                  e.code === 22 || 
+                                  e.code === 1014;
+            if (isQuotaError) {
+                console.warn("SafeLocalStorage: LocalStorage quota exceeded. Freeing up space by removing bootstrap cache...");
+                try {
+                    window.localStorage.removeItem("sto-crm-bootstrap");
+                    window.localStorage.setItem(key, strValue);
+                    return true;
+                } catch (retryError) {
+                    console.error("SafeLocalStorage: Failed to set item even after clearing bootstrap cache", retryError);
+                }
+                if (typeof toast === "function") {
+                    toast("Ошибка сохранения: недостаточно места в localStorage", "danger");
+                }
+            }
+            this.fallbackStore.set(key, strValue);
+            return false;
+        }
+    }
+
+    removeItem(key) {
+        this.fallbackStore.delete(key);
+        if (!this.isAvailable) return;
+        try {
+            window.localStorage.removeItem(key);
+        } catch (e) {
+            console.error(`SafeLocalStorage: failed to remove item for key "${key}"`, e);
+        }
+    }
+
+    clear() {
+        this.fallbackStore.clear();
+        if (!this.isAvailable) return;
+        try {
+            window.localStorage.clear();
+        } catch (e) {
+            console.error("SafeLocalStorage: failed to clear localStorage", e);
+        }
+    }
+}
+const safeLocalStorage = new SafeLocalStorage();
 
 const BOOTSTRAP_CACHE_KEY = "sto-crm-bootstrap";
 const BOOTSTRAP_CACHE_SCHEMA_VERSION = 2;
@@ -838,7 +926,7 @@ async function dbGet(key) {
     let raw = await idbGet(key);
     if (!raw) {
         try {
-            raw = localStorage.getItem(key);
+            raw = safeLocalStorage.getItem(key);
             if (raw) return JSON.parse(raw);
         } catch {
             return null;
@@ -851,7 +939,7 @@ async function dbSet(key, value) {
     let ok = await idbSet(key, value);
     if (!ok) {
         try {
-            localStorage.setItem(key, JSON.stringify(value));
+            safeLocalStorage.setItem(key, JSON.stringify(value));
         } catch {
             // storage disabled
         }
@@ -861,7 +949,7 @@ async function dbSet(key, value) {
 async function dbDel(key) {
     await idbDel(key);
     try {
-        localStorage.removeItem(key);
+        safeLocalStorage.removeItem(key);
     } catch {
         // storage disabled
     }
@@ -1165,6 +1253,9 @@ function setRoute(route, updateUrl = true) {
     closeTransientPanels();
     const previousRoute = state.route;
     const sameRoute = previousRoute === route;
+    if (previousRoute && !sameRoute) {
+        state.routeScrollPositions[previousRoute] = window.scrollY;
+    }
     const hasOrderFilter = state.status !== "all" && !state.offlineMode;
     const leavingFilteredOrders = hasOrderFilter && route !== "orders" && previousRoute === "orders";
     const enteringFilteredOrders = hasOrderFilter && route === "orders" && previousRoute !== "orders";
@@ -1206,8 +1297,14 @@ function setRoute(route, updateUrl = true) {
     }
     if (previousRoute !== route) {
         setMobileNavOpen(false);
+        const savedScroll = state.routeScrollPositions[route];
+        if (savedScroll !== undefined) {
+            window.scrollTo(0, savedScroll);
+        } else {
+            const content = $("#content");
+            content?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+        }
         const content = $("#content");
-        content?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
         content?.focus({ preventScroll: true });
         announce(`Открыт раздел ${routes[route]}.`);
     }
@@ -1315,6 +1412,17 @@ function render() {
     if (!state.data) return;
     const content = $("#content");
     if (!content) return;
+
+    let bannersWrapper = content.querySelector(".banners-wrapper");
+    let viewsWrapper = content.querySelector(".views-wrapper");
+    if (!bannersWrapper || !viewsWrapper) {
+        content.innerHTML = `<div class="banners-wrapper"></div><div class="views-wrapper"></div>`;
+        bannersWrapper = content.querySelector(".banners-wrapper");
+        viewsWrapper = content.querySelector(".views-wrapper");
+    }
+
+    bannersWrapper.innerHTML = `${offlineBannerHtml()}${errorBannerHtml()}${contextStripHtml()}`;
+
     resetWorkspaceToolbarObserver();
     const renderers = {
         dashboard: renderDashboard,
@@ -1327,6 +1435,25 @@ function render() {
         reports: renderReports,
         updates: renderUpdates
     };
+
+    let currentViewEl = viewsWrapper.querySelector(`[data-view="${state.route}"]`);
+    if (!currentViewEl) {
+        currentViewEl = document.createElement("div");
+        currentViewEl.setAttribute("data-view", state.route);
+        currentViewEl.className = "route-view";
+        viewsWrapper.appendChild(currentViewEl);
+    }
+
+    viewsWrapper.querySelectorAll(".route-view").forEach(el => {
+        if (el.getAttribute("data-view") !== state.route) {
+            el.style.display = "none";
+            el.setAttribute("aria-hidden", "true");
+        } else {
+            el.style.display = "";
+            el.removeAttribute("aria-hidden");
+        }
+    });
+
     const busy = content.getAttribute("aria-busy") || "false";
     let viewHtml;
     try {
@@ -1336,21 +1463,22 @@ function render() {
         state.lastError = error?.message || String(error);
         viewHtml = noticeHtml("error", "Не удалось отрисовать раздел.", state.lastError, `<button class="btn primary" type="button" data-action="retry-load">Обновить данные</button>`);
     }
-    content.innerHTML = `${offlineBannerHtml()}${errorBannerHtml()}${contextStripHtml()}${viewHtml}`;
+
+    currentViewEl.innerHTML = viewHtml;
     content.setAttribute("aria-busy", busy);
-    bindViewActions(content);
+    bindViewActions(currentViewEl);
     if (state.route === "dashboard") {
          initKanbanDragAndDrop();
     }
-    bindCatalogFilter(content);
-    bindWorkspaceToolbar(content);
-    updateScrollHints(content);
-    applyCellTitles(content);
+    bindCatalogFilter(currentViewEl);
+    bindWorkspaceToolbar(currentViewEl);
+    updateScrollHints(currentViewEl);
+    applyCellTitles(currentViewEl);
     updateNavigationBadges();
     requestAnimationFrame(() => {
-        if (!document.contains(content)) return;
-        updateScrollHints(content);
-        applyCellTitles(content);
+        if (!document.contains(currentViewEl)) return;
+        updateScrollHints(currentViewEl);
+        applyCellTitles(currentViewEl);
     });
 }
 
@@ -2056,6 +2184,17 @@ function bindShellShortcuts() {
             $("#sidebarCollapse")?.click();
             return;
         }
+        const isK = event.code === "KeyK" || event.key.toLowerCase() === "k" || event.key.toLowerCase() === "л";
+        const isP = event.code === "KeyP" || event.key.toLowerCase() === "p" || event.key.toLowerCase() === "з";
+        if ((event.ctrlKey || event.metaKey) && (isK || isP)) {
+            event.preventDefault();
+            if ($("#commandPalette")?.classList.contains("open")) {
+                closeCommandPalette();
+            } else if (!$("#modalBackdrop")?.classList.contains("open")) {
+                openCommandPalette();
+            }
+            return;
+        }
         if (event.ctrlKey || event.metaKey || interactive) return;
         if ($("#modalBackdrop")?.classList.contains("open") || $("#commandPalette")?.classList.contains("open")) return;
         if (event.key === "/") {
@@ -2147,6 +2286,123 @@ function commandItems() {
         { icon: "⇩", title: "Резерв", hint: "Backup SQLite", keys: "Ctrl+K → Резерв", run: () => createBackupFromUi() },
         { icon: "⬢", title: "Обновления", hint: "GitHub Releases", keys: "G U", run: () => { setRoute("updates"); checkForUpdates(true).catch(showError); } }
     ];
+}
+
+function collectSearchSuggestions() {
+    if (!state.data) return [];
+    const needle = String($("#globalSearch")?.value || "").trim().toLocaleLowerCase("ru-RU");
+    if (!needle) return [];
+
+    const suggestions = [];
+    
+    // Ищем клиентов
+    const customers = state.data.customers || [];
+    for (const c of customers) {
+        if (String(c.name || "").toLocaleLowerCase("ru-RU").includes(needle) || 
+            String(c.phone || "").toLocaleLowerCase("ru-RU").includes(needle) || 
+            String(c.email || "").toLocaleLowerCase("ru-RU").includes(needle)) {
+            suggestions.push({
+                icon: "👤",
+                title: c.name,
+                hint: `Клиент · ${c.phone}`,
+                run: () => openCustomerModal(c)
+            });
+        }
+        if (suggestions.length >= 3) break;
+    }
+
+    // Ищем авто
+    const vehicles = state.data.vehicles || [];
+    for (const v of vehicles) {
+        const name = vehicleName(v) || v.plate || "";
+        if (name.toLocaleLowerCase("ru-RU").includes(needle) || 
+            String(v.plate || "").toLocaleLowerCase("ru-RU").includes(needle) || 
+            String(v.vin || "").toLocaleLowerCase("ru-RU").includes(needle)) {
+            suggestions.push({
+                icon: "🚗",
+                title: name || `Авто ID ${v.id}`,
+                hint: `Авто · Госномер: ${v.plate || 'нет'}, VIN: ${v.vin || 'нет'}`,
+                run: () => openVehicleModal(v)
+            });
+        }
+        if (suggestions.length >= 6) break;
+    }
+
+    // Ищем заказы
+    const orders = state.data.orders || [];
+    for (const o of orders) {
+        if (String(o.number || "").toLocaleLowerCase("ru-RU").includes(needle) || 
+            String(o.customer_name || "").toLocaleLowerCase("ru-RU").includes(needle) || 
+            String(o.vehicle_plate || "").toLocaleLowerCase("ru-RU").includes(needle)) {
+            suggestions.push({
+                icon: "📋",
+                title: `Заказ-наряд ${o.number || o.id}`,
+                hint: `Заказ · ${o.customer_name || 'нет клиента'} · ${o.vehicle_plate || 'нет авто'}`,
+                run: () => openOrderModal(o)
+            });
+        }
+        if (suggestions.length >= 9) break;
+    }
+
+    // Ищем запчасти (inventory)
+    const inventory = state.data.inventory || [];
+    for (const item of inventory) {
+        const title = item.name || item.title || "";
+        if (title.toLocaleLowerCase("ru-RU").includes(needle) || 
+            String(item.sku || "").toLocaleLowerCase("ru-RU").includes(needle)) {
+            suggestions.push({
+                icon: "📦",
+                title: title || `Деталь ID ${item.id}`,
+                hint: `Склад · Артикул: ${item.sku || 'нет'}, остаток: ${item.quantity || 0}`,
+                run: () => openInventoryModal(item)
+            });
+        }
+        if (suggestions.length >= 12) break;
+    }
+
+    return suggestions.slice(0, 8);
+}
+
+function renderSearchSuggestions() {
+    const box = $("#searchSuggestions");
+    const input = $("#globalSearch");
+    if (!box || !input) return;
+    const suggestions = collectSearchSuggestions();
+    if (!suggestions.length) {
+        box.hidden = true;
+        input.setAttribute("aria-expanded", "false");
+        input.removeAttribute("aria-activedescendant");
+        return;
+    }
+    box.innerHTML = suggestions.map((item, index) => {
+        const optionId = `searchOption${index}`;
+        return `
+        <div id="${optionId}" class="command-item" role="option" data-suggestion-index="${index}" aria-selected="false">
+            <span aria-hidden="true">${esc(item.icon)}</span>
+            <span><strong>${esc(item.title)}</strong><small>${esc(item.hint)}</small></span>
+        </div>`;
+    }).join("");
+    box.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+}
+
+function runSearchSuggestion(index) {
+    const suggestions = collectSearchSuggestions();
+    const item = suggestions[index];
+    if (!item) return;
+    const box = $("#searchSuggestions");
+    if (box) {
+        box.hidden = true;
+    }
+    const input = $("#globalSearch");
+    if (input) {
+        input.setAttribute("aria-expanded", "false");
+        input.removeAttribute("aria-activedescendant");
+        input.value = "";
+    }
+    state.q = "";
+    updateSearchClear();
+    item.run();
 }
 
 function filteredCommandItems() {
@@ -3578,6 +3834,14 @@ function dispatchViewAction(source, event = null) {
                 scrollActionCenter();
             }
         }
+        else if (action === "expand-make") {
+            state.expandedMakes[source.dataset.make] = true;
+            render();
+        }
+        else if (action === "collapse-make") {
+            state.expandedMakes[source.dataset.make] = false;
+            render();
+        }
         else if (action === "new-inventory") openInventoryModal();
         else if (action === "edit-inventory") {
             const part = findInventoryById(id);
@@ -3992,10 +4256,15 @@ function handleModalKeydown(event) {
         return;
     }
     const commandPaletteOpen = $("#commandPalette")?.classList.contains("open");
-    if ((event.ctrlKey || event.metaKey) && (event.code === "KeyK" || event.key.toLowerCase() === "k" || event.key.toLowerCase() === "л") && !commandPaletteOpen) {
-        if (inEditable(event.target)) return;
+    const isK = event.code === "KeyK" || event.key.toLowerCase() === "k" || event.key.toLowerCase() === "л";
+    const isP = event.code === "KeyP" || event.key.toLowerCase() === "p" || event.key.toLowerCase() === "з";
+    if ((event.ctrlKey || event.metaKey) && (isK || isP)) {
         event.preventDefault();
-        if (!$("#modalBackdrop")?.classList.contains("open")) openCommandPalette();
+        if (commandPaletteOpen) {
+            closeCommandPalette();
+        } else if (!$("#modalBackdrop")?.classList.contains("open")) {
+            openCommandPalette();
+        }
         return;
     }
     if (commandPaletteOpen) {
@@ -5158,16 +5427,116 @@ $("#globalSearch")?.addEventListener("input", event => {
     state.q = event.target.value;
     state.customerPage = 1;
     updateSearchClear();
+    renderSearchSuggestions();
     clearTimeout(state.searchTimer);
     state.searchTimer = setTimeout(() => loadData().catch(showError), 450);
 });
 $("#globalSearch")?.addEventListener("keydown", event => {
-    if (event.key === "Escape" && state.q) {
+    const box = $("#searchSuggestions");
+    const buttons = box ? $$("[data-suggestion-index]", box) : [];
+    const activeIndex = buttons.findIndex(button => button.classList.contains("active"));
+
+    if (event.key === "Escape") {
         event.preventDefault();
-        clearGlobalSearch();
+        if (box && !box.hidden) {
+            box.hidden = true;
+            event.target.setAttribute("aria-expanded", "false");
+            event.target.removeAttribute("aria-activedescendant");
+        } else if (state.q) {
+            clearGlobalSearch();
+        }
+    } else if (event.key === "Enter") {
+        if (box && !box.hidden && activeIndex >= 0) {
+            event.preventDefault();
+            runSearchSuggestion(activeIndex);
+        }
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        if (box && !box.hidden && buttons.length) {
+            event.preventDefault();
+            let nextIndex;
+            if (activeIndex === -1) {
+                nextIndex = event.key === "ArrowDown" ? 0 : buttons.length - 1;
+            } else {
+                nextIndex = event.key === "ArrowDown"
+                    ? (activeIndex + 1) % buttons.length
+                    : (activeIndex - 1 + buttons.length) % buttons.length;
+            }
+            buttons.forEach((button, index) => {
+                const active = index === nextIndex;
+                button.classList.toggle("active", active);
+                button.setAttribute("aria-selected", active ? "true" : "false");
+            });
+            event.target.setAttribute("aria-activedescendant", buttons[nextIndex].id || "");
+            buttons[nextIndex].scrollIntoView({ block: "nearest" });
+        }
+    } else if (event.key === "Home") {
+        if (box && !box.hidden && buttons.length) {
+            event.preventDefault();
+            buttons.forEach((button, index) => {
+                const active = index === 0;
+                button.classList.toggle("active", active);
+                button.setAttribute("aria-selected", active ? "true" : "false");
+            });
+            event.target.setAttribute("aria-activedescendant", buttons[0].id || "");
+            buttons[0].scrollIntoView({ block: "nearest" });
+        }
+    } else if (event.key === "End") {
+        if (box && !box.hidden && buttons.length) {
+            event.preventDefault();
+            const lastIndex = buttons.length - 1;
+            buttons.forEach((button, index) => {
+                const active = index === lastIndex;
+                button.classList.toggle("active", active);
+                button.setAttribute("aria-selected", active ? "true" : "false");
+            });
+            event.target.setAttribute("aria-activedescendant", buttons[lastIndex].id || "");
+            buttons[lastIndex].scrollIntoView({ block: "nearest" });
+        }
     }
 });
 $("#clearSearch")?.addEventListener("click", clearGlobalSearch);
+    
+// Search Suggestions event bindings
+$("#searchSuggestions")?.addEventListener("click", event => {
+    const itemEl = event.target.closest("[data-suggestion-index]");
+    if (itemEl) {
+        const index = Number(itemEl.dataset.suggestionIndex || 0);
+        runSearchSuggestion(index);
+    }
+});
+
+$("#searchSuggestions")?.addEventListener("mouseover", event => {
+    const item = event.target.closest("[data-suggestion-index]");
+    if (!item) return;
+    const buttons = $$("[data-suggestion-index]", $("#searchSuggestions"));
+    buttons.forEach(btn => {
+        const active = btn === item;
+        btn.classList.toggle("active", active);
+        btn.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    const currentActive = item;
+    $("#globalSearch")?.setAttribute("aria-activedescendant", currentActive.id || "");
+});
+
+$("#globalSearch")?.addEventListener("focus", () => {
+    renderSearchSuggestions();
+});
+
+document.addEventListener("click", event => {
+    const searchWrap = document.querySelector(".search");
+    if (searchWrap && !searchWrap.contains(event.target)) {
+        const suggestions = $("#searchSuggestions");
+        if (suggestions) {
+            suggestions.hidden = true;
+            const gs = $("#globalSearch");
+            if (gs) {
+                gs.setAttribute("aria-expanded", "false");
+                gs.removeAttribute("aria-activedescendant");
+            }
+        }
+    }
+});
+
 window.addEventListener("offline", () => {
     setOnlineState(false, { rerenderContent: true });
     announce("Браузер сообщает, что сеть недоступна. Работаем с последними загруженными данными.", true);
@@ -5185,22 +5554,41 @@ $("#commandPalette")?.addEventListener("click", event => {
     const commandButton = event.target.closest("[data-command-index]");
     if (commandButton) runCommand(Number(commandButton.dataset.commandIndex || 0));
 });
+$("#commandList")?.addEventListener("mouseover", event => {
+    const item = event.target.closest("[data-command-index]");
+    if (!item) return;
+    const buttons = $$("[data-command-index]", $("#commandList"));
+    buttons.forEach(btn => {
+        const active = btn === item;
+        btn.classList.toggle("active", active);
+        btn.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    updateCommandSearchAria(item.id || "");
+});
 $("#commandSearch")?.addEventListener("input", renderCommandPalette);
 $("#commandSearch")?.addEventListener("keydown", event => {
     const buttons = $$("[data-command-index]", $("#commandList"));
-    const activeIndex = Math.max(0, buttons.findIndex(button => button.classList.contains("active")));
+    const activeIndex = buttons.findIndex(button => button.classList.contains("active"));
+
     if (event.key === "Escape") {
         event.preventDefault();
         closeCommandPalette();
     } else if (event.key === "Enter") {
         event.preventDefault();
-        runCommand(activeIndex);
+        if (activeIndex >= 0) {
+            runCommand(activeIndex);
+        }
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         if (!buttons.length) return;
-        const nextIndex = event.key === "ArrowDown"
-            ? (activeIndex + 1) % buttons.length
-            : (activeIndex - 1 + buttons.length) % buttons.length;
+        let nextIndex;
+        if (activeIndex === -1) {
+            nextIndex = event.key === "ArrowDown" ? 0 : buttons.length - 1;
+        } else {
+            nextIndex = event.key === "ArrowDown"
+                ? (activeIndex + 1) % buttons.length
+                : (activeIndex - 1 + buttons.length) % buttons.length;
+        }
         buttons.forEach((button, index) => {
             const active = index === nextIndex;
             button.classList.toggle("active", active);
@@ -5208,6 +5596,27 @@ $("#commandSearch")?.addEventListener("keydown", event => {
         });
         updateCommandSearchAria(buttons[nextIndex].id || "");
         buttons[nextIndex].scrollIntoView({ block: "nearest" });
+    } else if (event.key === "Home") {
+        event.preventDefault();
+        if (!buttons.length) return;
+        buttons.forEach((button, index) => {
+            const active = index === 0;
+            button.classList.toggle("active", active);
+            button.setAttribute("aria-selected", active ? "true" : "false");
+        });
+        updateCommandSearchAria(buttons[0].id || "");
+        buttons[0].scrollIntoView({ block: "nearest" });
+    } else if (event.key === "End") {
+        event.preventDefault();
+        if (!buttons.length) return;
+        const lastIndex = buttons.length - 1;
+        buttons.forEach((button, index) => {
+            const active = index === lastIndex;
+            button.classList.toggle("active", active);
+            button.setAttribute("aria-selected", active ? "true" : "false");
+        });
+        updateCommandSearchAria(buttons[lastIndex].id || "");
+        buttons[lastIndex].scrollIntoView({ block: "nearest" });
     }
 });
 function systemMenuItems() {
@@ -5381,15 +5790,14 @@ function toggleDensity() {
 }
 
 function safeStorageGet(key) {
-    try { return window.localStorage ? localStorage.getItem(key) : null; }
+    try { return safeLocalStorage.getItem(key); }
     catch { return null; }
 }
 
 function safeStorageSet(key, value) {
     try {
-        if (!window.localStorage) return;
-        if (value === null || value === "") localStorage.removeItem(key);
-        else localStorage.setItem(key, value);
+        if (value === null || value === "") safeLocalStorage.removeItem(key);
+        else safeLocalStorage.setItem(key, value);
     }
     catch { /* storage can be disabled in private or locked-down modes */ }
 }
@@ -5449,5 +5857,12 @@ window.addEventListener("beforeunload", event => {
         event.preventDefault();
         event.returnValue = "В закрываемом окне остались несохраненные изменения.";
         return event.returnValue;
+    }
+});
+
+window.addEventListener("scroll", () => {
+    if (state && state.route) {
+        if (!state.routeScrollPositions) state.routeScrollPositions = {};
+        state.routeScrollPositions[state.route] = window.scrollY;
     }
 });

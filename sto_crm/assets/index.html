@@ -74,12 +74,13 @@
                 <h1 id="viewTitle">Панель</h1>
                 <div class="view-subtitle" id="viewSubtitle">Оперативная сводка автосервиса</div>
             </div>
-            <div class="search shadow-sm rounded-lg">
+            <div class="search shadow-sm rounded-lg" style="position: relative;">
                 <span aria-hidden="true">⌕</span>
                 <label class="sr-only" for="globalSearch">Поиск по клиентам, автомобилям, заказам и складу</label>
-                <input id="globalSearch" placeholder="🔍 Быстрый поиск..." autocomplete="off" aria-label="Поиск по клиентам, автомобилям, заказам и складу" aria-keyshortcuts="/">
+                <input id="globalSearch" placeholder="🔍 Быстрый поиск..." autocomplete="off" aria-label="Поиск по клиентам, автомобилям, заказам и складу" aria-keyshortcuts="/" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="searchSuggestions">
                 <button class="search-clear" id="clearSearch" type="button" aria-label="Очистить поиск" title="Очистить поиск (Esc)" hidden>×</button>
                 <kbd class="search-hint" aria-hidden="true">/</kbd>
+                <div class="search-suggestions command-palette-list shadow-lg" id="searchSuggestions" role="listbox" aria-label="Подсказки поиска" hidden></div>
             </div>
             <div class="top-actions">
                 <button type="button" class="sync-chip" id="syncChip" data-state="online" aria-label="Состояние синхронизации" data-tooltip="Нажмите, чтобы обновить данные"><span class="dot" aria-hidden="true"></span><span class="sync-text">Актуально</span></button>
@@ -103,7 +104,7 @@
                         <div id="bellList"></div>
                     </div>
                 </div>
-                <button type="button" class="btn ghost" id="commandBtn" title="Командная палитра Ctrl+K" aria-label="Открыть командную палитру" aria-keyshortcuts="Control+K Meta+K" data-tooltip="Командная палитра · Ctrl+K">⌘K</button>
+                <button type="button" class="btn ghost" id="commandBtn" title="Командная палитра Ctrl+K / Ctrl+P" aria-label="Открыть командную палитру" aria-keyshortcuts="Control+K Meta+K Control+P Meta+P" data-tooltip="Командная палитра · Ctrl+K / Ctrl+P">⌘K</button>
                 <button type="button" class="btn icon" id="refreshBtn" title="Обновить" aria-label="Обновить данные" data-tooltip="Обновить · R">↻</button>
                 <div class="system-menu" id="systemMenuRoot">
                     <button type="button" class="btn ghost system-menu-button" id="systemMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="systemMenu" aria-label="Системные действия CRM" title="Системные действия CRM" data-tooltip="Система и настройки"><span>Система</span><span class="system-menu-icon" aria-hidden="true">⚙</span></button>
