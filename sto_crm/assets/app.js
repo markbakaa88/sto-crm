@@ -2835,10 +2835,118 @@ function textareaField(formScope, name, label, value = "", attributes = "", span
     return labeledField(id, label, `<textarea id="${id}" name="${esc(name)}" ${attributes}>${esc(value)}</textarea>`, span, hint);
 }
 
+function getDailyStatsLast7Days() {
+    const stats = [];
+    const today = new Date();
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date(today);
+        d.setDate(today.getDate() - i);
+        const dateStr = localDateKey(d);
+        stats.push({
+            date: dateStr,
+            ordersCount: 0,
+            revenue: 0
+        });
+    }
+
+    const orders = (state.data && state.data.orders) || [];
+    orders.forEach(order => {
+        if (order.created_at && order.created_at.length >= 10) {
+            const createdDate = order.created_at.slice(0, 10);
+            const dayStat = stats.find(s => s.date === createdDate);
+            if (dayStat) {
+                dayStat.ordersCount++;
+            }
+        }
+        if (order.status === "closed" && order.closed_at && order.closed_at.length >= 10) {
+            const closedDate = order.closed_at.slice(0, 10);
+            const dayStat = stats.find(s => s.date === closedDate);
+            if (dayStat) {
+                dayStat.revenue += Number(order.total || 0);
+            }
+        }
+    });
+    return stats;
+}
+
+function renderSparkline(data, type) {
+    const width = 120;
+    const height = 40;
+    const padding = 4;
+    const n = data.length;
+    if (n === 0) return "";
+
+    const maxVal = Math.max(...data, 1);
+    const points = data.map((val, i) => {
+        const x = (i * (width - 2 * padding)) / (n - 1) + padding;
+        const y = height - padding - (val / maxVal) * (height - 2 * padding);
+        return { x, y };
+    });
+
+    const pathData = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
+    const areaPathData = `${pathData} L ${points[n - 1].x.toFixed(1)} ${height - 1} L ${points[0].x.toFixed(1)} ${height - 1} Z`;
+
+    const gradientId = `spark-grad-${type}-${Math.random().toString(36).slice(2, 9)}`;
+    const lineGradientId = `spark-line-grad-${type}-${Math.random().toString(36).slice(2, 9)}`;
+
+    let colors;
+    if (type === "revenue") {
+        colors = {
+            stroke: "var(--brand, #10b981)",
+            start: "var(--brand, #10b981)",
+            stop: "rgba(16, 185, 129, 0)",
+            lineStart: "var(--brand-start, #3b82f6)",
+            lineStop: "var(--brand, #10b981)"
+        };
+    } else {
+        colors = {
+            stroke: "var(--brand-start, #3b82f6)",
+            start: "var(--brand-start, #3b82f6)",
+            stop: "rgba(59, 130, 246, 0)",
+            lineStart: "var(--brand-start, #3b82f6)",
+            lineStop: "#60a5fa"
+        };
+    }
+
+    const first = data[0];
+    const last = data[n - 1];
+    let trend = "нейтральная";
+    if (last > first) trend = "рост";
+    if (last < first) trend = "снижение";
+
+    const formattedData = data.map(v => type === "revenue" ? moneyCompact(v) : v).join(", ");
+    const ariaLabel = `График: Динамика ${type === "revenue" ? "выручки" : "заказов"} за 7 дней (${trend}). Значения: ${formattedData}`;
+
+    return `
+        <svg class="sparkline sparkline-${type}" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${esc(ariaLabel)}" preserveAspectRatio="none">
+            <defs>
+                <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1" aria-hidden="true">
+                    <stop offset="0%" stop-color="${colors.start}" stop-opacity="0.25"></stop>
+                    <stop offset="100%" stop-color="${colors.stop}" stop-opacity="0"></stop>
+                </linearGradient>
+                <linearGradient id="${lineGradientId}" x1="0" y1="0" x2="1" y2="0" aria-hidden="true">
+                    <stop offset="0%" stop-color="${colors.lineStart}"></stop>
+                    <stop offset="100%" stop-color="${colors.lineStop}"></stop>
+                </linearGradient>
+            </defs>
+            <path class="sparkline-area" d="${areaPathData}" fill="url(#${gradientId})" aria-hidden="true"></path>
+            <path class="sparkline-path" d="${pathData}" fill="none" stroke="url(#${lineGradientId})" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></path>
+        </svg>
+    `;
+}
+
 function renderDashboard() {
     const r = (state.data && state.data.reports) || {};
     const recent = state.data ? [...(state.data.orders || [])].slice(0, 5) : [];
     const procurement = r.procurement_plan || [];
+
+    const stats7d = getDailyStatsLast7Days();
+    const totalRev7d = stats7d.reduce((sum, s) => sum + s.revenue, 0);
+    const totalOrders7d = stats7d.reduce((sum, s) => sum + s.ordersCount, 0);
+
+    const revSparkline = renderSparkline(stats7d.map(s => s.revenue), "revenue");
+    const ordSparkline = renderSparkline(stats7d.map(s => s.ordersCount), "orders");
+
     return `
         ${viewHeading("Рабочая смена", "Главный фокус — ближайшие действия. Смотрите план смены, риски и закупку в одном месте.", [], [
             { label: "Новый заказ", action: "new-order", className: "" },
@@ -2864,6 +2972,8 @@ function renderDashboard() {
         })}
         <section class="primary-kpi-grid" aria-label="Ключевые показатели смены">
             ${healthMetric(r)}
+            ${metric("Выручка за 7 дней", money(totalRev7d), "Сумма закрытых заказ-нарядов", { icon: "₽", tone: "success", chart: revSparkline })}
+            ${metric("Заказы за 7 дней", `${totalOrders7d} шт.`, "Количество новых заказ-нарядов", { icon: "📈", tone: "info", chart: ordSparkline })}
             ${metric("Активная воронка", money(r.pipeline_value || 0), `${money(r.pipeline_due || 0)} ожидает оплаты`)}
             ${metric("К оплате", money(r.due_total || 0), "Долг по открытым заказам")}
             ${metric("Низкий склад", r.low_stock_count || 0, "Позиции ниже минимума", { tone: (r.low_stock_count || 0) ? "warning" : "" })}
@@ -2936,7 +3046,8 @@ function metric(label, value, hint, options = {}) {
     const toneClassName = metricTone ? ` tone-${metricTone}` : "";
     const icon = options.icon || String(label || "").trim().slice(0, 1).toLocaleUpperCase("ru-RU") || "•";
     const help = options.help ? helpTip(options.help) : "";
-    return `<article class="metric${toneClassName}" aria-label="${esc(`${label}: ${value}. ${hint}`)}"><div class="metric-top"><small>${esc(label)}${help}</small><span class="metric-icon" aria-hidden="true">${esc(icon)}</span></div><strong>${esc(value)}</strong><div class="trend">${esc(hint)}</div></article>`;
+    const chartHtml = options.chart ? `<div class="metric-chart">${options.chart}</div>` : "";
+    return `<article class="metric${toneClassName}" aria-label="${esc(`${label}: ${value}. ${hint}`)}"><div class="metric-top"><small>${esc(label)}${help}</small><span class="metric-icon" aria-hidden="true">${esc(icon)}</span></div><strong>${esc(value)}</strong>${chartHtml}<div class="trend">${esc(hint)}</div></article>`;
 }
 
 function miniLedger(report) {
