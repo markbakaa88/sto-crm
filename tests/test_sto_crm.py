@@ -2706,7 +2706,9 @@ class StoCrmTests(unittest.TestCase):
 
             self.assertIn("https://github.com/owner/repo/releases/latest", redacted)
             self.assertNotIn("/home/zxc/private/sto_crm.sqlite3", redacted)
-            self.assertNotIn("C:/Users/Ivan/AppData/Local/STO_CRM/STO_CRM.exe", redacted)
+            self.assertNotIn(
+                "C:/Users/Ivan/AppData/Local/STO_CRM/STO_CRM.exe", redacted
+            )
             self.assertIn("~/private/sto_crm.sqlite3", redacted)
             self.assertIn("STO_CRM.exe", redacted)
 
@@ -3820,9 +3822,10 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn("try {", html)
         self.assertIn("viewHtml = renderers[state.route]();", html)
         self.assertIn(
-            "content.innerHTML = `${offlineBannerHtml()}${errorBannerHtml()}${contextStripHtml()}${viewHtml}`;",
+            "bannersWrapper.innerHTML = `${offlineBannerHtml()}${errorBannerHtml()}${contextStripHtml()}`;",
             html,
         )
+        self.assertIn("currentViewEl.innerHTML = viewHtml;", html)
         self.assertIn('if (!force && !state.offlineMode) return "";', html)
         self.assertIn("offlineBannerHtml(true)", html)
         self.assertIn("Не удалось отрисовать раздел.", html)
@@ -4557,6 +4560,27 @@ class StoCrmTests(unittest.TestCase):
             sto_crm.latest_release_info = old_latest
             sto_crm.is_frozen = old_is_frozen
             sto_crm.updates.can_install_windows_update = old_can_install
+
+    def test_print_media_rules_and_elements_hidden_in_app_css_and_templates(self):
+        # Проверяем, что в app.css определены правила для печати
+        app_css = sto_crm.web._read_asset("app.css")
+        self.assertIn(".items-table tr, .section-card { page-break-inside: avoid; break-inside: avoid; }", app_css)
+        self.assertIn(".btn, .status-badge, .nav-badge, [data-action], [data-save] { display: none !important; }", app_css)
+
+        # Проверяем, что в шаблоне print_order_html есть break-inside правила для tr
+        order = {
+            "number": "WO-001",
+            "items": [],
+            "service_total": 0,
+            "parts_total": 0,
+            "discount": 0,
+            "tax": 0,
+            "total": 0,
+            "paid": 0,
+            "due": 0,
+        }
+        print_html = sto_crm.print_order_html(order)
+        self.assertIn("tr { page-break-inside: avoid; break-inside: avoid; }", print_html)
 
 
 if __name__ == "__main__":

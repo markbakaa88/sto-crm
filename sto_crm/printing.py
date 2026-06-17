@@ -223,6 +223,7 @@ def print_order_html(order: dict[str, Any]) -> str:
             th, td {{ padding: 6px 8px; }}
             .summary-grid, .notes-grid {{ gap: 8px; margin: 10px 0; }}
             .box {{ break-inside: avoid; }}
+            tr {{ page-break-inside: avoid; break-inside: avoid; }}
             .totals, .sign {{ break-inside: avoid; }}
         }}
         @media (max-width: 720px) {{

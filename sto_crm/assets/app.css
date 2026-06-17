@@ -2154,6 +2154,8 @@ input:not(.items-table input):focus, select:not(.items-table select):focus, text
     .table-wrap table { width: 100%; min-width: 0; }
     body { background: #fff; color: #000; }
     .section-card, .panel, .table-wrap { box-shadow: none; border-color: #ccc; }
+    .items-table tr, .section-card { page-break-inside: avoid; break-inside: avoid; }
+    .btn, .status-badge, .nav-badge, [data-action], [data-save] { display: none !important; }
 }
 
 /* Reduced motion */
