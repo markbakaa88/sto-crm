@@ -1442,10 +1442,18 @@ body:not(.sidebar-collapsed) .brand { padding-right: 20px; }
 .field textarea { min-height: 72px; resize: vertical; font-family: inherit; }
 .field .field-hint { font-size: 11.5px; color: var(--ink-muted); }
 .field .field-error, .check-field .field-error, .items-table .field-error, .form-error { font-size: 11.5px; color: var(--danger); }
+.field .field-success, .check-field .field-success, .items-table .field-success, .form-success { font-size: 11.5px; color: var(--ok); }
 .form-error { padding: 8px 10px; border: 1px solid var(--danger); border-radius: var(--radius-md); background: var(--danger-soft); animation: slideUpFade var(--dur-base) var(--ease-out); }
 .field.invalid input, .field.invalid select, .field.invalid textarea,
 .field input.invalid, .field select.invalid, .field textarea.invalid,
 .check-field input.invalid { border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+.field.invalid input:focus, .field.invalid select:focus, .field.invalid textarea:focus,
+.field input.invalid:focus, .field select.invalid:focus, .field textarea.invalid:focus { border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+.field.valid input, .field.valid select, .field.valid textarea,
+.field input.valid, .field select.valid, .field textarea.valid,
+.check-field input.valid { border-color: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.field.valid input:focus, .field.valid select:focus, .field.valid textarea:focus,
+.field input.valid:focus, .field select.valid:focus, .field textarea.valid:focus { border-color: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
 .readonly-field {
     padding: 8px 10px;
     border: 1px solid var(--line);

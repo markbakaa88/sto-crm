@@ -5164,6 +5164,177 @@ function openCustomerModal(customer = {}) {
          <button class="btn primary" type="button" data-save="customer" data-id="${safeRecordId(customer.id)}">Сохранить</button>`,
         "small"
     );
+    bindCustomerFormValidation();
+}
+
+function bindCustomerFormValidation() {
+    const phoneInput = $("#customer_phone");
+    const emailInput = $("#customer_email");
+    if (!phoneInput && !emailInput) return;
+
+    function formatPhone(inputVal) {
+        let digits = inputVal.replace(/\D/g, "");
+        if (digits.length === 0) return "";
+        if (digits[0] === "7" || digits[0] === "8") {
+            digits = digits.substring(1);
+        }
+        digits = digits.substring(0, 10);
+        let result = "+7";
+        if (digits.length > 0) {
+            result += " (" + digits.substring(0, 3);
+        }
+        if (digits.length >= 3) {
+            result += ")";
+        }
+        if (digits.length > 3) {
+            result += " " + digits.substring(3, 6);
+        }
+        if (digits.length >= 6) {
+            result += "-";
+        }
+        if (digits.length > 6) {
+            result += digits.substring(6, 8);
+        }
+        if (digits.length >= 8) {
+            result += "-";
+        }
+        if (digits.length > 8) {
+            result += digits.substring(8, 10);
+        }
+        return result;
+    }
+
+    function setFieldValidation(inputEl, isValid, message) {
+        const fieldContainer = inputEl.closest(".field");
+        if (!fieldContainer) return;
+
+        let errorEl = fieldContainer.querySelector(".field-error");
+        let successEl = fieldContainer.querySelector(".field-success");
+        if (errorEl) errorEl.remove();
+        if (successEl) successEl.remove();
+
+        let hintEl = fieldContainer.querySelector(".field-hint");
+
+        if (isValid === true) {
+            inputEl.classList.add("valid");
+            inputEl.classList.remove("invalid");
+            inputEl.setAttribute("aria-invalid", "false");
+            inputEl.setCustomValidity("");
+            if (hintEl) hintEl.style.display = "none";
+            
+            successEl = document.createElement("div");
+            successEl.className = "field-success";
+            successEl.innerHTML = "✓ <span></span>";
+            successEl.querySelector("span").textContent = message;
+            fieldContainer.appendChild(successEl);
+        } else if (isValid === false) {
+            inputEl.classList.add("invalid");
+            inputEl.classList.remove("valid");
+            inputEl.setAttribute("aria-invalid", "true");
+            inputEl.setCustomValidity(message);
+            if (hintEl) hintEl.style.display = "none";
+            
+            errorEl = document.createElement("div");
+            errorEl.className = "field-error";
+            errorEl.innerHTML = "⚠️ <span></span>";
+            errorEl.querySelector("span").textContent = message;
+            fieldContainer.appendChild(errorEl);
+        } else {
+            inputEl.classList.remove("valid", "invalid");
+            inputEl.removeAttribute("aria-invalid");
+            inputEl.setCustomValidity("");
+            if (hintEl) hintEl.style.display = "";
+        }
+    }
+
+    function validateEmail() {
+        const val = emailInput.value.trim();
+        if (val === "") {
+            setFieldValidation(emailInput, null);
+        } else {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (emailRegex.test(val)) {
+                setFieldValidation(emailInput, true, "Email корректен");
+            } else {
+                setFieldValidation(emailInput, false, "Некорректный формат email");
+            }
+        }
+    }
+
+    function validatePhone() {
+        const val = phoneInput.value;
+        const digits = val.replace(/\D/g, "");
+        let localDigits = digits;
+        if (digits[0] === "7" || digits[0] === "8") {
+            localDigits = digits.substring(1);
+        }
+
+        if (val.trim() === "") {
+            setFieldValidation(phoneInput, null);
+        } else if (localDigits.length === 10) {
+            setFieldValidation(phoneInput, true, "Номер телефона корректен");
+        } else {
+            setFieldValidation(phoneInput, false, "Номер телефона должен содержать 10 цифр");
+        }
+    }
+
+    if (phoneInput) {
+        if (phoneInput.value) {
+            phoneInput.value = formatPhone(phoneInput.value);
+        }
+        validatePhone();
+
+        phoneInput.addEventListener("keydown", function(e) {
+            if (e.key === "Backspace") {
+                const start = this.selectionStart;
+                const end = this.selectionEnd;
+                if (start === end && start > 0) {
+                    const charToDelete = this.value[start - 1];
+                    if (charToDelete === ")" || charToDelete === "-" || charToDelete === " " || charToDelete === "(") {
+                        e.preventDefault();
+                        let val = this.value;
+                        let i = start - 1;
+                        while (i >= 0 && /\D/.test(val[i])) {
+                            i--;
+                        }
+                        if (i >= 0) {
+                            this.value = val.substring(0, i) + val.substring(start);
+                            const inputEvent = new Event("input", { bubbles: true });
+                            this.dispatchEvent(inputEvent);
+                            this.setSelectionRange(i, i);
+                        }
+                    }
+                }
+            }
+        });
+
+        phoneInput.addEventListener("input", function(e) {
+            let cursorPosition = this.selectionStart;
+            let originalLen = this.value.length;
+
+            let formatted = formatPhone(this.value);
+            this.value = formatted;
+
+            let newLen = formatted.length;
+            if (cursorPosition < originalLen) {
+                let diff = newLen - originalLen;
+                let newPos = Math.max(0, cursorPosition + diff);
+                this.setSelectionRange(newPos, newPos);
+            }
+            setTimeout(() => {
+                validatePhone();
+            }, 0);
+        });
+    }
+
+    if (emailInput) {
+        validateEmail();
+        emailInput.addEventListener("input", () => {
+            setTimeout(() => {
+                validateEmail();
+            }, 0);
+        });
+    }
 }
 
 function openVehicleModal(vehicle = {}) {
@@ -5458,7 +5629,6 @@ function renderOrderItems() {
     $$("[data-item]", host).forEach(input => {
         input.addEventListener("change", syncOrderItemsFromDom);
         input.addEventListener("input", syncOrderItemStateOnly);
-        input.addEventListener("keydown", handleTableKeydown);
     });
     $$("[data-remove-item]", host).forEach(button => {
         button.addEventListener("click", event => {
@@ -5469,63 +5639,6 @@ function renderOrderItems() {
         });
     });
     updateScrollHints(host);
-}
-
-function handleTableKeydown(event) {
-    if (state.orderDraftReadOnly) return;
-
-    if (event.key === "Enter") {
-        event.preventDefault();
-        event.stopPropagation();
-
-        const currentInput = event.target;
-        const row = currentInput.closest("tr[data-index]");
-        if (row) {
-            const host = row.closest("#itemsHost");
-            if (host) {
-                const rows = host.querySelectorAll("tr[data-index]");
-                const currentIndex = Number(row.dataset.index);
-                const isLastRow = currentIndex === rows.length - 1;
-
-                if (isLastRow) {
-                    const addBtn = document.getElementById("addService");
-                    if (addBtn) {
-                        addBtn.click();
-                        const newRow = host.querySelector(`tr[data-index="${currentIndex + 1}"]`);
-                        if (newRow) {
-                            const firstField = newRow.querySelector("[data-item]");
-                            if (firstField) {
-                                firstField.focus();
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        const currentInput = event.target;
-        const row = currentInput.closest("tr[data-index]");
-        if (row) {
-            const host = row.closest("#itemsHost");
-            if (host) {
-                const currentIndex = Number(row.dataset.index);
-                const targetIndex = event.key === "ArrowDown" ? currentIndex + 1 : currentIndex - 1;
-                const targetRow = host.querySelector(`tr[data-index="${targetIndex}"]`);
-                if (targetRow) {
-                    const fieldName = currentInput.dataset.item;
-                    const targetInput = targetRow.querySelector(`[data-item="${fieldName}"]`);
-                    if (targetInput && !targetInput.disabled) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        targetInput.focus();
-                        if (targetInput.tagName === "INPUT" && typeof targetInput.select === "function") {
-                            targetInput.select();
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 function syncOrderItemsFromDom(event) {
