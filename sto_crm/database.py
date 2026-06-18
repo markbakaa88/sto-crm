@@ -57,14 +57,17 @@ class RetryingCursor:
     def __init__(self, cursor: sqlite3.Cursor):
         self._cursor = cursor
 
-    def execute(self, sql: str, parameters: Any = ()):
-        return _retry_locked(lambda: self._cursor.execute(sql, parameters))
+    def execute(self, sql: str, parameters: Any = ()) -> RetryingCursor:
+        _retry_locked(lambda: self._cursor.execute(sql, parameters))
+        return self
 
-    def executemany(self, sql: str, seq_of_parameters: Any):
-        return _retry_locked(lambda: self._cursor.executemany(sql, seq_of_parameters))
+    def executemany(self, sql: str, seq_of_parameters: Any) -> RetryingCursor:
+        _retry_locked(lambda: self._cursor.executemany(sql, seq_of_parameters))
+        return self
 
-    def executescript(self, sql_script: str):
-        return _retry_locked(lambda: self._cursor.executescript(sql_script))
+    def executescript(self, sql_script: str) -> RetryingCursor:
+        _retry_locked(lambda: self._cursor.executescript(sql_script))
+        return self
 
     def fetchone(self):
         return _retry_locked(lambda: self._cursor.fetchone())
@@ -103,13 +106,13 @@ class RetryingConnection:
     def cursor(self) -> RetryingCursor:
         return RetryingCursor(self._conn.cursor())
 
-    def execute(self, sql: str, parameters: tuple = ()):
+    def execute(self, sql: str, parameters: Any = ()) -> RetryingCursor:
         return _retry_locked(lambda: RetryingCursor(self._conn.execute(sql, parameters)))
 
-    def executemany(self, sql: str, seq_of_parameters):
+    def executemany(self, sql: str, seq_of_parameters: Any) -> RetryingCursor:
         return _retry_locked(lambda: RetryingCursor(self._conn.executemany(sql, seq_of_parameters)))
 
-    def executescript(self, sql_script: str):
+    def executescript(self, sql_script: str) -> RetryingCursor:
         return _retry_locked(lambda: RetryingCursor(self._conn.executescript(sql_script)))
 
     def commit(self):

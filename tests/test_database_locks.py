@@ -119,3 +119,37 @@ def test_concurrent_read_write_locks(patch_db_path):
         assert write_finished.is_set()
     finally:
         t.join()
+
+
+def test_retrying_cursor_execute_keeps_retrying_cursor_for_chained_fetch():
+    raw_cursor = mock.MagicMock()
+    raw_cursor.execute.return_value = raw_cursor
+    raw_cursor.fetchall.side_effect = [
+        sqlite3.OperationalError("database is locked"),
+        [("ok",)],
+    ]
+    raw_cursor.fetchone.side_effect = [
+        sqlite3.OperationalError("database is locked"),
+        ("ok_one",),
+    ]
+    raw_cursor.fetchmany.side_effect = [
+        sqlite3.OperationalError("database is locked"),
+        [("ok_many",)],
+    ]
+
+    from sto_crm.database import RetryingCursor
+
+    with mock.patch("sto_crm.database._locked_retry_delay", return_value=0.001):
+        cursor = RetryingCursor(raw_cursor)
+        # Test fetchall chained
+        assert cursor.execute("SELECT 1").fetchall() == [("ok",)]
+        # Test fetchone chained
+        assert cursor.execute("SELECT 1").fetchone() == ("ok_one",)
+        # Test fetchmany chained
+        assert cursor.execute("SELECT 1").fetchmany(1) == [("ok_many",)]
+
+    assert raw_cursor.execute.call_count == 3
+    assert raw_cursor.fetchall.call_count == 2
+    assert raw_cursor.fetchone.call_count == 2
+    assert raw_cursor.fetchmany.call_count == 2
+
