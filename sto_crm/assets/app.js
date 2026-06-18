@@ -25,6 +25,7 @@ const state = {
     offlineMode: false,
     accessToken: "",
     compactMode: false,
+    audioFeedback: true,
     searchTimer: null,
     catalogSearchTimer: null,
     lastBackupAt: "",
@@ -647,6 +648,88 @@ function announce(message, urgent = false) {
     });
 }
 
+let audioCtx = null;
+
+function playAudioFeedback(type) {
+    if (!state.audioFeedback) return;
+    try {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return;
+        if (!audioCtx) {
+            audioCtx = new AudioContextClass();
+        }
+        if (audioCtx.state === "suspended") {
+            audioCtx.resume();
+        }
+
+        const now = audioCtx.currentTime;
+
+        if (type === "success") {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            osc.type = "sine";
+            osc.frequency.setValueAtTime(523.25, now);
+            osc.frequency.exponentialRampToValueAtTime(783.99, now + 0.15);
+
+            gain.gain.setValueAtTime(0, now);
+            gain.gain.linearRampToValueAtTime(0.15, now + 0.03);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+
+            osc.start(now);
+            osc.stop(now + 0.2);
+        } else if (type === "warning") {
+            const osc1 = audioCtx.createOscillator();
+            const gain1 = audioCtx.createGain();
+            osc1.connect(gain1);
+            gain1.connect(audioCtx.destination);
+
+            osc1.type = "sine";
+            osc1.frequency.setValueAtTime(440, now);
+            gain1.gain.setValueAtTime(0, now);
+            gain1.gain.linearRampToValueAtTime(0.15, now + 0.02);
+            gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+
+            osc1.start(now);
+            osc1.stop(now + 0.1);
+
+            const osc2 = audioCtx.createOscillator();
+            const gain2 = audioCtx.createGain();
+            osc2.connect(gain2);
+            gain2.connect(audioCtx.destination);
+
+            osc2.type = "sine";
+            osc2.frequency.setValueAtTime(440, now + 0.15);
+            gain2.gain.setValueAtTime(0, now + 0.15);
+            gain2.gain.linearRampToValueAtTime(0.15, now + 0.17);
+            gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+
+            osc2.start(now + 0.15);
+            osc2.stop(now + 0.25);
+        } else if (type === "danger" || type === "error") {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            osc.type = "sawtooth";
+            osc.frequency.setValueAtTime(700, now);
+            osc.frequency.linearRampToValueAtTime(120, now + 0.3);
+
+            gain.gain.setValueAtTime(0, now);
+            gain.gain.linearRampToValueAtTime(0.15, now + 0.03);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+
+            osc.start(now);
+            osc.stop(now + 0.35);
+        }
+    } catch (e) {
+        console.warn("Failed to play audio feedback:", e);
+    }
+}
+
 const toastQueue = [];
 let isToastActive = false;
 let isToastFadingOut = false;
@@ -670,6 +753,8 @@ function showNextToast() {
     } else if (current.type === "danger" || current.type === "error") {
         normType = "danger";
     }
+
+    playAudioFeedback(normType);
 
     const isError = normType === "danger";
     const node = $("#toast");
@@ -2450,6 +2535,7 @@ function commandItems() {
         { icon: "М", title: "Каталог авто", hint: "Марки и модели", keys: "G K", run: () => setRoute("catalog") },
         { icon: "↻", title: "Обновить", hint: "Перезагрузить данные", keys: "R", run: () => loadData().then(() => toast("Обновлено")).catch(showError) },
         { icon: "↕", title: "Плотность", hint: "Компактно / обычно", keys: "Ctrl+K → Плотность", run: () => toggleDensity() },
+        { icon: "🔊", title: "Звук уведомлений", hint: "Вкл/выкл звуковые оповещения", keys: "Ctrl+K → Звук", run: () => toggleAudioFeedback() },
         { icon: "⇩", title: "Резерв", hint: "Backup SQLite", keys: "Ctrl+K → Резерв", run: () => createBackupFromUi() },
         { icon: "⬢", title: "Обновления", hint: "GitHub Releases", keys: "G U", run: () => { setRoute("updates"); checkForUpdates(true).catch(showError); } }
     ];
@@ -5720,6 +5806,7 @@ function renderOrderItems() {
     $$("[data-item]", host).forEach(input => {
         input.addEventListener("change", syncOrderItemsFromDom);
         input.addEventListener("input", syncOrderItemStateOnly);
+        input.addEventListener("keydown", handleTableKeydown);
     });
     $$("[data-remove-item]", host).forEach(button => {
         button.addEventListener("click", event => {
@@ -5730,6 +5817,63 @@ function renderOrderItems() {
         });
     });
     updateScrollHints(host);
+}
+
+function handleTableKeydown(event) {
+    if (state.orderDraftReadOnly) return;
+
+    if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const currentInput = event.target;
+        const row = currentInput.closest("tr[data-index]");
+        if (row) {
+            const host = row.closest("#itemsHost");
+            if (host) {
+                const rows = host.querySelectorAll("tr[data-index]");
+                const currentIndex = Number(row.dataset.index);
+                const isLastRow = currentIndex === rows.length - 1;
+
+                if (isLastRow) {
+                    const addBtn = document.getElementById("addService");
+                    if (addBtn) {
+                        addBtn.click();
+                        const newRow = host.querySelector(`tr[data-index="${currentIndex + 1}"]`);
+                        if (newRow) {
+                            const firstField = newRow.querySelector("[data-item]");
+                            if (firstField) {
+                                firstField.focus();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        const currentInput = event.target;
+        const row = currentInput.closest("tr[data-index]");
+        if (row) {
+            const host = row.closest("#itemsHost");
+            if (host) {
+                const currentIndex = Number(row.dataset.index);
+                const targetIndex = event.key === "ArrowDown" ? currentIndex + 1 : currentIndex - 1;
+                const targetRow = host.querySelector(`tr[data-index="${targetIndex}"]`);
+                if (targetRow) {
+                    const fieldName = currentInput.dataset.item;
+                    const targetInput = targetRow.querySelector(`[data-item="${fieldName}"]`);
+                    if (targetInput && !targetInput.disabled) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        targetInput.focus();
+                        if (targetInput.tagName === "INPUT" && typeof targetInput.select === "function") {
+                            targetInput.select();
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 function syncOrderItemsFromDom(event) {
@@ -6467,6 +6611,24 @@ function toggleDensity() {
     toast(state.compactMode ? "Компактная плотность включена" : "Обычная плотность включена");
 }
 
+function applyAudioFeedback(enabled) {
+    state.audioFeedback = Boolean(enabled);
+    const audioButton = $("#audioToggle");
+    if (audioButton) {
+        audioButton.setAttribute("aria-checked", state.audioFeedback ? "true" : "false");
+        const iconNode = audioButton.querySelector("[data-menu-icon]");
+        if (iconNode) {
+            iconNode.textContent = state.audioFeedback ? "🔊" : "🔇";
+        }
+    }
+}
+
+function toggleAudioFeedback() {
+    applyAudioFeedback(!state.audioFeedback);
+    safeStorageSet("sto-crm-audio-feedback", state.audioFeedback ? "true" : "false");
+    toast(state.audioFeedback ? "Звуковые оповещения включены" : "Звуковые оповещения выключены", "success");
+}
+
 function safeStorageGet(key) {
     try { return safeLocalStorage.getItem(key); }
     catch { return null; }
@@ -6490,9 +6652,15 @@ function nextThemePreference(current) {
 applyTheme(safeStorageGet("sto-crm-theme") || "auto");
 const savedDensity = safeStorageGet("sto-crm-density");
 applyDensity(savedDensity ? savedDensity === "compact" : false);
+const savedAudio = safeStorageGet("sto-crm-audio-feedback");
+applyAudioFeedback(savedAudio === null ? true : (savedAudio === "true"));
 const densityToggle = $("#densityToggle");
 if (densityToggle) {
     densityToggle.addEventListener("click", toggleDensity);
+}
+const audioToggle = $("#audioToggle");
+if (audioToggle) {
+    audioToggle.addEventListener("click", toggleAudioFeedback);
 }
 const themeToggle = $("#themeToggle");
 if (themeToggle) {
