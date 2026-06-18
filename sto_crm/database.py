@@ -173,7 +173,7 @@ def db(readonly: bool = False) -> Iterator[sqlite3.Connection | RetryingConnecti
         conn = _retry_locked(lambda: connect(readonly=True))
         conn = RetryingConnection(conn)
     else:
-        conn = connect(readonly=False)
+        conn = connect()
     try:
         yield conn
         in_trans = False
