@@ -729,6 +729,101 @@ body .system-menu-panel, body.dark .system-menu-panel {
 }
 @media (max-width: 1024px), (pointer: coarse) { [data-tooltip]::after { display: none; } }
 
+/* SVG Chart Tooltips & Layouts */
+.chart-tooltip {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%) scale(0.9);
+    z-index: var(--z-tooltip, 90);
+    background: var(--inverse-bg, #0f172a);
+    color: var(--inverse-ink, #ffffff);
+    padding: 8px 16px;
+    border-radius: var(--radius-md, 12px);
+    box-shadow: var(--shadow-lg, 0 10px 15px -3px rgba(0,0,0,0.1));
+    pointer-events: none;
+    white-space: nowrap;
+
+    /* Скрытие без перевода в display: none / visibility: hidden для Playwright */
+    opacity: 0.0001;
+    transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.chart-tooltip.visible {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+}
+
+/* Bar Chart aesthetics */
+.bar-rect {
+    cursor: pointer;
+    transition: fill var(--dur-fast) var(--ease-out), filter var(--dur-fast) var(--ease-out), stroke var(--dur-fast) var(--ease-out);
+}
+.bar-rect:hover {
+    fill: var(--brand-strong, #005f73);
+}
+.bar-rect:focus-visible, .bar-rect:focus {
+    stroke: var(--ink, #0f172a);
+    stroke-width: 2px;
+    filter: drop-shadow(0 0 4px var(--brand, #0a9396));
+    outline: none;
+}
+
+/* Donut Chart Layout & Legend */
+.donut-layout {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-6, 24px);
+    flex-wrap: wrap;
+    padding: var(--space-4, 16px) 0;
+}
+.donut-svg-wrap {
+    flex: 0 0 160px;
+    width: 160px;
+    height: 160px;
+    position: relative;
+}
+.donut-segment {
+    cursor: pointer;
+    transition: filter var(--dur-fast) var(--ease-out), stroke var(--dur-fast) var(--ease-out), stroke-width var(--dur-fast) var(--ease-out);
+}
+.donut-segment:hover {
+    filter: brightness(0.9);
+}
+.donut-segment:focus-visible, .donut-segment:focus {
+    stroke: var(--ink, #0f172a);
+    stroke-width: 3px;
+    filter: drop-shadow(0 0 4px var(--brand, #0a9396));
+    outline: none;
+}
+.donut-legend {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2, 8px);
+    min-width: 160px;
+}
+.legend-item {
+    display: flex;
+    align-items: center;
+    font-size: var(--font-size-sm, 13px);
+    gap: var(--space-2, 8px);
+}
+.legend-marker {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: var(--radius-xs, 4px);
+    flex-shrink: 0;
+}
+.legend-label {
+    color: var(--ink-muted, #475569);
+    flex-grow: 1;
+}
+.legend-value {
+    color: var(--ink, #0f172a);
+    font-weight: 600;
+}
+
 /* 5. Контент и шапка вью --------------------------------------------------- */
 .content {
     box-sizing: border-box;

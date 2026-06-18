@@ -4117,6 +4117,158 @@ function renderRevenueChartSVG(data) {
     `;
 }
 
+function renderOrdersByDayChartSVG(data) {
+    if (!data || data.length === 0) {
+        return `<div class="muted p-20-center">Нет данных для построения графика</div>`;
+    }
+    const width = 600;
+    const height = 180;
+    const paddingLeft = 40;
+    const paddingRight = 20;
+    const paddingTop = 20;
+    const paddingBottom = 30;
+
+    const chartWidth = width - paddingLeft - paddingRight;
+    const chartHeight = height - paddingTop - paddingBottom;
+
+    const maxVal = Math.max(...data.map(d => d.count), 5);
+    
+    // Сетка по Y (горизонтальные линии)
+    const gridLines = [];
+    const divisions = 4;
+    for (let i = 0; i <= divisions; i++) {
+        const val = Math.round((maxVal / divisions) * i);
+        const y = height - paddingBottom - (val / maxVal) * chartHeight;
+        gridLines.push(`
+            <line x1="${paddingLeft}" y1="${y}" x2="${width - paddingRight}" y2="${y}" stroke="var(--line, rgba(255, 255, 255, 0.08))" stroke-dasharray="3,3" />
+            <text x="${paddingLeft - 8}" y="${y + 4}" font-size="10" fill="var(--ink-muted, #a8b5c7)" text-anchor="end">${val}</text>
+        `);
+    }
+
+    const colWidth = chartWidth / 7;
+    const gap = 12;
+    const barWidth = colWidth - gap * 2;
+
+    const rects = data.map((d, index) => {
+        const x = paddingLeft + index * colWidth + gap;
+        const barHeight = (d.count / maxVal) * chartHeight;
+        // Зададим минимальную высоту 4px, чтобы даже при 0 заездов столбик был интерактивным
+        const drawHeight = Math.max(barHeight, 4);
+        const y = height - paddingBottom - drawHeight;
+
+        return `
+            <g class="bar-group">
+                <rect class="bar-rect" 
+                      x="${x}" 
+                      y="${y}" 
+                      width="${barWidth}" 
+                      height="${drawHeight}" 
+                      rx="4" 
+                      ry="4" 
+                      fill="var(--brand, #0a9396)"
+                      tabindex="0"
+                      role="img"
+                      aria-label="День: ${d.day}, Заездов: ${d.count}"
+                      data-day="${d.day}"
+                      data-count="${d.count}"
+                />
+                <text x="${x + barWidth / 2}" y="${height - paddingBottom + 16}" font-size="10" fill="var(--ink-muted, #a8b5c7)" text-anchor="middle">${d.day}</text>
+            </g>
+        `;
+    });
+
+    return `
+        <svg viewBox="0 0 ${width} ${height}" class="orders-by-day-chart-svg" width="100%" height="${height}">
+            ${gridLines.join("")}
+            ${rects.join("")}
+        </svg>
+    `;
+}
+
+function renderRevenueByCategoryChartSVG(data) {
+    const services = Number(data.services || 0);
+    const parts = Number(data.parts || 0);
+    const total = services + parts;
+
+    const width = 200;
+    const height = 200;
+    const cx = 100;
+    const cy = 100;
+    const r = 60;
+
+    let p1 = 0.5;
+    if (total > 0) {
+        p1 = services / total;
+        if (p1 < 0.01) p1 = 0.01;
+        if (p1 > 0.99) p1 = 0.99;
+    }
+
+    const startAngle1 = -Math.PI / 2;
+    const endAngle1 = startAngle1 + p1 * 2 * Math.PI;
+
+    const x0 = cx + r * Math.cos(startAngle1);
+    const y0 = cy + r * Math.sin(startAngle1);
+    const x1 = cx + r * Math.cos(endAngle1);
+    const y1 = cy + r * Math.sin(endAngle1);
+
+    const largeArc1 = p1 > 0.5 ? 1 : 0;
+    const d1 = `M ${cx} ${cy} L ${x0} ${y0} A ${r} ${r} 0 ${largeArc1} 1 ${x1} ${y1} Z`;
+
+    const largeArc2 = (1 - p1) > 0.5 ? 1 : 0;
+    const d2 = `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc2} 1 ${x0} ${y0} Z`;
+
+    const segments = `
+        <path class="donut-segment" 
+              d="${d1}"
+              fill="var(--brand, #0a9396)" 
+              stroke="var(--surface, #ffffff)"
+              stroke-width="1.5"
+              tabindex="0"
+              role="img"
+              aria-label="Услуги: ${money(services)}"
+              data-category="Услуги"
+              data-value="${services}"
+        />
+        <path class="donut-segment" 
+              d="${d2}"
+              fill="var(--info, #1d4ed8)" 
+              stroke="var(--surface, #ffffff)"
+              stroke-width="1.5"
+              tabindex="0"
+              role="img"
+              aria-label="Запчасти: ${money(parts)}"
+              data-category="Запчасти"
+              data-value="${parts}"
+        />
+    `;
+
+    return `
+        <div class="donut-layout">
+            <div class="donut-svg-wrap">
+                <svg viewBox="0 0 200 200" class="revenue-by-category-chart-svg" width="100%" height="200">
+                    ${segments}
+                    <!-- Маскирующий круг для эффекта пончика -->
+                    <circle cx="${cx}" cy="${cy}" r="24" fill="var(--surface, #ffffff)" stroke="var(--surface, #ffffff)" stroke-width="1" />
+                    <text x="${cx}" y="${cy - 3}" font-size="10" fill="var(--ink-muted, #a8b5c7)" text-anchor="middle">Выручка</text>
+                    <text x="${cx}" y="${cy + 11}" font-size="12" font-weight="bold" fill="var(--ink, #0f172a)" text-anchor="middle">${moneyCompact(total)}</text>
+                </svg>
+            </div>
+            <div class="donut-legend">
+                <div class="legend-item">
+                    <span class="legend-marker services"></span>
+                    <span class="legend-label">Услуги</span>
+                    <strong class="legend-value">${money(services)}</strong>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-marker parts"></span>
+                    <span class="legend-label">Запчасти</span>
+                    <strong class="legend-value">${money(parts)}</strong>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 function renderReports() {
     const r = (state.data && state.data.reports) || {};
     const statusCounts = r.status_counts || {};
@@ -4141,6 +4293,25 @@ function renderReports() {
             </div>
             <div class="panel-body pt-3 pb-3">
                 ${renderRevenueChartSVG(getDailyRevenue())}
+            </div>
+        </div>
+        
+        <div class="workspace-grid dashboard-grid mb-5">
+            <div class="panel shadow-sm">
+                <div class="panel-head panel-border-subtle">
+                    <h3>📊 Распределение заездов по дням недели</h3>
+                </div>
+                <div class="panel-body pt-3 pb-3">
+                    ${renderOrdersByDayChartSVG(r.orders_by_day || [])}
+                </div>
+            </div>
+            <div class="panel shadow-sm">
+                <div class="panel-head panel-border-subtle">
+                    <h3>🍩 Выручка по категориям</h3>
+                </div>
+                <div class="panel-body pt-3 pb-3">
+                    ${renderRevenueByCategoryChartSVG(r.revenue_by_category || { services: 0, parts: 0 })}
+                </div>
             </div>
         </div>
         
@@ -5602,7 +5773,12 @@ function bindVehicleCatalog() {
         { country: "Великобритания", ranges: [["SHH", "SDZ"]] },
         { country: "Германия", ranges: [["WAA", "WZZ"]] },
         { country: "Россия", ranges: [["XAA", "XEE"]] },
-        { country: "Италия", ranges: [["ZAA", "ZRZ"]] }
+        { country: "Италия", ranges: [["ZAA", "ZRZ"]] },
+        { country: "Китай", ranges: [["L00", "LZZ"]] },
+        { country: "Франция", ranges: [["VF0", "VRZ"]] },
+        { country: "Швеция", ranges: [["YS0", "YWZ"]] },
+        { country: "Испания", ranges: [["VS0", "VVZ"]] },
+        { country: "Чехия", ranges: [["TMB", "TMZ"]] }
     ];
 
     function decodeWmi(wmi) {
@@ -6908,3 +7084,63 @@ window.addEventListener("scroll", () => {
         state.routeScrollPositions[state.route] = window.scrollY;
     }
 });
+
+// Интерактивные подсказки для SVG графиков
+(function initChartTooltips() {
+    const tooltip = document.getElementById("chart-tooltip");
+    if (!tooltip) return;
+
+    function showTooltip(target) {
+        let text = "";
+        if (target.classList.contains("bar-rect")) {
+            const day = target.getAttribute("data-day");
+            const count = Number(target.getAttribute("data-count") || 0);
+            text = `${day}: <strong>${count}</strong> ${pluralRu(count, "заезд", "заезда", "заездов")}`;
+        } else if (target.classList.contains("donut-segment")) {
+            const category = target.getAttribute("data-category");
+            const value = Number(target.getAttribute("data-value") || 0);
+            text = `${category}: <strong>${money(value)}</strong>`;
+        }
+
+        if (text) {
+            tooltip.innerHTML = text;
+            tooltip.classList.add("visible");
+            tooltip.removeAttribute("aria-hidden");
+        }
+    }
+
+    function hideTooltip() {
+        tooltip.classList.remove("visible");
+        tooltip.setAttribute("aria-hidden", "true");
+    }
+
+    document.addEventListener("mouseover", (e) => {
+        const target = e.target;
+        if (target && target.classList.contains("bar-rect")) {
+            showTooltip(target);
+        } else if (target && target.classList.contains("donut-segment")) {
+            showTooltip(target);
+        }
+    });
+
+    document.addEventListener("mouseout", (e) => {
+        const target = e.target;
+        if (target && (target.classList.contains("bar-rect") || target.classList.contains("donut-segment"))) {
+            hideTooltip();
+        }
+    });
+
+    document.addEventListener("focusin", (e) => {
+        const target = e.target;
+        if (target && (target.classList.contains("bar-rect") || target.classList.contains("donut-segment"))) {
+            showTooltip(target);
+        }
+    });
+
+    document.addEventListener("focusout", (e) => {
+        const target = e.target;
+        if (target && (target.classList.contains("bar-rect") || target.classList.contains("donut-segment"))) {
+            hideTooltip();
+        }
+    });
+})();

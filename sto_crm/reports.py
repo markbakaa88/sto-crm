@@ -717,7 +717,40 @@ def build_reports(
         for date, val in sorted(revenue_by_day.items())
     ]
 
+    orders_by_day_counts = [0] * 7
+    for o in orders:
+        if o.get("deleted_at"):
+            continue
+        created_at = o.get("created_at")
+        dt = parse_local_datetime(created_at)
+        if dt:
+            orders_by_day_counts[dt.weekday()] += 1
+
+    orders_by_day = [
+        {"day": name, "count": count}
+        for name, count in zip(["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"], orders_by_day_counts, strict=False)
+    ]
+
+    revenue_by_category = {"services": 0.0, "parts": 0.0}
+    for o in orders:
+        if o.get("status") != "closed" or o.get("deleted_at"):
+            continue
+        for item in o.get("items", []):
+            if item_is_billable(item):
+                qty = parse_float(item.get("quantity"))
+                price = parse_float(item.get("unit_price"))
+                kind = item.get("kind")
+                if kind == "service":
+                    revenue_by_category["services"] += qty * price
+                elif kind == "part":
+                    revenue_by_category["parts"] += qty * price
+
+    revenue_by_category["services"] = round(revenue_by_category["services"], 2)
+    revenue_by_category["parts"] = round(revenue_by_category["parts"], 2)
+
     return {
+        "orders_by_day": orders_by_day,
+        "revenue_by_category": revenue_by_category,
         "orders_total": len(orders),
         "active_orders": len(active_orders),
         "closed_orders_count": len(closed_orders),
