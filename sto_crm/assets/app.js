@@ -5458,6 +5458,7 @@ function renderOrderItems() {
     $$("[data-item]", host).forEach(input => {
         input.addEventListener("change", syncOrderItemsFromDom);
         input.addEventListener("input", syncOrderItemStateOnly);
+        input.addEventListener("keydown", handleTableKeydown);
     });
     $$("[data-remove-item]", host).forEach(button => {
         button.addEventListener("click", event => {
@@ -5468,6 +5469,63 @@ function renderOrderItems() {
         });
     });
     updateScrollHints(host);
+}
+
+function handleTableKeydown(event) {
+    if (state.orderDraftReadOnly) return;
+
+    if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const currentInput = event.target;
+        const row = currentInput.closest("tr[data-index]");
+        if (row) {
+            const host = row.closest("#itemsHost");
+            if (host) {
+                const rows = host.querySelectorAll("tr[data-index]");
+                const currentIndex = Number(row.dataset.index);
+                const isLastRow = currentIndex === rows.length - 1;
+
+                if (isLastRow) {
+                    const addBtn = document.getElementById("addService");
+                    if (addBtn) {
+                        addBtn.click();
+                        const newRow = host.querySelector(`tr[data-index="${currentIndex + 1}"]`);
+                        if (newRow) {
+                            const firstField = newRow.querySelector("[data-item]");
+                            if (firstField) {
+                                firstField.focus();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        const currentInput = event.target;
+        const row = currentInput.closest("tr[data-index]");
+        if (row) {
+            const host = row.closest("#itemsHost");
+            if (host) {
+                const currentIndex = Number(row.dataset.index);
+                const targetIndex = event.key === "ArrowDown" ? currentIndex + 1 : currentIndex - 1;
+                const targetRow = host.querySelector(`tr[data-index="${targetIndex}"]`);
+                if (targetRow) {
+                    const fieldName = currentInput.dataset.item;
+                    const targetInput = targetRow.querySelector(`[data-item="${fieldName}"]`);
+                    if (targetInput && !targetInput.disabled) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        targetInput.focus();
+                        if (targetInput.tagName === "INPUT" && typeof targetInput.select === "function") {
+                            targetInput.select();
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 function syncOrderItemsFromDom(event) {
