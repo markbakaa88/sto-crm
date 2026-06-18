@@ -181,7 +181,8 @@ class StoCrmTests(unittest.TestCase):
         )
 
     def test_catalog_csv_export_includes_all_makes_and_models(self):
-        filename, content = sto_crm.csv_export("catalog")
+        filename, content_generator = sto_crm.csv_export("catalog")
+        content = "".join(content_generator)
         self.assertEqual(filename, "car_catalog.csv")
         self.assertTrue(content.startswith("\ufeffmake;model"))
         self.assertFalse(content.startswith("\ufeff\ufeff"))
@@ -517,7 +518,8 @@ class StoCrmTests(unittest.TestCase):
                 for item in payload["reports"]["appointments_today"]
             )
         )
-        filename, content = sto_crm.csv_export("appointments")
+        filename, content_generator = sto_crm.csv_export("appointments")
+        content = "".join(content_generator)
         self.assertEqual(filename, "appointments.csv")
         self.assertIn("Suspension check", content)
 
@@ -1628,7 +1630,8 @@ class StoCrmTests(unittest.TestCase):
             }
         )
         sto_crm.create_customer({"name": "\u200b =hidden", "phone": "\ufeff =hidden"})
-        _filename, content = sto_crm.csv_export("customers")
+        _filename, content_generator = sto_crm.csv_export("customers")
+        content = "".join(content_generator)
         self.assertIn("'=cmd|' /C calc'!A0", content)
         self.assertIn("'+7999", content)
         self.assertIn(
@@ -1651,7 +1654,8 @@ class StoCrmTests(unittest.TestCase):
                 [(f"Bulk Customer {index:04d}", stamp, stamp) for index in range(1005)],
             )
 
-        _filename, content = sto_crm.csv_export("customers")
+        _filename, content_generator = sto_crm.csv_export("customers")
+        content = "".join(content_generator)
         self.assertEqual(len(content.strip().splitlines()), 1006)
         self.assertIn("Bulk Customer 1004", content)
 

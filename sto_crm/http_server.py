@@ -230,14 +230,40 @@ class CRMHandler(BaseHTTPRequestHandler):
                 if not secrets.compare_digest(token, _runtime.RUNTIME.csrf_token):
                     raise PermissionError("Экспорт доступен только из интерфейса CRM.")
                 entity = path.rsplit("/", 1)[-1].removesuffix(".csv")
-                filename, content = csv_export(entity)
-                self.send_bytes(
-                    content.encode("utf-8"),
-                    "text/csv; charset=utf-8",
-                    headers={
-                        "Content-Disposition": f'attachment; filename="{filename}"'
-                    },
+                filename, generator = csv_export(entity)
+                self.close_connection = True
+                self.send_response(200)
+                self.send_header("Content-Type", "text/csv; charset=utf-8")
+                self.send_header("Transfer-Encoding", "chunked")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("X-Frame-Options", "DENY")
+                self.send_header("Referrer-Policy", "no-referrer")
+                self.send_header(
+                    "Permissions-Policy", "geolocation=(), camera=(), microphone=()"
                 )
+                self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+                self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+                self.send_header(
+                    "Content-Security-Policy",
+                    "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+                )
+                self.send_header("Connection", "close")
+                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+                self.end_headers()
+
+                try:
+                    for chunk in generator:
+                        data = chunk.encode("utf-8")
+                        if not data:
+                            continue
+                        self.wfile.write(f"{len(data):X}\r\n".encode("ascii"))
+                        self.wfile.write(data)
+                        self.wfile.write(b"\r\n")
+                    self.wfile.write(b"0\r\n\r\n")
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError) as err:
+                    self.close_connection = True
+                    raise BrokenPipeError from err
                 return
 
             payload = self.read_json() if method in {"POST", "PUT"} else {}

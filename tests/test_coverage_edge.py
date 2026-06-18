@@ -323,7 +323,8 @@ class TestCoverageEdge(unittest.TestCase):
                     "orders",
                     "catalog",
                 ):
-                    filename, content = csv_export(entity)
+                    filename, content_generator = csv_export(entity)
+                    content = "".join(content_generator)
                     self.assertTrue(filename.endswith(".csv"))
                     self.assertTrue(content.startswith("\ufeff"))
             finally:

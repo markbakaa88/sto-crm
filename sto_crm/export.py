@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+from collections.abc import Generator
 from typing import Any
 
 from . import runtime as _runtime
@@ -19,6 +20,8 @@ from .config import (
     PREFERRED_CHANNELS,
 )
 from .queries import (
+    _mask_deleted_order_vehicle,
+    attach_items_and_totals,
     list_appointments,
     list_customers,
     list_inventory,
@@ -101,11 +104,8 @@ def bootstrap_payload(q: str = "", status: str = "all") -> dict[str, Any]:
     }
 
 
-def csv_export(entity: str) -> tuple[str, str]:
-    output = io.StringIO()
-    writer = csv.writer(output, delimiter=";")
+def csv_export(entity: str) -> tuple[str, Generator[str]]:
     if entity == "customers":
-        rows = list_customers("", None)
         headers = [
             "id",
             "name",
@@ -118,8 +118,15 @@ def csv_export(entity: str) -> tuple[str, str]:
             "orders_count",
             "notes",
         ]
+        query = """
+            SELECT c.*,
+                   (SELECT COUNT(*) FROM vehicles v WHERE v.customer_id = c.id AND v.deleted_at IS NULL) AS vehicles_count,
+                   (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id AND o.deleted_at IS NULL) AS orders_count
+            FROM customers c
+            WHERE c.deleted_at IS NULL
+            ORDER BY c.updated_at DESC, c.id DESC
+        """
     elif entity == "vehicles":
-        rows = list_vehicles("", None)
         headers = [
             "id",
             "customer_name",
@@ -133,8 +140,16 @@ def csv_export(entity: str) -> tuple[str, str]:
             "next_service_mileage",
             "notes",
         ]
+        query = """
+            SELECT v.*, c.name AS customer_name, c.phone AS customer_phone,
+                   c.preferred_channel AS customer_preferred_channel,
+                   c.reminder_consent AS customer_reminder_consent
+            FROM vehicles v
+            JOIN customers c ON c.id = v.customer_id
+            WHERE v.deleted_at IS NULL AND c.deleted_at IS NULL
+            ORDER BY v.updated_at DESC, v.id DESC
+        """
     elif entity == "inventory":
-        rows = list_inventory("", None)
         headers = [
             "id",
             "sku",
@@ -148,8 +163,14 @@ def csv_export(entity: str) -> tuple[str, str]:
             "supplier",
             "notes",
         ]
+        query = """
+            SELECT *,
+                   CASE WHEN min_quantity > 0 AND quantity <= min_quantity THEN 1 ELSE 0 END AS is_low
+            FROM inventory
+            WHERE deleted_at IS NULL
+            ORDER BY is_low DESC, updated_at DESC, id DESC
+        """
     elif entity == "appointments":
-        rows = list_appointments("", "all", None)
         headers = [
             "id",
             "scheduled_at",
@@ -164,8 +185,20 @@ def csv_export(entity: str) -> tuple[str, str]:
             "reason",
             "notes",
         ]
+        query = """
+            SELECT a.*, c.name AS customer_name, c.phone AS customer_phone,
+                   v.make AS vehicle_make, v.model AS vehicle_model, v.year AS vehicle_year,
+                   v.plate AS vehicle_plate, v.vin AS vehicle_vin
+            FROM appointments a
+            JOIN customers c ON c.id = a.customer_id
+            LEFT JOIN vehicles v ON v.id = a.vehicle_id
+            WHERE a.deleted_at IS NULL AND c.deleted_at IS NULL AND (a.vehicle_id IS NULL OR v.deleted_at IS NULL)
+            ORDER BY
+                CASE WHEN a.status IN ('done', 'no_show', 'cancelled') THEN 1 ELSE 0 END,
+                a.scheduled_at,
+                a.id
+        """
     elif entity == "orders":
-        rows = list_orders("", "all", None)
         headers = [
             "id",
             "number",
@@ -183,18 +216,96 @@ def csv_export(entity: str) -> tuple[str, str]:
             "created_at",
             "updated_at",
         ]
+        query = """
+            SELECT o.*, c.name AS customer_name, c.phone AS customer_phone,
+                   v.make AS vehicle_make, v.model AS vehicle_model, v.year AS vehicle_year,
+                   v.plate AS vehicle_plate, v.vin AS vehicle_vin, v.mileage AS vehicle_mileage,
+                   v.deleted_at AS vehicle_deleted_at
+            FROM orders o
+            JOIN customers c ON c.id = o.customer_id
+            LEFT JOIN vehicles v ON v.id = o.vehicle_id
+            WHERE o.deleted_at IS NULL AND c.deleted_at IS NULL
+            ORDER BY
+                CASE
+                    WHEN o.status IN ('closed', 'cancelled') THEN 1
+                    ELSE 0
+                END,
+                CASE o.priority
+                    WHEN 'urgent' THEN 0
+                    WHEN 'high' THEN 1
+                    WHEN 'normal' THEN 2
+                    WHEN 'low' THEN 3
+                    ELSE 4
+                END,
+                CASE o.status
+                    WHEN 'new' THEN 1
+                    WHEN 'diagnostics' THEN 2
+                    WHEN 'estimate' THEN 3
+                    WHEN 'approved' THEN 4
+                    WHEN 'in_progress' THEN 5
+                    WHEN 'done' THEN 6
+                    WHEN 'closed' THEN 7
+                    ELSE 8
+                END,
+                o.updated_at DESC,
+                o.id DESC
+        """
     elif entity in {"catalog", "car_catalog"}:
-        catalog = car_catalog_payload()
-        rows = [
-            {"make": make, "model": model}
-            for make in catalog["makes"]
-            for model in (catalog["models"].get(make) or [""])
-        ]
         headers = ["make", "model"]
+        query = None
         entity = "car_catalog"
     else:
         raise KeyError("Неизвестный экспорт.")
-    writer.writerow(headers)
-    for row in rows:
-        writer.writerow([csv_cell(row.get(header, "")) for header in headers])
-    return f"{entity}.csv", "\ufeff" + output.getvalue()
+
+    filename = f"{entity}.csv"
+
+    def generator() -> Generator[str]:
+        # Yield UTF-8 BOM
+        yield "\ufeff"
+
+        # Headers
+        output = io.StringIO()
+        writer = csv.writer(output, delimiter=";")
+        writer.writerow(headers)
+        yield output.getvalue()
+        output.seek(0)
+        output.truncate(0)
+
+        if query is None:
+            # Special case for catalog/car_catalog
+            catalog = car_catalog_payload()
+            for make in catalog["makes"]:
+                for model in (catalog["models"].get(make) or [""]):
+                    row = {"make": make, "model": model}
+                    writer.writerow([csv_cell(row.get(header, "")) for header in headers])
+                    yield output.getvalue()
+                    output.seek(0)
+                    output.truncate(0)
+            return
+
+        # Query database in batches
+        from .database import db
+
+        batch_size = 200
+        with db(readonly=True) as conn:
+            cursor = conn.execute(query)
+            while True:
+                rows = cursor.fetchmany(batch_size)
+                if not rows:
+                    break
+
+                # Convert rows to dicts
+                dict_rows = [dict(r) for r in rows]
+
+                # Post-process if order
+                if entity == "orders":
+                    dict_rows = [_mask_deleted_order_vehicle(r) for r in dict_rows]
+                    attach_items_and_totals(conn, dict_rows)  # type: ignore[arg-type]
+
+                for row in dict_rows:
+                    writer.writerow([csv_cell(row.get(header, "")) for header in headers])
+                    yield output.getvalue()
+                    output.seek(0)
+                    output.truncate(0)
+
+    return filename, generator()
