@@ -79,15 +79,16 @@ def test_vehicle_vin_validation(crm_server):
         assert page.evaluate("document.getElementById('vehicle_vin').classList.contains('invalid')")
         assert not page.evaluate("document.getElementById('vehicle_vin').classList.contains('valid')")
         assert page.evaluate("document.getElementById('vehicle_vin').getAttribute('aria-invalid') === 'true'")
-        error_msg = page.locator(".field:has(#vehicle_vin) .field-error").text_content()
+        error_msg = page.locator(".field:has(#vehicle_vin) .field-error").text_content() or ""
         assert "должен содержать ровно 17 символов" in error_msg
 
-        # Test case 3: Invalid characters (I, O, Q)
+        # Test case 3: Invalid characters (I, O, Q) are sanitized and length validation kicks in
         vin.fill("1234567890123456I")
         page.wait_for_timeout(50)
+        assert vin.input_value() == "1234567890123456"
         assert page.evaluate("document.getElementById('vehicle_vin').classList.contains('invalid')")
-        error_msg = page.locator(".field:has(#vehicle_vin) .field-error").text_content()
-        assert "за исключением I, O, Q" in error_msg
+        error_msg = page.locator(".field:has(#vehicle_vin) .field-error").text_content() or ""
+        assert "должен содержать ровно 17 символов" in error_msg
 
         # Test case 4: Valid VIN with automatic uppercasing
         # 'a-z' letters should be converted to 'A-Z'
@@ -97,7 +98,7 @@ def test_vehicle_vin_validation(crm_server):
         assert page.evaluate("document.getElementById('vehicle_vin').classList.contains('valid')")
         assert not page.evaluate("document.getElementById('vehicle_vin').classList.contains('invalid')")
         assert page.evaluate("document.getElementById('vehicle_vin').getAttribute('aria-invalid') === 'false'")
-        success_msg = page.locator(".field:has(#vehicle_vin) .field-success").text_content()
+        success_msg = page.locator(".field:has(#vehicle_vin) .field-success").text_content() or ""
         assert "VIN-код корректен" in success_msg
 
         # Test case 5: Clear field back to neutral
@@ -146,14 +147,14 @@ def test_vehicle_plate_validation(crm_server):
         assert page.evaluate("document.getElementById('vehicle_plate').classList.contains('invalid')")
         assert not page.evaluate("document.getElementById('vehicle_plate').classList.contains('valid')")
         assert page.evaluate("document.getElementById('vehicle_plate').getAttribute('aria-invalid') === 'true'")
-        error_msg = page.locator(".field:has(#vehicle_plate) .field-error").text_content()
+        error_msg = page.locator(".field:has(#vehicle_plate) .field-error").text_content() or ""
         assert "не менее 4 символов" in error_msg
 
         # Test case 3: Special characters
         plate.fill("А123А@77")
         page.wait_for_timeout(50)
         assert page.evaluate("document.getElementById('vehicle_plate').classList.contains('invalid')")
-        error_msg = page.locator(".field:has(#vehicle_plate) .field-error").text_content()
+        error_msg = page.locator(".field:has(#vehicle_plate) .field-error").text_content() or ""
         assert "не должен содержать специальных символов" in error_msg
 
         # Test case 4: Valid Госномер with automatic uppercasing
@@ -163,7 +164,7 @@ def test_vehicle_plate_validation(crm_server):
         assert page.evaluate("document.getElementById('vehicle_plate').classList.contains('valid')")
         assert not page.evaluate("document.getElementById('vehicle_plate').classList.contains('invalid')")
         assert page.evaluate("document.getElementById('vehicle_plate').getAttribute('aria-invalid') === 'false'")
-        success_msg = page.locator(".field:has(#vehicle_plate) .field-success").text_content()
+        success_msg = page.locator(".field:has(#vehicle_plate) .field-success").text_content() or ""
         assert "Госномер корректен" in success_msg
 
         # Test case 5: Clear field back to neutral
