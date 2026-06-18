@@ -5535,7 +5535,12 @@ function openVehicleModal(vehicle = {}) {
             <fieldset class="form-fieldset"><legend>Идентификация</legend>
                 <div class="form-grid">
                     ${inputField("vehicle", "plate", "Госномер", `value="${esc(vehicle.plate)}" autocomplete="off" maxlength="40" autocapitalize="characters" spellcheck="false" placeholder="A123AA"`, "", "Будет автоматически приведён к верхнему регистру.")}
-                    ${inputField("vehicle", "vin", "VIN", `value="${esc(vehicle.vin)}" maxlength="17" minlength="17" pattern="[A-HJ-NPR-Za-hj-npr-z0-9]{17}" title="VIN должен содержать 17 символов без I, O и Q" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="17 символов"`, "", "17 символов без I, O и Q; удобно для идентификации авто.")}
+                    <div class="field">
+                        <label for="vehicle_vin">VIN</label>
+                        <input id="vehicle_vin" name="vin" value="${esc(vehicle.vin)}" maxlength="17" minlength="17" pattern="[A-HJ-NPR-Za-hj-npr-z0-9]{17}" title="VIN должен содержать 17 символов без I, O и Q" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="17 символов" aria-describedby="vehicle_vin_hint">
+                        <div class="field-hint" id="vehicle_vin_hint">17 символов без I, O и Q; удобно для идентификации авто.</div>
+                        <div class="vin-decoder"></div>
+                    </div>
                 </div>
             </fieldset>
             <fieldset class="form-fieldset"><legend>Пробег и сервис</legend>
@@ -5573,6 +5578,67 @@ function bindVehicleCatalog() {
     const vinInput = $("#vehicle_vin");
     const plateInput = $("#vehicle_plate");
 
+    const wmiDictionary = [
+        { country: "США", ranges: [["1AA", "1ZO"], ["4AA", "4ZO"], ["5AA", "5ZO"]] },
+        { country: "Канада", ranges: [["2AA", "2ZO"]] },
+        { country: "Мексика", ranges: [["3AA", "3ZO"]] },
+        { country: "Япония", ranges: [["JAA", "JZO"]] },
+        { country: "Южная Корея", ranges: [["KAA", "KZO"]] },
+        { country: "Великобритания", ranges: [["SHH", "SDZ"]] },
+        { country: "Германия", ranges: [["WAA", "WZZ"]] },
+        { country: "Россия", ranges: [["XAA", "XEE"]] },
+        { country: "Италия", ranges: [["ZAA", "ZRZ"]] }
+    ];
+
+    function decodeWmi(wmi) {
+        if (!wmi || wmi.length < 3) return null;
+        const code = wmi.substring(0, 3).toUpperCase();
+        for (const entry of wmiDictionary) {
+            for (const [start, end] of entry.ranges) {
+                const min = start < end ? start : end;
+                const max = start < end ? end : start;
+                if (code >= min && code <= max) {
+                    return entry.country;
+                }
+            }
+        }
+        return null;
+    }
+
+    function updateVinDecoder() {
+        if (!vinInput) return;
+        const val = vinInput.value;
+        const len = val.length;
+        
+        let decoderEl = vinInput.closest(".field")?.querySelector(".vin-decoder");
+        if (!decoderEl) return;
+        
+        decoderEl.textContent = "";
+
+        const lengthEl = document.createElement("div");
+        lengthEl.className = "vin-decoder-length";
+        lengthEl.textContent = `${len} / 17 символов`;
+        decoderEl.appendChild(lengthEl);
+        
+        if (len >= 3) {
+            const country = decodeWmi(val);
+            const countryWrapEl = document.createElement("div");
+            countryWrapEl.className = "vin-decoder-country-wrap";
+            countryWrapEl.textContent = "Страна: ";
+
+            const countrySpan = document.createElement("span");
+            if (country) {
+                countrySpan.className = "vin-decoder-country";
+                countrySpan.textContent = country;
+            } else {
+                countrySpan.className = "vin-decoder-unknown";
+                countrySpan.textContent = "Неизвестно";
+            }
+            countryWrapEl.appendChild(countrySpan);
+            decoderEl.appendChild(countryWrapEl);
+        }
+    }
+
     const uppercaseInput = event => {
         const input = event.target;
         const start = input.selectionStart;
@@ -5583,6 +5649,28 @@ function bindVehicleCatalog() {
             input.value = newVal;
             if (start !== null && end !== null) {
                 input.setSelectionRange(start, end);
+            }
+        }
+    };
+
+    const sanitizeAndUppercaseVin = event => {
+        const input = event.target;
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        const oldVal = input.value;
+        const newVal = String(oldVal || "").replace(/[IOQioq]/g, "").toUpperCase();
+        if (oldVal !== newVal) {
+            input.value = newVal;
+            if (start !== null && end !== null) {
+                let removedBeforeStart = 0;
+                for (let i = 0; i < start; i++) {
+                    if (/[ioqIOQ]/.test(oldVal[i])) {
+                        removedBeforeStart++;
+                    }
+                }
+                const newStart = Math.max(0, start - removedBeforeStart);
+                const newEnd = Math.max(0, end - removedBeforeStart);
+                input.setSelectionRange(newStart, newEnd);
             }
         }
     };
@@ -5626,7 +5714,20 @@ function bindVehicleCatalog() {
     }
 
     if (vinInput) {
-        vinInput.addEventListener("input", uppercaseInput);
+        const vinFieldContainer = vinInput.closest(".field");
+        if (vinFieldContainer) {
+            let decoderEl = vinFieldContainer.querySelector(".vin-decoder");
+            if (!decoderEl) {
+                decoderEl = document.createElement("div");
+                decoderEl.className = "vin-decoder";
+                vinFieldContainer.appendChild(decoderEl);
+            }
+        }
+
+        vinInput.addEventListener("input", sanitizeAndUppercaseVin);
+        vinInput.addEventListener("input", updateVinDecoder);
+        updateVinDecoder();
+
         validateVin();
         vinInput.addEventListener("input", () => {
             setTimeout(() => {
@@ -6520,7 +6621,7 @@ $("#commandSearch")?.addEventListener("keydown", event => {
     }
 });
 function systemMenuItems() {
-    return $$("#systemMenu [role='menuitem']:not([disabled])");
+    return $$("#systemMenu [role='menuitem']:not([disabled]), #systemMenu [role='menuitemcheckbox']:not([disabled])");
 }
 
 function focusSystemMenuItem(index = 0) {
@@ -6656,6 +6757,7 @@ function applyTheme(theme) {
             themeButton.textContent = icon;
         }
         themeButton.setAttribute("aria-pressed", requested === "auto" ? "false" : "true");
+        themeButton.setAttribute("aria-checked", requested !== "auto" ? "true" : "false");
         themeButton.setAttribute("aria-label", `${label}. Нажмите, чтобы переключить.`);
         themeButton.title = `${label}. Цикл: авто → светлая → тёмная.`;
     }
@@ -6677,6 +6779,7 @@ function applyDensity(compact) {
             densityButton.textContent = icon;
         }
         densityButton.setAttribute("aria-pressed", state.compactMode ? "true" : "false");
+        densityButton.setAttribute("aria-checked", state.compactMode ? "true" : "false");
         densityButton.setAttribute("aria-label", state.compactMode ? "Компактный режим включен. Нажмите для обычной плотности." : "Обычная плотность включена. Нажмите для компактного режима.");
         densityButton.title = state.compactMode ? "Компактный режим" : "Обычная плотность";
     }
