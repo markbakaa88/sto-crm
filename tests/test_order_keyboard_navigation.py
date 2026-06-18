@@ -61,6 +61,9 @@ def test_order_items_keyboard_navigation(crm_server):
         page.goto(crm_server)
         page.wait_for_selector(".app")
 
+        # Ждем, пока загрузятся данные CRM (state.data)
+        page.wait_for_function("() => typeof state !== 'undefined' && state.data")
+
         # 1. Открываем модальное окно заказа через openOrderModal
         page.evaluate("openOrderModal()")
         page.wait_for_selector("#modalBackdrop.open")
