@@ -2804,7 +2804,9 @@ function emptyState(title, text, action = "", icon = "📁") {
 
 const SkeletonBuilder = {
     bar(widthPercent, height = "12px", classes = "") {
-        return `<span class="skeleton-shimmer ${classes}" style="width: ${widthPercent}%; height: ${height}; display: inline-block; vertical-align: middle;" aria-hidden="true"></span>`;
+        const wClass = `skeleton-w-${widthPercent}`;
+        const hClass = `skeleton-h-${height.replace("px", "")}`;
+        return `<span class="skeleton-shimmer skeleton-inline ${classes} ${wClass} ${hClass}" aria-hidden="true"></span>`;
     },
     appointments(count = 5) {
         let html = "";
@@ -2814,13 +2816,13 @@ const SkeletonBuilder = {
                     <td class="nowrap" data-label="Запланировано">
                         <div class="cell-title">
                             <strong>${this.bar(80, "12px", "skeleton-text")}</strong>
-                            <div class="muted text-sm" style="margin-top: 4px;">${this.bar(40, "10px", "skeleton-text")}</div>
+                            <div class="muted text-sm mt-1">${this.bar(40, "10px", "skeleton-text")}</div>
                         </div>
                     </td>
                     <td data-label="О клиенте">
                         <div class="cell-title">
                             <strong>${this.bar(60, "12px", "skeleton-text")}</strong>
-                            <div class="muted d-flex align-items-center" style="margin-top: 4px; gap: 4px;">📱 ${this.bar(50, "10px", "skeleton-text")}</div>
+                            <div class="muted d-flex align-items-center mt-1 gap-1">📱 ${this.bar(50, "10px", "skeleton-text")}</div>
                         </div>
                     </td>
                     <td data-label="Транспорт"><strong>${this.bar(70, "12px", "skeleton-text")}</strong></td>
@@ -2829,7 +2831,7 @@ const SkeletonBuilder = {
                     <td data-label="Повод обращения">
                         <div class="cell-title">
                             <strong>${this.bar(90, "12px", "skeleton-text")}</strong>
-                            <div class="muted text-sm" style="margin-top: 4px;">${this.bar(80, "10px", "skeleton-text")}</div>
+                            <div class="muted text-sm mt-1">${this.bar(80, "10px", "skeleton-text")}</div>
                         </div>
                     </td>
                     <td data-label="Действия">${this.bar(60, "28px", "skeleton-badge")}</td>
@@ -2845,7 +2847,7 @@ const SkeletonBuilder = {
                 html += `
                     <tr class="skeleton-row" aria-hidden="true">
                         <td data-label="Номер"><div class="cell-title"><strong>${this.bar(40, "12px", "skeleton-text")}</strong></div></td>
-                        <td data-label="Клиент и авто"><div class="cell-title"><strong>${this.bar(60, "12px", "skeleton-text")}</strong><div class="muted" style="margin-top: 4px;">${this.bar(50, "10px", "skeleton-text")}</div></div></td>
+                        <td data-label="Клиент и авто"><div class="cell-title"><strong>${this.bar(60, "12px", "skeleton-text")}</strong><div class="muted mt-1">${this.bar(50, "10px", "skeleton-text")}</div></div></td>
                         <td data-label="Статус">${this.bar(65, "20px", "skeleton-badge")}</td>
                         <td class="money" data-label="Итого"><strong>${this.bar(40, "12px", "skeleton-text")}</strong></td>
                         <td data-label="Действия">${this.bar(90, "28px", "skeleton-badge")}</td>
@@ -2858,10 +2860,10 @@ const SkeletonBuilder = {
             html += `
                 <tr class="skeleton-row" aria-hidden="true">
                     <td data-label="Номер"><div class="cell-title"><strong>${this.bar(45, "12px", "skeleton-text")}</strong></div></td>
-                    <td data-label="Клиент и авто"><div class="cell-title"><strong>${this.bar(60, "12px", "skeleton-text")}</strong><div class="muted" style="margin-top: 4px;">🚗 ${this.bar(50, "10px", "skeleton-text")}</div></div></td>
+                    <td data-label="Клиент и авто"><div class="cell-title"><strong>${this.bar(60, "12px", "skeleton-text")}</strong><div class="muted mt-1">🚗 ${this.bar(50, "10px", "skeleton-text")}</div></div></td>
                     <td data-label="Статус">${this.bar(65, "20px", "skeleton-badge")}</td>
                     <td class="nowrap" data-label="Срок"><strong>${this.bar(50, "12px", "skeleton-text")}</strong></td>
-                    <td data-label="Мастер"><div class="cell-title"><strong>${this.bar(50, "12px", "skeleton-text")}</strong><div class="muted text-sm" style="margin-top: 4px;">${this.bar(40, "10px", "skeleton-text")}</div></div></td>
+                    <td data-label="Мастер"><div class="cell-title"><strong>${this.bar(50, "12px", "skeleton-text")}</strong><div class="muted text-sm mt-1">${this.bar(40, "10px", "skeleton-text")}</div></div></td>
                     <td class="money" data-label="Итого"><strong class="text-lg">${this.bar(40, "14px", "skeleton-text")}</strong></td>
                     <td class="money" data-label="К оплате">${this.bar(65, "20px", "skeleton-badge")}</td>
                     <td data-label="Действия">${this.bar(90, "28px", "skeleton-badge")}</td>
@@ -2876,7 +2878,7 @@ const SkeletonBuilder = {
             html += `
                 <tr class="skeleton-row" aria-hidden="true">
                     <td data-label="ID"><div class="muted">#${this.bar(20, "12px", "skeleton-text")}</div></td>
-                    <td data-label="Клиент"><div class="cell-title"><strong>${this.bar(60, "12px", "skeleton-text")}</strong><div class="muted d-flex align-items-center" style="margin-top: 4px; gap: 4px;">📱 ${this.bar(50, "10px", "skeleton-text")}</div></div></td>
+                    <td data-label="Клиент"><div class="cell-title"><strong>${this.bar(60, "12px", "skeleton-text")}</strong><div class="muted d-flex align-items-center mt-1 gap-1">📱 ${this.bar(50, "10px", "skeleton-text")}</div></div></td>
                     <td data-label="Email">${this.bar(40, "12px", "skeleton-text")}</td>
                     <td data-label="Предпочитает">${this.bar(30, "12px", "skeleton-text")}</td>
                     <td data-label="Согласие">${this.bar(25, "20px", "skeleton-badge")}</td>
@@ -2897,7 +2899,7 @@ const SkeletonBuilder = {
                     <td data-label="Бренд"><strong>${this.bar(50, "12px", "skeleton-text")}</strong></td>
                     <td data-label="Наличие">
                         ${this.bar(30, "12px", "skeleton-text")}
-                        <div class="muted min-qty-hint" style="margin-top: 4px;">${this.bar(20, "10px", "skeleton-text")}</div>
+                        <div class="muted min-qty-hint mt-1">${this.bar(20, "10px", "skeleton-text")}</div>
                     </td>
                     <td class="money" data-label="Цена клиенту"><strong>${this.bar(45, "12px", "skeleton-text")}</strong></td>
                     <td class="money" data-label="Себестоимость">${this.bar(35, "12px", "skeleton-text")}</td>
@@ -4101,7 +4103,7 @@ function renderRevenueChartSVG(data) {
     `).join("");
 
     return `
-        <svg viewBox="0 0 ${width} ${height}" class="revenue-chart-svg" width="100%" height="${height}" aria-hidden="true" style="overflow: visible;">
+        <svg viewBox="0 0 ${width} ${height}" class="revenue-chart-svg" width="100%" height="${height}" aria-hidden="true">
             <defs>
                 <linearGradient id="chart-area-grad" x1="0%" y1="0%" x2="0%" y2="100%">
                     <stop offset="0%" stop-color="var(--brand, #3b82f6)" stop-opacity="0.25"></stop>
@@ -4152,25 +4154,40 @@ function renderOrdersByDayChartSVG(data) {
     const rects = data.map((d, index) => {
         const x = paddingLeft + index * colWidth + gap;
         const barHeight = (d.count / maxVal) * chartHeight;
-        // Зададим минимальную высоту 4px, чтобы даже при 0 заездов столбик был интерактивным
-        const drawHeight = Math.max(barHeight, 4);
-        const y = height - paddingBottom - drawHeight;
+        // Visual height for the bar (minimum 4px)
+        const visualHeight = Math.max(barHeight, 4);
+        const visualY = height - paddingBottom - visualHeight;
+
+        // Interactive hit target has a minimum height of 24px
+        const hitHeight = Math.max(barHeight, 24);
+        const hitY = height - paddingBottom - hitHeight;
 
         return `
             <g class="bar-group">
-                <rect class="bar-rect" 
-                      x="${x}" 
-                      y="${y}" 
-                      width="${barWidth}" 
-                      height="${drawHeight}" 
-                      rx="4" 
-                      ry="4" 
-                      fill="var(--brand, #0a9396)"
+                <rect class="bar-rect"
+                      x="${x}"
+                      y="${hitY}"
+                      width="${barWidth}"
+                      height="${hitHeight}"
+                      rx="4"
+                      ry="4"
+                      fill="transparent"
+                      pointer-events="all"
                       tabindex="0"
                       role="img"
                       aria-label="День: ${d.day}, Заездов: ${d.count}"
                       data-day="${d.day}"
                       data-count="${d.count}"
+                />
+                <rect class="bar-visual"
+                      x="${x}"
+                      y="${visualY}"
+                      width="${barWidth}"
+                      height="${visualHeight}"
+                      rx="4"
+                      ry="4"
+                      fill="var(--brand, #0a9396)"
+                      pointer-events="none"
                 />
                 <text x="${x + barWidth / 2}" y="${height - paddingBottom + 16}" font-size="10" fill="var(--ink-muted, #a8b5c7)" text-anchor="middle">${d.day}</text>
             </g>
@@ -4245,7 +4262,7 @@ function renderRevenueByCategoryChartSVG(data) {
     return `
         <div class="donut-layout">
             <div class="donut-svg-wrap">
-                <svg viewBox="0 0 200 200" class="revenue-by-category-chart-svg" width="100%" height="200">
+                <svg viewBox="0 0 ${width} ${height}" class="revenue-by-category-chart-svg" width="100%" height="${height}">
                     ${segments}
                     <!-- Маскирующий круг для эффекта пончика -->
                     <circle cx="${cx}" cy="${cy}" r="24" fill="var(--surface, #ffffff)" stroke="var(--surface, #ffffff)" stroke-width="1" />

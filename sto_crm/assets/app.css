@@ -759,13 +759,21 @@ body .system-menu-panel, body.dark .system-menu-panel {
     transition: fill var(--dur-fast) var(--ease-out), filter var(--dur-fast) var(--ease-out), stroke var(--dur-fast) var(--ease-out);
 }
 .bar-rect:hover {
+    fill: transparent;
+}
+.bar-rect:hover + .bar-visual {
     fill: var(--brand-strong, #005f73);
 }
 .bar-rect:focus-visible, .bar-rect:focus {
+    outline: none;
+}
+.bar-rect:focus-visible + .bar-visual, .bar-rect:focus + .bar-visual {
     stroke: var(--ink, #0f172a);
     stroke-width: 2px;
     filter: drop-shadow(0 0 4px var(--brand, #0a9396));
-    outline: none;
+}
+.bar-visual {
+    transition: fill var(--dur-fast) var(--ease-out), filter var(--dur-fast) var(--ease-out), stroke var(--dur-fast) var(--ease-out);
 }
 
 /* Donut Chart Layout & Legend */
@@ -2054,6 +2062,39 @@ body.dark .skeleton-shimmer::after {
     width: 32px;
     height: 32px;
     border-radius: 9999px;
+}
+
+/* Skeleton utility classes to avoid CSP violations */
+.skeleton-w-20 { width: 20%; }
+.skeleton-w-25 { width: 25%; }
+.skeleton-w-30 { width: 30%; }
+.skeleton-w-35 { width: 35%; }
+.skeleton-w-40 { width: 40%; }
+.skeleton-w-45 { width: 45%; }
+.skeleton-w-50 { width: 50%; }
+.skeleton-w-60 { width: 60%; }
+.skeleton-w-65 { width: 65%; }
+.skeleton-w-70 { width: 70%; }
+.skeleton-w-80 { width: 80%; }
+.skeleton-w-90 { width: 90%; }
+
+.skeleton-h-10 { height: 10px; }
+.skeleton-h-12 { height: 12px; }
+.skeleton-h-14 { height: 14px; }
+.skeleton-h-20 { height: 20px; }
+.skeleton-h-28 { height: 28px; }
+
+.skeleton-inline {
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.gap-1 {
+    gap: var(--space-1);
+}
+
+.revenue-chart-svg {
+    overflow: visible;
 }
 
 .skeleton-table td {
