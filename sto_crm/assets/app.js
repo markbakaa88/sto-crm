@@ -2561,59 +2561,65 @@ function collectSearchSuggestions() {
                 run: () => openCustomerModal(c)
             });
         }
-        if (suggestions.length >= 3) break;
+        if (suggestions.length >= 300) break;
     }
 
     // Ищем авто
-    const vehicles = state.data.vehicles || [];
-    for (const v of vehicles) {
-        const name = vehicleName(v) || v.plate || "";
-        if (name.toLocaleLowerCase("ru-RU").includes(needle) || 
-            String(v.plate || "").toLocaleLowerCase("ru-RU").includes(needle) || 
-            String(v.vin || "").toLocaleLowerCase("ru-RU").includes(needle)) {
-            suggestions.push({
-                icon: "🚗",
-                title: name || `Авто ID ${v.id}`,
-                hint: `Авто · Госномер: ${v.plate || 'нет'}, VIN: ${v.vin || 'нет'}`,
-                run: () => openVehicleModal(v)
-            });
+    if (suggestions.length < 300) {
+        const vehicles = state.data.vehicles || [];
+        for (const v of vehicles) {
+            const name = vehicleName(v) || v.plate || "";
+            if (name.toLocaleLowerCase("ru-RU").includes(needle) || 
+                String(v.plate || "").toLocaleLowerCase("ru-RU").includes(needle) || 
+                String(v.vin || "").toLocaleLowerCase("ru-RU").includes(needle)) {
+                suggestions.push({
+                    icon: "🚗",
+                    title: name || `Авто ID ${v.id}`,
+                    hint: `Авто · Госномер: ${v.plate || 'нет'}, VIN: ${v.vin || 'нет'}`,
+                    run: () => openVehicleModal(v)
+                });
+            }
+            if (suggestions.length >= 300) break;
         }
-        if (suggestions.length >= 6) break;
     }
 
     // Ищем заказы
-    const orders = state.data.orders || [];
-    for (const o of orders) {
-        if (String(o.number || "").toLocaleLowerCase("ru-RU").includes(needle) || 
-            String(o.customer_name || "").toLocaleLowerCase("ru-RU").includes(needle) || 
-            String(o.vehicle_plate || "").toLocaleLowerCase("ru-RU").includes(needle)) {
-            suggestions.push({
-                icon: "📋",
-                title: `Заказ-наряд ${o.number || o.id}`,
-                hint: `Заказ · ${o.customer_name || 'нет клиента'} · ${o.vehicle_plate || 'нет авто'}`,
-                run: () => openOrderModal(o)
-            });
+    if (suggestions.length < 300) {
+        const orders = state.data.orders || [];
+        for (const o of orders) {
+            if (String(o.number || "").toLocaleLowerCase("ru-RU").includes(needle) || 
+                String(o.customer_name || "").toLocaleLowerCase("ru-RU").includes(needle) || 
+                String(o.vehicle_plate || "").toLocaleLowerCase("ru-RU").includes(needle)) {
+                suggestions.push({
+                    icon: "📋",
+                    title: `Заказ-наряд ${o.number || o.id}`,
+                    hint: `Заказ · ${o.customer_name || 'нет клиента'} · ${o.vehicle_plate || 'нет авто'}`,
+                    run: () => openOrderModal(o)
+                });
+            }
+            if (suggestions.length >= 300) break;
         }
-        if (suggestions.length >= 9) break;
     }
 
     // Ищем запчасти (inventory)
-    const inventory = state.data.inventory || [];
-    for (const item of inventory) {
-        const title = item.name || item.title || "";
-        if (title.toLocaleLowerCase("ru-RU").includes(needle) || 
-            String(item.sku || "").toLocaleLowerCase("ru-RU").includes(needle)) {
-            suggestions.push({
-                icon: "📦",
-                title: title || `Деталь ID ${item.id}`,
-                hint: `Склад · Артикул: ${item.sku || 'нет'}, остаток: ${item.quantity || 0}`,
-                run: () => openInventoryModal(item)
-            });
+    if (suggestions.length < 300) {
+        const inventory = state.data.inventory || [];
+        for (const item of inventory) {
+            const title = item.name || item.title || "";
+            if (title.toLocaleLowerCase("ru-RU").includes(needle) || 
+                String(item.sku || "").toLocaleLowerCase("ru-RU").includes(needle)) {
+                suggestions.push({
+                    icon: "📦",
+                    title: title || `Деталь ID ${item.id}`,
+                    hint: `Склад · Артикул: ${item.sku || 'нет'}, остаток: ${item.quantity || 0}`,
+                    run: () => openInventoryModal(item)
+                });
+            }
+            if (suggestions.length >= 300) break;
         }
-        if (suggestions.length >= 12) break;
     }
 
-    return suggestions.slice(0, 8);
+    return suggestions;
 }
 
 function renderSearchSuggestions() {
@@ -2629,7 +2635,9 @@ function renderSearchSuggestions() {
         return;
     }
     const query = input.value || "";
-    box.innerHTML = suggestions.map((item, index) => {
+    const limit = 20;
+    const rendered = suggestions.slice(0, limit);
+    let html = rendered.map((item, index) => {
         const optionId = `searchOption${index}`;
         return `
         <div id="${optionId}" class="command-item" role="option" data-suggestion-index="${index}" aria-selected="false">
@@ -2637,6 +2645,13 @@ function renderSearchSuggestions() {
             <span><strong>${highlightText(item.title, query)}</strong><small>${highlightText(item.hint, query)}</small></span>
         </div>`;
     }).join("");
+
+    if (suggestions.length > limit) {
+        const remaining = suggestions.length - limit;
+        html += `<div class="suggestions-more" style="padding: var(--space-2); text-align: center; font-size: var(--font-size-sm); color: var(--ink-faint); border-top: 1px solid var(--line); pointer-events: none;" aria-hidden="true">+ еще ${remaining} позиций</div>`;
+    }
+
+    box.innerHTML = html;
     box.hidden = false;
     input.setAttribute("aria-expanded", "true");
 }
