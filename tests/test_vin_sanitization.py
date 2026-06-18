@@ -1,5 +1,6 @@
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -17,9 +18,10 @@ def get_free_port():
 @pytest.fixture
 def crm_server():
     port = get_free_port()
+    project_root = Path(__file__).parent.parent.absolute()
     proc = subprocess.Popen(
-        ["python3", "main.py", "--port", str(port), "--no-browser", "--demo"],
-        cwd=str(Path(__file__).parent.parent.absolute()),
+        [sys.executable, str(project_root / "main.py"), "--port", str(port), "--no-browser", "--demo"],
+        cwd=str(project_root),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
