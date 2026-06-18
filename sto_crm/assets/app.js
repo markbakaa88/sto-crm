@@ -5344,6 +5344,49 @@ function openCustomerModal(customer = {}) {
     bindCustomerFormValidation();
 }
 
+function setFieldValidation(inputEl, isValid, message) {
+    const fieldContainer = inputEl.closest(".field");
+    if (!fieldContainer) return;
+
+    let errorEl = fieldContainer.querySelector(".field-error");
+    let successEl = fieldContainer.querySelector(".field-success");
+    if (errorEl) errorEl.remove();
+    if (successEl) successEl.remove();
+
+    let hintEl = fieldContainer.querySelector(".field-hint");
+
+    if (isValid === true) {
+        inputEl.classList.add("valid");
+        inputEl.classList.remove("invalid");
+        inputEl.setAttribute("aria-invalid", "false");
+        inputEl.setCustomValidity("");
+        if (hintEl) hintEl.style.display = "none";
+        
+        successEl = document.createElement("div");
+        successEl.className = "field-success";
+        successEl.innerHTML = "✓ <span></span>";
+        successEl.querySelector("span").textContent = message;
+        fieldContainer.appendChild(successEl);
+    } else if (isValid === false) {
+        inputEl.classList.add("invalid");
+        inputEl.classList.remove("valid");
+        inputEl.setAttribute("aria-invalid", "true");
+        inputEl.setCustomValidity(message);
+        if (hintEl) hintEl.style.display = "none";
+        
+        errorEl = document.createElement("div");
+        errorEl.className = "field-error";
+        errorEl.innerHTML = "⚠️ <span></span>";
+        errorEl.querySelector("span").textContent = message;
+        fieldContainer.appendChild(errorEl);
+    } else {
+        inputEl.classList.remove("valid", "invalid");
+        inputEl.removeAttribute("aria-invalid");
+        inputEl.setCustomValidity("");
+        if (hintEl) hintEl.style.display = "";
+    }
+}
+
 function bindCustomerFormValidation() {
     const phoneInput = $("#customer_phone");
     const emailInput = $("#customer_email");
@@ -5379,49 +5422,6 @@ function bindCustomerFormValidation() {
             result += digits.substring(8, 10);
         }
         return result;
-    }
-
-    function setFieldValidation(inputEl, isValid, message) {
-        const fieldContainer = inputEl.closest(".field");
-        if (!fieldContainer) return;
-
-        let errorEl = fieldContainer.querySelector(".field-error");
-        let successEl = fieldContainer.querySelector(".field-success");
-        if (errorEl) errorEl.remove();
-        if (successEl) successEl.remove();
-
-        let hintEl = fieldContainer.querySelector(".field-hint");
-
-        if (isValid === true) {
-            inputEl.classList.add("valid");
-            inputEl.classList.remove("invalid");
-            inputEl.setAttribute("aria-invalid", "false");
-            inputEl.setCustomValidity("");
-            if (hintEl) hintEl.style.display = "none";
-            
-            successEl = document.createElement("div");
-            successEl.className = "field-success";
-            successEl.innerHTML = "✓ <span></span>";
-            successEl.querySelector("span").textContent = message;
-            fieldContainer.appendChild(successEl);
-        } else if (isValid === false) {
-            inputEl.classList.add("invalid");
-            inputEl.classList.remove("valid");
-            inputEl.setAttribute("aria-invalid", "true");
-            inputEl.setCustomValidity(message);
-            if (hintEl) hintEl.style.display = "none";
-            
-            errorEl = document.createElement("div");
-            errorEl.className = "field-error";
-            errorEl.innerHTML = "⚠️ <span></span>";
-            errorEl.querySelector("span").textContent = message;
-            fieldContainer.appendChild(errorEl);
-        } else {
-            inputEl.classList.remove("valid", "invalid");
-            inputEl.removeAttribute("aria-invalid");
-            inputEl.setCustomValidity("");
-            if (hintEl) hintEl.style.display = "";
-        }
     }
 
     function validateEmail() {
@@ -5568,10 +5568,88 @@ function bindVehicleCatalog() {
         modelList.innerHTML = datalistOptions(catalogModels(makeInput.value), modelInput.value);
     };
     makeInput.addEventListener("input", refreshModels);
-    const uppercaseInput = event => { event.target.value = String(event.target.value || "").toUpperCase(); };
-    $("#vehicle_vin")?.addEventListener("input", uppercaseInput);
-    $("#vehicle_plate")?.addEventListener("input", uppercaseInput);
     refreshModels();
+
+    const vinInput = $("#vehicle_vin");
+    const plateInput = $("#vehicle_plate");
+
+    const uppercaseInput = event => {
+        const input = event.target;
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        const oldVal = input.value;
+        const newVal = String(oldVal || "").toUpperCase();
+        if (oldVal !== newVal) {
+            input.value = newVal;
+            if (start !== null && end !== null) {
+                input.setSelectionRange(start, end);
+            }
+        }
+    };
+
+    function validateVin() {
+        if (!vinInput) return;
+        const val = vinInput.value.trim().toUpperCase();
+        if (val === "") {
+            setFieldValidation(vinInput, null);
+            return;
+        }
+        if (val.length !== 17) {
+            setFieldValidation(vinInput, false, "VIN-код должен содержать ровно 17 символов");
+            return;
+        }
+        const vinRegex = /^[A-HJ-NPR-Z0-9]{17}$/;
+        if (!vinRegex.test(val)) {
+            setFieldValidation(vinInput, false, "VIN-код может содержать только латинские буквы и цифры (за исключением I, O, Q)");
+            return;
+        }
+        setFieldValidation(vinInput, true, "VIN-код корректен");
+    }
+
+    function validatePlate() {
+        if (!plateInput) return;
+        const val = plateInput.value.trim().toUpperCase();
+        if (val === "") {
+            setFieldValidation(plateInput, null);
+            return;
+        }
+        if (val.length < 4) {
+            setFieldValidation(plateInput, false, "Госномер должен содержать не менее 4 символов");
+            return;
+        }
+        const plateRegex = /^[A-ZА-ЯЁ0-9]+$/;
+        if (!plateRegex.test(val)) {
+            setFieldValidation(plateInput, false, "Госномер не должен содержать специальных символов");
+            return;
+        }
+        setFieldValidation(plateInput, true, "Госномер корректен");
+    }
+
+    if (vinInput) {
+        vinInput.addEventListener("input", uppercaseInput);
+        validateVin();
+        vinInput.addEventListener("input", () => {
+            setTimeout(() => {
+                validateVin();
+            }, 0);
+        });
+        vinInput.addEventListener("change", () => {
+            validateVin();
+        });
+    }
+
+    if (plateInput) {
+        plateInput.addEventListener("input", uppercaseInput);
+        validatePlate();
+        plateInput.addEventListener("input", () => {
+            setTimeout(() => {
+                validatePlate();
+            }, 0);
+        });
+        plateInput.addEventListener("change", () => {
+            validatePlate();
+        });
+    }
 }
 
 function openInventoryModal(part = {}) {
