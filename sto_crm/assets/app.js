@@ -62,7 +62,7 @@ class SafeLocalStorage {
             window.localStorage.setItem(testKey, testKey);
             window.localStorage.removeItem(testKey);
             return true;
-        } catch (e) {
+        } catch {
             return false;
         }
     }
@@ -5485,7 +5485,7 @@ function bindCustomerFormValidation() {
             }
         });
 
-        phoneInput.addEventListener("input", function(e) {
+        phoneInput.addEventListener("input", function() {
             let cursorPosition = this.selectionStart;
             let originalLen = this.value.length;
 
