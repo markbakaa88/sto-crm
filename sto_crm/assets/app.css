@@ -3322,5 +3322,63 @@ main.rendered #content {
     font-weight: 600;
 }
 
+/* Alt Hint Styles */
+.alt-hint {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--sidebar-muted);
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    margin-left: auto;
+    font-family: inherit;
+    line-height: normal;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 15px;
+    height: 15px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease-in-out, transform 0.15s ease-in-out;
+    transform: scale(0.8);
+}
+
+.nav-badge ~ .alt-hint {
+    margin-left: 6px;
+}
+
+body.alt-pressed .alt-hint,
+body.keyboard-navigation .alt-hint,
+#nav button:focus-visible .alt-hint {
+    opacity: 0.6;
+    transform: scale(1);
+}
+
+#nav button:hover .alt-hint {
+    opacity: 1;
+}
+
+body.sidebar-collapsed .nav > .nav-section > button {
+    position: relative;
+}
+
+body.sidebar-collapsed .alt-hint {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    margin-left: 0;
+    z-index: 5;
+    font-size: 8px;
+    width: 12px;
+    height: 12px;
+    padding: 0;
+    border-radius: 3px;
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
 
 

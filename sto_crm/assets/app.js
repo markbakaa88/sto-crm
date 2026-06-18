@@ -2106,6 +2106,75 @@ function handleMenuPanelKeydown(event, panel, triggerButton, closePanel, onOpenI
     }
 }
 
+function initAltNavigation() {
+    const altRoutes = {
+        "1": "dashboard",
+        "2": "appointments",
+        "3": "orders",
+        "4": "customers",
+        "5": "vehicles",
+        "6": "inventory",
+        "7": "catalog"
+    };
+
+    const navButtons = document.querySelectorAll("#nav button[data-route]");
+    navButtons.forEach(button => {
+        const route = button.dataset.route;
+        let num = null;
+        for (const [key, val] of Object.entries(altRoutes)) {
+            if (val === route) {
+                num = key;
+                break;
+            }
+        }
+        if (num) {
+            if (!button.querySelector(".alt-hint")) {
+                const hint = document.createElement("span");
+                hint.className = "alt-hint";
+                hint.textContent = num;
+                hint.setAttribute("aria-hidden", "true");
+                button.appendChild(hint);
+            }
+        }
+    });
+
+    window.addEventListener("keydown", event => {
+        if (event.key === "Alt") {
+            document.body.classList.add("alt-pressed");
+            return;
+        }
+        
+        if (event.altKey && !event.ctrlKey && !event.metaKey) {
+            const digitMatch = event.code.match(/^Digit([1-7])$/);
+            const keyChar = (event.key >= "1" && event.key <= "7") ? event.key : (digitMatch ? digitMatch[1] : null);
+            if (keyChar) {
+                const routeTarget = altRoutes[keyChar];
+                if (routeTarget) {
+                    event.preventDefault();
+                    setRoute(routeTarget, true);
+                }
+            }
+        }
+    });
+
+    window.addEventListener("keyup", event => {
+        if (event.key === "Alt") {
+            document.body.classList.remove("alt-pressed");
+        }
+    });
+
+    window.addEventListener("blur", () => {
+        document.body.classList.remove("alt-pressed");
+    });
+
+    window.addEventListener("keydown", function handleFirstTab(e) {
+        if (e.key === "Tab") {
+            document.body.classList.add("keyboard-navigation");
+            window.removeEventListener("keydown", handleFirstTab);
+        }
+    });
+}
+
 let shellRefreshInterval = 0;
 function initShell() {
     if (document.documentElement.dataset.shellBound) return;
@@ -2260,6 +2329,7 @@ function initShell() {
     if (!shellRefreshInterval) shellRefreshInterval = setInterval(renderShell, 30000);
     renderShell();
     bindCatalogScroll();
+    initAltNavigation();
 }
 
 function bindShellShortcuts() {
@@ -2467,16 +2537,18 @@ function renderSearchSuggestions() {
     const suggestions = collectSearchSuggestions();
     if (!suggestions.length) {
         box.hidden = true;
+        box.innerHTML = "";
         input.setAttribute("aria-expanded", "false");
         input.removeAttribute("aria-activedescendant");
         return;
     }
+    const query = input.value || "";
     box.innerHTML = suggestions.map((item, index) => {
         const optionId = `searchOption${index}`;
         return `
         <div id="${optionId}" class="command-item" role="option" data-suggestion-index="${index}" aria-selected="false">
             <span aria-hidden="true">${esc(item.icon)}</span>
-            <span><strong>${esc(item.title)}</strong><small>${esc(item.hint)}</small></span>
+            <span><strong>${highlightText(item.title, query)}</strong><small>${highlightText(item.hint, query)}</small></span>
         </div>`;
     }).join("");
     box.hidden = false;
@@ -2519,13 +2591,14 @@ function updateCommandSearchAria(activeId = "") {
 function renderCommandPalette() {
     const list = $("#commandList");
     if (!list) return;
+    const query = $("#commandSearch")?.value || "";
     const items = filteredCommandItems();
     list.innerHTML = items.map((item, index) => {
         const optionId = `commandOption${index}`;
         return `
         <div id="${optionId}" class="command-item ${index === 0 ? "active" : ""}" role="option" data-command-index="${index}" aria-selected="${index === 0 ? "true" : "false"}">
             <span aria-hidden="true">${esc(item.icon)}</span>
-            <span><strong>${esc(item.title)}</strong><small>${esc(item.hint)}</small></span>
+            <span><strong>${highlightText(item.title, query)}</strong><small>${highlightText(item.hint, query)}</small></span>
             <kbd>${esc(item.keys)}</kbd>
         </div>`;
     }).join("") || `<div class="empty"><strong>Команда не найдена</strong><span>Попробуйте другой запрос.</span></div>`;
