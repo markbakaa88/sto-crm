@@ -1,3 +1,4 @@
+import sqlite3
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -218,3 +219,170 @@ class TestUpdatesWindowsMock(unittest.TestCase):
                 # One of them should be removed since we have 3 but limit is 2
                 remaining = list(backup_dir.glob("sto_crm_backup_*.sqlite3"))
                 self.assertEqual(len(remaining), 2)
+
+    @patch("sto_crm.updates.time.sleep")
+    @patch("sto_crm.updates.connect")
+    @patch("sto_crm.updates.sqlite3.connect")
+    @patch("sto_crm.updates.ensure_real_backup_dir")
+    @patch("sto_crm.updates.ensure_private_file_created")
+    @patch("sto_crm.updates.ensure_private_file")
+    @patch("sto_crm.updates.prune_backups")
+    @patch("sto_crm.updates.Path.stat")
+    @patch("sto_crm.updates.Path.lstat")
+    def test_create_backup_retry_success(
+        self,
+        mock_lstat,
+        mock_stat,
+        mock_prune,
+        mock_ensure_private,
+        mock_ensure_created,
+        mock_ensure_real,
+        mock_sql_connect,
+        mock_connect,
+        mock_sleep,
+    ):
+        from sto_crm.updates import create_backup
+
+        # Setup mock stat & lstat
+        mock_stat_res = MagicMock()
+        mock_stat_res.st_size = 100
+        mock_stat_res.st_mode = 0o100644
+        mock_stat_res.st_mtime = 123456789.0
+        mock_stat.return_value = mock_stat_res
+        mock_lstat.return_value = mock_stat_res
+
+        # Setup source and destination connections
+        mock_source = MagicMock()
+        mock_destination = MagicMock()
+
+        # Connect throws locked twice, then returns mock_source
+        mock_connect.side_effect = [
+            sqlite3.OperationalError("database is locked"),
+            sqlite3.OperationalError("database is locked"),
+            mock_source,
+        ]
+        mock_sql_connect.return_value = mock_destination
+
+        res = create_backup()
+
+        # Check connect has been called 3 times
+        self.assertEqual(mock_connect.call_count, 3)
+        # Check source.backup has been called on the third attempt
+        mock_source.backup.assert_called_once_with(mock_destination)
+        # Check that sleep (backoff) was called twice
+        self.assertEqual(mock_sleep.call_count, 2)
+        # Check output metadata
+        self.assertEqual(res["size"], 100)
+
+    @patch("sto_crm.updates.time.sleep")
+    @patch("sto_crm.updates.connect")
+    @patch("sto_crm.updates.sqlite3.connect")
+    @patch("sto_crm.updates.ensure_real_backup_dir")
+    @patch("sto_crm.updates.ensure_private_file_created")
+    @patch("sto_crm.updates.ensure_private_file")
+    @patch("sto_crm.updates.prune_backups")
+    def test_create_backup_retry_exhausted(
+        self,
+        mock_prune,
+        mock_ensure_private,
+        mock_ensure_created,
+        mock_ensure_real,
+        mock_sql_connect,
+        mock_connect,
+        mock_sleep,
+    ):
+        from sto_crm.updates import create_backup
+
+        # Connect always throws locked
+        mock_connect.side_effect = sqlite3.OperationalError("database is locked")
+
+        with self.assertRaises(RuntimeError) as ctx:
+            create_backup()
+
+        self.assertIn("Не удалось создать резервную копию базы", str(ctx.exception))
+        # Check that it tried 5 times
+        self.assertEqual(mock_connect.call_count, 5)
+        # Check sleep called 4 times
+        self.assertEqual(mock_sleep.call_count, 4)
+
+    @patch("sto_crm.updates.time.sleep")
+    @patch("sto_crm.updates.connect")
+    @patch("sto_crm.updates.sqlite3.connect")
+    @patch("sto_crm.updates.ensure_real_backup_dir")
+    @patch("sto_crm.updates.ensure_private_file_created")
+    @patch("sto_crm.updates.ensure_private_file")
+    @patch("sto_crm.updates.prune_backups")
+    @patch("sto_crm.updates.Path.stat")
+    @patch("sto_crm.updates.Path.lstat")
+    def test_create_backup_backup_raises_locked(
+        self,
+        mock_lstat,
+        mock_stat,
+        mock_prune,
+        mock_ensure_private,
+        mock_ensure_created,
+        mock_ensure_real,
+        mock_sql_connect,
+        mock_connect,
+        mock_sleep,
+    ):
+        from sto_crm.updates import create_backup
+
+        # Setup mock stat & lstat
+        mock_stat_res = MagicMock()
+        mock_stat_res.st_size = 200
+        mock_stat_res.st_mode = 0o100644
+        mock_stat_res.st_mtime = 123456789.0
+        mock_stat.return_value = mock_stat_res
+        mock_lstat.return_value = mock_stat_res
+
+        mock_source_1 = MagicMock()
+        mock_source_1.backup.side_effect = sqlite3.OperationalError("database is locked")
+
+        mock_source_2 = MagicMock() # succeeds on retry
+
+        # connect succeeds twice
+        mock_connect.side_effect = [mock_source_1, mock_source_2]
+
+        mock_destination = MagicMock()
+        mock_sql_connect.return_value = mock_destination
+
+        res = create_backup()
+
+        # Connect called twice
+        self.assertEqual(mock_connect.call_count, 2)
+        # Sleep called once
+        self.assertEqual(mock_sleep.call_count, 1)
+        # Check size
+        self.assertEqual(res["size"], 200)
+
+    @patch("sto_crm.updates.time.sleep")
+    @patch("sto_crm.updates.connect")
+    @patch("sto_crm.updates.sqlite3.connect")
+    @patch("sto_crm.updates.ensure_real_backup_dir")
+    @patch("sto_crm.updates.ensure_private_file_created")
+    @patch("sto_crm.updates.ensure_private_file")
+    @patch("sto_crm.updates.prune_backups")
+    def test_create_backup_other_operational_error(
+        self,
+        mock_prune,
+        mock_ensure_private,
+        mock_ensure_created,
+        mock_ensure_real,
+        mock_sql_connect,
+        mock_connect,
+        mock_sleep,
+    ):
+        from sto_crm.updates import create_backup
+
+        # Throws some other operational error, e.g., disk full
+        mock_connect.side_effect = sqlite3.OperationalError("some other database error")
+
+        with self.assertRaises(RuntimeError) as ctx:
+            create_backup()
+
+        self.assertIn("Не удалось создать резервную копию базы", str(ctx.exception))
+        # Should fail on first attempt without retrying
+        self.assertEqual(mock_connect.call_count, 1)
+        self.assertEqual(mock_sleep.call_count, 0)
+

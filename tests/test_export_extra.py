@@ -33,8 +33,9 @@ class TestExportExtra(unittest.TestCase):
         self.assertEqual(str(ctx.exception), "Некорректный статус заказа.")
 
     def test_csv_export_returns_generator_and_streams_correctly(self):
-        from sto_crm.export import csv_export
         import types
+
+        from sto_crm.export import csv_export
 
         filename, content_gen = csv_export("customers")
         self.assertEqual(filename, "customers.csv")

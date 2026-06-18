@@ -6,11 +6,13 @@ import contextlib
 import hashlib
 import json
 import os
+import random
 import re
 import secrets
 import sqlite3
 import subprocess  # nosec B404
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -241,12 +243,23 @@ def create_backup() -> dict[str, Any]:
                 raise OSError(
                     "Файл резервной копии не может быть символической ссылкой."
                 )
-            with (
-                closing(connect()) as source,
-                closing(sqlite3.connect(target, timeout=30)) as destination,
-            ):
-                destination.execute("PRAGMA busy_timeout = 30000")
-                source.backup(destination)
+            max_retries = 5
+            base_delay = 0.05
+            for attempt in range(max_retries):
+                try:
+                    with (
+                        closing(connect()) as source,
+                        closing(sqlite3.connect(target, timeout=30)) as destination,
+                    ):
+                        destination.execute("PRAGMA busy_timeout = 30000")
+                        source.backup(destination)
+                    break
+                except sqlite3.OperationalError as exc:
+                    if "locked" in str(exc).lower() and attempt < max_retries - 1:
+                        delay = base_delay * (1.5**attempt) + random.uniform(0, 0.02)
+                        time.sleep(delay)
+                        continue
+                    raise
             ensure_private_file(target)
             size = target.stat().st_size
             prune_backups(backup_dir, keep_path=target)

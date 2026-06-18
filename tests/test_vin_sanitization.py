@@ -105,6 +105,31 @@ def test_vin_sanitization_and_decoding(crm_server):
         page.wait_for_timeout(50)
         assert (country_el.text_content() or "") == "США"
 
+        # "L5Y" -> Китай
+        vin.fill("L5Y")
+        page.wait_for_timeout(50)
+        assert (country_el.text_content() or "") == "Китай"
+
+        # "VF3" -> Франция
+        vin.fill("VF3")
+        page.wait_for_timeout(50)
+        assert (country_el.text_content() or "") == "Франция"
+
+        # "YS3" -> Швеция
+        vin.fill("YS3")
+        page.wait_for_timeout(50)
+        assert (country_el.text_content() or "") == "Швеция"
+
+        # "VSS" -> Испания
+        vin.fill("VSS")
+        page.wait_for_timeout(50)
+        assert (country_el.text_content() or "") == "Испания"
+
+        # "TMB" -> Чехия
+        vin.fill("TMB")
+        page.wait_for_timeout(50)
+        assert (country_el.text_content() or "") == "Чехия"
+
         # "9AB" -> Unknown (Неизвестно)
         vin.fill("9AB")
         page.wait_for_timeout(50)
