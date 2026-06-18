@@ -218,6 +218,22 @@ function esc(value) {
     }[ch]));
 }
 
+function highlightText(text, query) {
+    const rawText = String(text ?? "");
+    const q = String(query ?? "").trim();
+    if (!q) {
+        return esc(rawText);
+    }
+    const escapedQ = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp("(" + escapedQ + ")", "gi");
+    return rawText.split(regex).map(part => {
+        if (part.toLowerCase() === q.toLowerCase()) {
+            return `<mark class="search-match">${esc(part)}</mark>`;
+        }
+        return esc(part);
+    }).join("");
+}
+
 function buttonClassName(value) {
     return String(value || "")
         .split(/\s+/)
@@ -3477,8 +3493,9 @@ function renderCustomers() {
         : (paged.length ? paged.map(c => `
         <tr class="customer-row">
             <td data-label="ID"><div class="muted">#${c.id}</div></td>
-            <td data-label="Клиент"><div class="cell-title"><strong>${esc(c.name)}</strong><div class="muted d-flex align-items-center"><span class="icon-contact" aria-hidden="true">📱</span> ${esc(c.phone)}</div></div></td>
+            <td data-label="Клиент"><div class="cell-title"><strong>${highlightText(c.name, state.q)}</strong><div class="muted d-flex align-items-center"><span class="icon-contact" aria-hidden="true">📱</span> ${highlightText(c.phone, state.q)}</div></div></td>
             <td data-label="Email"><a href="mailto:${esc(c.email)}" class="link-muted">${esc(c.email) || "—"}</a></td>
+            <td data-label="Источник">${highlightText(c.source, state.q) || "—"}</td>
             <td data-label="Предпочитает">${esc(channelLabel(c.preferred_channel))}</td>
             <td data-label="Согласие">${c.reminder_consent ? '<span class="status-badge success">Да</span>' : '<span class="status-badge danger">Нет</span>'}</td>
             <td data-label="Заметки"><div class="truncate-text" title="${esc(c.notes)}">${esc(c.notes)}</div></td>
@@ -3492,6 +3509,7 @@ function renderCustomers() {
                 { text: "ID", sortKey: "id" },
                 { text: "Клиент", sortKey: "name" },
                 { text: "Email", sortKey: "email" },
+                { text: "Источник", sortKey: "source" },
                 { text: "Канал связи", sortKey: "preferred_channel" },
                 { text: "Уведомления", sortKey: "reminder_consent" },
                 { text: "Заметки", sortKey: "notes" },
@@ -3521,9 +3539,9 @@ function renderVehicles() {
     const sorted = sortCollection(rows, "vehicles");
     const body = sorted.map(v => `
                         <tr>
-                            <td data-label="Автомобиль"><div class="cell-title"><strong class="vehicle-name-highlight">${esc(vehicleName(v))}</strong><div class="muted truncate-w-250" title="${esc(v.notes)}">${esc(v.notes)}</div></div></td>
-                            <td data-label="Госномер">${v.plate ? `<span class="plate plate-modern">${esc(v.plate)}</span>` : '<span class="muted">—</span>'}</td>
-                            <td data-label="VIN"><span class="vin-mono">${esc(v.vin) || "—"}</span></td>
+                            <td data-label="Автомобиль"><div class="cell-title"><strong class="vehicle-name-highlight">${highlightText(vehicleName(v), state.q)}</strong><div class="muted truncate-w-250" title="${esc(v.notes)}">${esc(v.notes)}</div></div></td>
+                            <td data-label="Госномер">${v.plate ? `<span class="plate plate-modern">${highlightText(v.plate, state.q)}</span>` : '<span class="muted">—</span>'}</td>
+                            <td data-label="VIN"><span class="vin-mono">${highlightText(v.vin, state.q) || "—"}</span></td>
                             <td data-label="Владелец"><div class="cell-title"><strong>${esc(v.customer_name)}</strong><div class="muted d-flex align-items-center"><span class="icon-contact" aria-hidden="true">📱</span> ${esc(v.customer_phone)}</div></div></td>
                             <td data-label="Пробег"><strong class="mileage-badge">${num(v.mileage).toLocaleString("ru-RU")} км</strong></td>
                             <td data-label="Следующий ТО"><div class="cell-title"><strong>${esc(v.next_service_at || "—")}</strong><div class="muted text-warning">${v.next_service_mileage ? `${num(v.next_service_mileage).toLocaleString("ru-RU")} км` : "Нет данных"}</div></div></td>
@@ -3785,8 +3803,8 @@ function renderInventory() {
         ? SkeletonBuilder.inventory(5)
         : paged.map(p => `
                         <tr>
-                            <td data-label="Номенклатура"><div class="cell-title"><strong class="inventory-name">${esc(p.name)}</strong>${Number(p.is_low) ? `<div class="mt-1"><span class="status-badge danger" title="Остаток ниже минимального">Требуется закупка</span></div>` : ""}</div></td>
-                            <td data-label="Артикул"><span class="sku-badge">${esc(p.sku) || "—"}</span></td>
+                            <td data-label="Номенклатура"><div class="cell-title"><strong class="inventory-name">${highlightText(p.name, state.q)}</strong>${Number(p.is_low) ? `<div class="mt-1"><span class="status-badge danger" title="Остаток ниже минимального">Требуется закупка</span></div>` : ""}</div></td>
+                            <td data-label="Артикул"><span class="sku-badge">${highlightText(p.sku, state.q) || "—"}</span></td>
                             <td data-label="Бренд"><strong>${esc(p.brand) || "—"}</strong></td>
                             <td data-label="Наличие">
                                 <span class="qty-highlight ${Number(p.is_low) ? "qty-low" : (p.quantity > 0 ? "qty-good" : "qty-empty")}">${qty(p.quantity)} ${esc(p.unit)}</span>

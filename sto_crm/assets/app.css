@@ -8,6 +8,8 @@
 /* 1. Токены ---------------------------------------------------------------- */
 :root {
     color-scheme: light;
+    --search-match-bg: #fef08a;
+    --search-match-fg: #0f172a;
     --content-max: 1680px;
     --topbar-offset: var(--header-h);
     --radius-xs: 4px;
@@ -169,6 +171,8 @@ body.light { color-scheme: light; }
 :root[data-initial-theme="dark"],
 body.dark, [data-theme="dark"] {
     color-scheme: dark;
+    --search-match-bg: #f59e0b;
+    --search-match-fg: #0f172a;
     --brand-start: #2fb7aa;
     --brand-mid: #2f8ea7;
     --brand-end: #5863b7;
@@ -3309,5 +3313,14 @@ main.rendered #content {
         animation: none !important;
     }
 }
+
+.search-match {
+    background-color: var(--search-match-bg);
+    color: var(--search-match-fg);
+    border-radius: 2px;
+    padding: 0 2px;
+    font-weight: 600;
+}
+
 
 
