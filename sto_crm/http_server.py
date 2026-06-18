@@ -189,7 +189,7 @@ class CRMHandler(BaseHTTPRequestHandler):
                 order_id = parse_int_field(
                     path.rsplit("/", 1)[-1], "номер заказ-наряда"
                 )
-                with db() as conn:
+                with db(readonly=True) as conn:
                     self.send_html(print_order_html(get_order(conn, order_id)))
                 return
             if method == "GET" and path == "/api/health":

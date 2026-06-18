@@ -36,7 +36,7 @@ def _mask_deleted_order_vehicle(order: dict[str, Any]) -> dict[str, Any]:
 
 
 def list_customers(q: str = "", limit: int | None = 1000) -> list[dict[str, Any]]:
-    with db() as conn:
+    with db(readonly=True) as conn:
         params: list[Any] = []
         where = "WHERE c.deleted_at IS NULL"
         if q:
@@ -62,7 +62,7 @@ def list_customers(q: str = "", limit: int | None = 1000) -> list[dict[str, Any]
 
 
 def list_vehicles(q: str = "", limit: int | None = 1000) -> list[dict[str, Any]]:
-    with db() as conn:
+    with db(readonly=True) as conn:
         params: list[Any] = []
         where = "WHERE v.deleted_at IS NULL AND c.deleted_at IS NULL"
         if q:
@@ -91,7 +91,7 @@ def list_vehicles(q: str = "", limit: int | None = 1000) -> list[dict[str, Any]]
 
 
 def list_inventory(q: str = "", limit: int | None = 1000) -> list[dict[str, Any]]:
-    with db() as conn:
+    with db(readonly=True) as conn:
         params: list[Any] = []
         where = "WHERE deleted_at IS NULL"
         if q:
@@ -119,7 +119,7 @@ def list_appointments(
 ) -> list[dict[str, Any]]:
     if status not in {"all", *APPOINTMENT_STATUSES}:
         raise ValueError("Некорректный статус записи.")
-    with db() as conn:
+    with db(readonly=True) as conn:
         params: list[Any] = []
         where = "WHERE a.deleted_at IS NULL AND c.deleted_at IS NULL AND (a.vehicle_id IS NULL OR v.deleted_at IS NULL)"
         if status and status != "all":
@@ -162,7 +162,7 @@ def list_orders(
 ) -> list[dict[str, Any]]:
     if status and status != "all" and status not in ORDER_STATUSES:
         raise ValueError("Некорректный статус заказа.")
-    with db() as conn:
+    with db(readonly=True) as conn:
         params: list[Any] = []
         where = "WHERE o.deleted_at IS NULL AND c.deleted_at IS NULL"
         if status and status != "all":

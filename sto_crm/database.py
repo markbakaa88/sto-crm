@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import random
 import sqlite3
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager as ContextManager
 from contextlib import contextmanager
+from typing import Any, Literal, TypeVar, overload
 
 from . import runtime as _runtime
 from .config import APP_VERSION, LOOKUP_LIMIT
@@ -26,7 +30,105 @@ def _seed_demo_data() -> None:
     seed_demo_data()
 
 
-def connect() -> sqlite3.Connection:
+T = TypeVar("T")
+
+
+def _locked_retry_delay(attempt: int, base_delay: float = 0.05) -> float:
+    return base_delay * (1.5**attempt) + random.uniform(0, 0.02)
+
+
+def _retry_locked(operation: Callable[[], T], max_retries: int = 5, base_delay: float = 0.05) -> T:  # noqa: UP047
+    last_exc = None
+    for attempt in range(max_retries):
+        try:
+            return operation()
+        except sqlite3.OperationalError as exc:
+            last_exc = exc
+            if "locked" in str(exc).lower() and attempt < max_retries - 1:
+                time.sleep(_locked_retry_delay(attempt, base_delay))
+                continue
+            raise
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("Unreachable")
+
+
+class RetryingCursor:
+    def __init__(self, cursor: sqlite3.Cursor):
+        self._cursor = cursor
+
+    def execute(self, sql: str, parameters: Any = ()):
+        return _retry_locked(lambda: self._cursor.execute(sql, parameters))
+
+    def executemany(self, sql: str, seq_of_parameters: Any):
+        return _retry_locked(lambda: self._cursor.executemany(sql, seq_of_parameters))
+
+    def executescript(self, sql_script: str):
+        return _retry_locked(lambda: self._cursor.executescript(sql_script))
+
+    def fetchone(self):
+        return _retry_locked(lambda: self._cursor.fetchone())
+
+    def fetchall(self):
+        return _retry_locked(lambda: self._cursor.fetchall())
+
+    def fetchmany(self, size: int | None = None):
+        if size is None:
+            return _retry_locked(lambda: self._cursor.fetchmany())
+        return _retry_locked(lambda: self._cursor.fetchmany(size))
+
+    def __iter__(self):
+        return RetryingIterator(self._cursor)
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+
+class RetryingIterator:
+    def __init__(self, cursor: sqlite3.Cursor):
+        self._cursor = cursor
+        self._iter = iter(cursor)
+
+    def __next__(self):
+        return _retry_locked(lambda: next(self._iter))
+
+    def __iter__(self):
+        return self
+
+
+class RetryingConnection:
+    def __init__(self, conn: sqlite3.Connection):
+        self._conn = conn
+
+    def cursor(self) -> RetryingCursor:
+        return RetryingCursor(self._conn.cursor())
+
+    def execute(self, sql: str, parameters: tuple = ()):
+        return _retry_locked(lambda: RetryingCursor(self._conn.execute(sql, parameters)))
+
+    def executemany(self, sql: str, seq_of_parameters):
+        return _retry_locked(lambda: RetryingCursor(self._conn.executemany(sql, seq_of_parameters)))
+
+    def executescript(self, sql_script: str):
+        return _retry_locked(lambda: RetryingCursor(self._conn.executescript(sql_script)))
+
+    def commit(self):
+        return _retry_locked(lambda: self._conn.commit())
+
+    def rollback(self):
+        return _retry_locked(lambda: self._conn.rollback())
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+def connect(readonly: bool = False) -> sqlite3.Connection:
     ensure_private_file_created(_runtime.RUNTIME.db_path)
     conn = sqlite3.connect(
         _runtime.RUNTIME.db_path, timeout=30, isolation_level="DEFERRED"
@@ -44,13 +146,34 @@ def connect() -> sqlite3.Connection:
     conn.execute("PRAGMA temp_store = MEMORY")
     conn.execute("PRAGMA mmap_size = 30000000000")
     conn.execute("PRAGMA page_size = 4096")
+    if readonly:
+        conn.execute("PRAGMA query_only = ON")
     ensure_private_file(_runtime.RUNTIME.db_path)
     return conn
 
 
+@overload
+def db(readonly: Literal[False] = False) -> ContextManager[sqlite3.Connection]:
+    ...
+
+
+@overload
+def db(readonly: Literal[True]) -> ContextManager[RetryingConnection]:
+    ...
+
+
+@overload
+def db(readonly: bool) -> ContextManager[sqlite3.Connection | RetryingConnection]:
+    ...
+
+
 @contextmanager
-def db() -> Iterator[sqlite3.Connection]:
-    conn = connect()
+def db(readonly: bool = False) -> Iterator[sqlite3.Connection | RetryingConnection]:
+    if readonly:
+        conn = _retry_locked(lambda: connect(readonly=True))
+        conn = RetryingConnection(conn)
+    else:
+        conn = connect(readonly=False)
     try:
         yield conn
         in_trans = False
@@ -85,10 +208,7 @@ def db() -> Iterator[sqlite3.Connection]:
 @contextmanager
 def write_db() -> Iterator[sqlite3.Connection]:
     """Open a write transaction early to serialize check-then-write business rules."""
-    import random
-    import time
-
-    with db() as conn:
+    with db(readonly=False) as conn:
         max_retries = 5
         base_delay = 0.05
         for attempt in range(max_retries):
@@ -97,7 +217,7 @@ def write_db() -> Iterator[sqlite3.Connection]:
                 break
             except sqlite3.OperationalError as exc:
                 if "locked" in str(exc).lower() and attempt < max_retries - 1:
-                    time.sleep(base_delay * (1.5**attempt) + random.uniform(0, 0.02))
+                    time.sleep(_locked_retry_delay(attempt, base_delay))
                     continue
                 raise
         yield conn

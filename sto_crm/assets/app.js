@@ -2648,7 +2648,7 @@ function renderSearchSuggestions() {
 
     if (suggestions.length > limit) {
         const remaining = suggestions.length - limit;
-        html += `<div class="suggestions-more" style="padding: var(--space-2); text-align: center; font-size: var(--font-size-sm); color: var(--ink-faint); border-top: 1px solid var(--line); pointer-events: none;" aria-hidden="true">+ еще ${remaining} позиций</div>`;
+        html += `<div class="suggestions-more" aria-hidden="true">+ еще ${remaining} позиций</div>`;
     }
 
     box.innerHTML = html;
