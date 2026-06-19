@@ -95,7 +95,7 @@ def test_analytics_charts_and_tooltips(crm_server):
 
         # 2. Проверим интерактивность и тултип для Bar Chart
         first_bar = bar_rects.nth(0)
-        first_bar.hover(force=True)
+        first_bar.hover()
         tooltip = page.locator("#chart-tooltip")
         page.wait_for_selector("#chart-tooltip.visible", timeout=3000)
 
@@ -118,7 +118,7 @@ def test_analytics_charts_and_tooltips(crm_server):
 
         # 3. Проверим интерактивность и тултип для Donut Chart
         first_segment = donut_segments.nth(0)
-        first_segment.hover(force=True)
+        first_segment.hover()
         page.wait_for_selector("#chart-tooltip.visible", timeout=3000)
 
         segment_tooltip_text = tooltip.inner_html()

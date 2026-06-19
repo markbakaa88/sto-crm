@@ -1,5 +1,6 @@
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -19,7 +20,7 @@ def get_free_port():
 def crm_server():
     port = get_free_port()
     proc = subprocess.Popen(
-        ["python3", "main.py", "--port", str(port), "--no-browser", "--demo"],
+        [sys.executable, "main.py", "--port", str(port), "--no-browser", "--demo"],
         cwd=str(Path(__file__).parent.parent.absolute()),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
