@@ -196,6 +196,7 @@ def test_retry_on_db_connect_exhausted(patch_db_path):
 
 def test_init_db_wal_fallback(patch_db_path):
     """Проверяем, что при ошибке включения режима WAL в init_db() происходит fallback на DELETE."""
+
     # Используем собственный sub-class sqlite3.Connection через фабрику в sqlite3.connect
     class FallbackMockConnection(sqlite3.Connection):
         def execute(self, sql, *args, **kwargs):
@@ -220,9 +221,68 @@ def test_init_db_wal_fallback(patch_db_path):
 
 def test_connect_readonly_no_touch(patch_db_path):
     """Проверяем, что connect(readonly=True) не создает/изменяет файл БД (не вызывает ensure_private_file_created)."""
-    with mock.patch("sto_crm.database.ensure_private_file_created") as mock_ensure_created:
+    with mock.patch(
+        "sto_crm.database.ensure_private_file_created"
+    ) as mock_ensure_created:
         # Пытаемся открыть несуществующую БД в режиме readonly
         with pytest.raises(sqlite3.OperationalError):
             connect(readonly=True)
         # Убеждаемся, что touch не делался
         mock_ensure_created.assert_not_called()
+
+
+def test_readonly_escaped_uri_handling(tmp_path):
+    """Проверяем корректную работу readonly-соединения с зарезервированными URI-символами в имени файлов."""
+    import sto_crm.runtime
+
+    # Символы '#' и '%' обязаны поддерживать readonly
+    for filename in ["db#x.sqlite3", "db%20x.sqlite3"]:
+        db_file = tmp_path / filename
+
+        # Создаем БД и схему в обычном режиме
+        new_runtime = sto_crm.runtime.Runtime(
+            db_path=db_file,
+            start_time=sto_crm.runtime.RUNTIME.start_time,
+            csrf_token=sto_crm.runtime.RUNTIME.csrf_token,
+            access_token=sto_crm.runtime.RUNTIME.access_token,
+            bootstrap_token=sto_crm.runtime.RUNTIME.bootstrap_token,
+        )
+
+        with mock.patch("sto_crm.runtime.RUNTIME", new_runtime):
+            init_db()
+
+            # Вставляем тестовую запись
+            with db() as conn:
+                conn.execute(
+                    "INSERT INTO customers (name, created_at, updated_at) VALUES ('Alice', '2026-06-19', '2026-06-19')"
+                )
+                conn.commit()
+
+            # Подключаемся в режиме readonly
+            with db(readonly=True) as conn_ro:
+                # Проверяем, что видим созданные таблицы и схему
+                row = conn_ro.execute("SELECT name FROM customers").fetchone()
+                assert row is not None
+                assert row[0] == "Alice"
+
+                # Убеждаемся, что в режиме readonly нельзя писать через query_only/mode=ro
+                with pytest.raises(sqlite3.OperationalError) as exc_info:
+                    conn_ro.execute(
+                        "INSERT INTO customers (name, created_at, updated_at) VALUES ('Bob', '2026-06-19', '2026-06-19')"
+                    )
+                assert "readonly" in str(exc_info.value).lower()
+
+        # Проверяем, что не создались "усеченные" или другие побочные файлы в директории
+        created_files = [
+            f.name
+            for f in tmp_path.iterdir()
+            if f.is_file()
+            and not f.name.endswith("-wal")
+            and not f.name.endswith("-shm")
+        ]
+        # Должен быть только исходный db_file
+        assert len(created_files) == 1
+        assert created_files[0] == filename
+
+        # Чистим для следующего круга
+        db_file.unlink()

@@ -141,9 +141,9 @@ class RetryingConnection:
 
 def connect(readonly: bool = False) -> sqlite3.Connection:
     if readonly:
-        path_str = _runtime.RUNTIME.db_path.as_posix()
+        db_uri = _runtime.RUNTIME.db_path.resolve(strict=False).as_uri() + "?mode=ro"
         conn = sqlite3.connect(
-            f"file:{path_str}?mode=ro", uri=True, timeout=30, isolation_level="DEFERRED"
+            db_uri, uri=True, timeout=30, isolation_level="DEFERRED"
         )
     else:
         ensure_private_file_created(_runtime.RUNTIME.db_path)
