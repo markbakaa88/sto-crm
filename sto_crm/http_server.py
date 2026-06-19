@@ -57,7 +57,7 @@ from .updates import (
     public_backup_payload,
     update_status,
 )
-from .web import FAVICON_SVG, index_html
+from .web import FAVICON_SVG, index_html, read_asset
 
 _UPDATE_STATUS_CACHE: tuple[float, dict[str, Any] | None] = (0.0, None)
 _UPDATE_STATUS_LOCK = threading.Lock()
@@ -170,6 +170,20 @@ class CRMHandler(BaseHTTPRequestHandler):
                     FAVICON_SVG.encode("utf-8"),
                     "image/svg+xml; charset=utf-8",
                     write_body=method != "HEAD",
+                )
+                return
+            if method == "GET" and path == "/assets/app.css":
+                self.validate_local_request_context()
+                self.send_bytes(
+                    read_asset("app.css").encode("utf-8"),
+                    "text/css; charset=utf-8",
+                )
+                return
+            if method == "GET" and path == "/assets/app.js":
+                self.validate_local_request_context()
+                self.send_bytes(
+                    read_asset("app.js").encode("utf-8"),
+                    "application/javascript; charset=utf-8",
                 )
                 return
             if method == "GET" and path.startswith("/print/order/"):

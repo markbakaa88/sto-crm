@@ -9,7 +9,7 @@
     <meta name="description" content="Локальная CRM для автосервиса: клиенты, автомобили, заказ-наряды, склад, календарь и отчёты.">
     <meta name="application-name" content="СТО CRM">
     <meta name="format-detection" content="telephone=no">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'nonce-__STO_CRM_CSP_NONCE__' 'strict-dynamic' 'unsafe-inline'; style-src 'self' 'nonce-__STO_CRM_CSP_NONCE__' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests; block-all-mixed-content">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'nonce-__STO_CRM_CSP_NONCE__' 'strict-dynamic' 'unsafe-inline'; style-src 'self' 'nonce-__STO_CRM_CSP_NONCE__'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests; block-all-mixed-content">
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230f766e'/%3E%3Cpath d='M17 34h30M23 24h18M24 44h16' stroke='white' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
     <title>СТО CRM</title>
     <script nonce="__STO_CRM_CSP_NONCE__">
@@ -27,7 +27,7 @@
             }
         })();
     </script>
-    <style nonce="__STO_CRM_CSP_NONCE__">__STO_CRM_APP_CSS__</style>
+    <link rel="stylesheet" href="/assets/app.css">
 </head>
 <body data-bootstrap-token="__STO_CRM_BOOTSTRAP_TOKEN__">
 <a class="skip-link" href="#content">К основному содержанию</a>
@@ -86,13 +86,13 @@
                 <button type="button" class="sync-chip" id="syncChip" data-state="online" aria-label="Состояние синхронизации" data-tooltip="Нажмите, чтобы обновить данные"><span class="dot" aria-hidden="true"></span><span class="sync-text">Актуально</span></button>
                 <div class="cta-wrap">
                     <div class="cta-group">
-                        <button type="button" class="btn primary" id="primaryCtaBtn" data-action="new-order" data-tooltip="Создать заказ-наряд · N O"><span aria-hidden="true">＋</span> Новый заказ <kbd>N O</kbd></button>
+                        <button type="button" class="btn primary" id="primaryCtaBtn" data-action="new-order" data-tooltip="Создать заказ-наряд · N O" aria-label="Создать заказ-наряд"><span aria-hidden="true">＋</span> Новый заказ <kbd>N O</kbd></button>
                         <button type="button" class="btn primary" id="primaryCtaMore" aria-haspopup="menu" aria-expanded="false" aria-controls="primaryCtaMenu" aria-label="Другие быстрые действия" data-tooltip="Ещё действия">▾</button>
                     </div>
                     <div class="cta-menu" id="primaryCtaMenu" role="menu" aria-label="Быстрые действия" hidden>
-                        <button type="button" role="menuitem" data-action="new-appointment"><span>Новая запись</span><kbd>N A</kbd></button>
-                        <button type="button" role="menuitem" data-action="new-customer"><span>Новый клиент</span><kbd>N C</kbd></button>
-                        <button type="button" role="menuitem" data-action="new-vehicle"><span>Новое авто</span><kbd>N V</kbd></button>
+                        <button type="button" role="menuitem" data-action="new-appointment" aria-label="Создать новую запись"><span>Новая запись</span><kbd>N A</kbd></button>
+                        <button type="button" role="menuitem" data-action="new-customer" aria-label="Создать нового клиента"><span>Новый клиент</span><kbd>N C</kbd></button>
+                        <button type="button" role="menuitem" data-action="new-vehicle" aria-label="Создать новое авто"><span>Новое авто</span><kbd>N V</kbd></button>
                     </div>
                 </div>
                 <div class="bell-wrap">
@@ -112,9 +112,9 @@
                         <button type="button" role="menuitemcheckbox" class="system-menu-item" id="themeToggle" title="Тёмная/светлая тема" aria-label="Переключить тёмную или светлую тему" aria-checked="false"><span data-menu-icon aria-hidden="true">◐</span><span data-menu-label>Тема</span></button>
                         <button type="button" role="menuitemcheckbox" class="system-menu-item" id="densityToggle" title="Плотность интерфейса" aria-label="Переключить плотность интерфейса" aria-checked="false"><span data-menu-icon aria-hidden="true">↕</span><span data-menu-label>Плотность</span></button>
                         <button type="button" role="menuitemcheckbox" class="system-menu-item" id="audioToggle" title="Звуковые уведомления" aria-label="Звуковые уведомления" aria-checked="true"><span data-menu-icon aria-hidden="true">🔊</span><span data-menu-label>Звуковые уведомления</span></button>
-                        <button type="button" role="menuitem" class="system-menu-item" id="backupBtn" title="Создать резервную копию SQLite"><span data-menu-icon aria-hidden="true">⇩</span><span data-menu-label>Резервная копия</span></button>
-                        <button type="button" role="menuitem" class="system-menu-item" data-system-route="updates" title="Открыть раздел обновлений"><span data-menu-icon aria-hidden="true">⬢</span><span data-menu-label>Обновления</span></button>
-                        <button type="button" role="menuitem" class="system-menu-item danger" id="shutdownBtn" title="Остановить локальную CRM"><span data-menu-icon aria-hidden="true">⏻</span><span data-menu-label>Остановить CRM</span></button>
+                        <button type="button" role="menuitem" class="system-menu-item" id="backupBtn" title="Создать резервную копию SQLite" aria-label="Создать резервную копию SQLite"><span data-menu-icon aria-hidden="true">⇩</span><span data-menu-label>Резервная копия</span></button>
+                        <button type="button" role="menuitem" class="system-menu-item" data-system-route="updates" title="Открыть раздел обновлений" aria-label="Открыть раздел обновлений"><span data-menu-icon aria-hidden="true">⬢</span><span data-menu-label>Обновления</span></button>
+                        <button type="button" role="menuitem" class="system-menu-item danger" id="shutdownBtn" title="Остановить локальную CRM" aria-label="Остановить локальную CRM"><span data-menu-icon aria-hidden="true">⏻</span><span data-menu-label>Остановить CRM</span></button>
                     </div>
                 </div>
             </div>
@@ -138,7 +138,7 @@
             <div class="status-center" id="statusCenter">СТО CRM</div>
             <div class="status-right">
                 <span class="status-item" id="statusSync" data-tooltip="Последняя синхронизация"><span aria-hidden="true">↻</span><span id="statusSyncText">—</span></span>
-                <button type="button" class="status-item status-item-btn" id="statusBackup" data-action="backup-now" data-tooltip="Создать резервную копию сейчас"><span aria-hidden="true">⇩</span><span id="statusBackupText">Бэкап не создан</span></button>
+                <button type="button" class="status-item status-item-btn" id="statusBackup" data-action="backup-now" data-tooltip="Создать резервную копию сейчас" aria-label="Создать резервную копию сейчас"><span aria-hidden="true">⇩</span><span id="statusBackupText">Бэкап не создан</span></button>
                 <span class="status-item" id="statusVersion" data-tooltip="Версия и сборка"><span aria-hidden="true">⬢</span><span id="statusVersionText">v—</span></span>
                 <span class="status-item" id="statusClock" data-tooltip="Локальное время"><span aria-hidden="true">⌚</span><span id="statusClockText">--:--</span></span>
             </div>
@@ -176,6 +176,6 @@
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 <div class="chart-tooltip" id="chart-tooltip" role="tooltip" aria-hidden="true"></div>
 <div class="sr-only" id="appStatus" role="status" aria-live="polite" aria-atomic="true"></div>
-<script nonce="__STO_CRM_CSP_NONCE__">__STO_CRM_APP_JS__</script>
+    <script src="/assets/app.js" defer></script>
 </body>
 </html>

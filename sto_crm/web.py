@@ -25,10 +25,21 @@ def _read_asset(name: str) -> str:
     return resources.files(_ASSET_PACKAGE).joinpath(name).read_text(encoding="utf-8")
 
 
+read_asset = _read_asset
+
+
 def load_index_html() -> str:
     template = _read_asset("index.html")
-    return template.replace(_CSS_MARKER, _read_asset("app.css"), 1).replace(
-        _JS_MARKER, _read_asset("app.js"), 1
+    css = _read_asset("app.css")
+    js = _read_asset("app.js")
+    return template.replace(
+        '<link rel="stylesheet" href="/assets/app.css">',
+        f'<style nonce="__STO_CRM_CSP_NONCE__">{css}</style>',
+        1
+    ).replace(
+        '<script src="/assets/app.js" defer></script>',
+        f'<script nonce="__STO_CRM_CSP_NONCE__">{js}</script>',
+        1
     )
 
 
@@ -36,5 +47,5 @@ INDEX_HTML = load_index_html()
 
 
 def index_html() -> str:
-    html = INDEX_HTML if is_frozen() else load_index_html()
+    html = _read_asset("index.html")
     return html.replace("__STO_CRM_BOOTSTRAP_TOKEN__", _runtime.RUNTIME.bootstrap_token)

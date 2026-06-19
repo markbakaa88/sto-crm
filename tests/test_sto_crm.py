@@ -1699,7 +1699,7 @@ class StoCrmTests(unittest.TestCase):
                 self.assertIn("default-src 'self'", csp)
                 self.assertIn("style-src 'self' 'nonce-", csp)
                 self.assertNotIn("'unsafe-inline'", csp)
-                self.assertIn('style nonce="', body)
+                self.assertIn('<link rel="stylesheet" href="/assets/app.css">', body)
                 self.assertIn(
                     f'data-bootstrap-token="{sto_crm.RUNTIME.bootstrap_token}"', body
                 )
