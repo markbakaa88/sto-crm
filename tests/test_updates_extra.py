@@ -50,7 +50,11 @@ class TestUpdatesWindowsMock(unittest.TestCase):
                 self.assertEqual(kwargs_called.get("close_fds"), True)
                 self.assertIn("creationflags", kwargs_called)
                 import subprocess
-                self.assertEqual(kwargs_called["creationflags"], getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+
+                self.assertEqual(
+                    kwargs_called["creationflags"],
+                    getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
+                )
 
                 # Проверим, что какой-то файл скрипта .ps1 был записан в tmp_path / "updates"
                 updates_dir = tmp_path / "updates"
@@ -425,4 +429,6 @@ class TestUpdatesWindowsMock(unittest.TestCase):
         path_mock.__str__.return_value = "C:\\path\\junction"
 
         self.assertTrue(is_unsafe_link_or_reparse(path_mock))
-        mock_windll.kernel32.GetFileAttributesW.assert_called_once_with("C:\\path\\junction")
+        mock_windll.kernel32.GetFileAttributesW.assert_called_once_with(
+            "C:\\path\\junction"
+        )

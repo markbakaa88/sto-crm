@@ -43,7 +43,10 @@ def get_files(staged_only: bool) -> list[str]:
         files = [line.strip() for line in res.stdout.splitlines() if line.strip()]
         return files
     except (subprocess.SubprocessError, FileNotFoundError) as e:
-        print(f"Warning: Failed to run Git command ({e}). Falling back to full scan.", file=sys.stderr)
+        print(
+            f"Warning: Failed to run Git command ({e}). Falling back to full scan.",
+            file=sys.stderr,
+        )
         # Fallback to recursively scanning root directory if git is not available
         files = []
         exclude_dirs = {
@@ -124,10 +127,14 @@ def main() -> int:
                 print(f"  Line {line_num}: {line_content!r}")
 
     if total_errors > 0:
-        print(f"\nValidation failed! Found {total_errors} trailing whitespace error(s) in {checked_count} file(s).")
+        print(
+            f"\nValidation failed! Found {total_errors} trailing whitespace error(s) in {checked_count} file(s)."
+        )
         return 1
 
-    print(f"Validation passed. Checked {checked_count} file(s), no trailing whitespace found.")
+    print(
+        f"Validation passed. Checked {checked_count} file(s), no trailing whitespace found."
+    )
     return 0
 
 

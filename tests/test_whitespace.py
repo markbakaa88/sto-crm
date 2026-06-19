@@ -14,7 +14,7 @@ def install_git_hook(root: Path) -> None:
             cwd=root,
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
         hooks_dir = Path(res.stdout.strip())
         if not hooks_dir.is_absolute():
@@ -56,4 +56,7 @@ def test_no_trailing_whitespace():
             for line_num, _ in errors:
                 offending_files.append(f"{name}:line {line_num}")
 
-    assert not offending_files, "Found trailing whitespace in the following files:\n" + "\n".join(offending_files)
+    assert not offending_files, (
+        "Found trailing whitespace in the following files:\n"
+        + "\n".join(offending_files)
+    )

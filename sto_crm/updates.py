@@ -76,6 +76,7 @@ def is_unsafe_link_or_reparse(path: Path) -> bool:
             pass
         try:
             import ctypes
+
             # Use getattr to prevent mypy warnings on non-Windows platforms
             windll = getattr(ctypes, "windll", None)
             if windll is not None:
@@ -132,12 +133,16 @@ def ensure_real_dir(directory: Path, name: str) -> None:
     """Создаёт и валидирует директорию, защищая от атак с символическими ссылками."""
     if directory.exists():
         if is_unsafe_link_or_reparse(directory):
-            raise OSError(f"Каталог {name} не может быть символической ссылкой или reparse point.")
+            raise OSError(
+                f"Каталог {name} не может быть символической ссылкой или reparse point."
+            )
         if not directory.is_dir():
             raise OSError(f"Путь к каталогу {name} занят файлом.")
     ensure_private_dir(directory)
     if is_unsafe_link_or_reparse(directory):
-        raise OSError(f"Каталог {name} не может быть символической ссылкой или reparse point.")
+        raise OSError(
+            f"Каталог {name} не может быть символической ссылкой или reparse point."
+        )
     if not directory.is_dir():
         raise OSError(f"Каталог {name} не является директорией.")
 
@@ -155,7 +160,9 @@ def validate_safe_path(target: Path) -> None:
         raise OSError("Недопустимый путь (содержит переход '..' или обратный слэш).")
     try:
         if target.parent.exists() and is_unsafe_link_or_reparse(target.parent):
-            raise OSError("Родительский каталог не может быть символической ссылкой или reparse point.")
+            raise OSError(
+                "Родительский каталог не может быть символической ссылкой или reparse point."
+            )
         resolved_parent = target.parent.resolve()
         resolved_target = target.resolve()
         if resolved_parent not in resolved_target.parents:
@@ -215,7 +222,9 @@ def prune_updates_dir(update_dir: Path) -> None:
     if not update_dir.exists():
         return
     if is_unsafe_link_or_reparse(update_dir):
-        raise OSError("Каталог обновлений не может быть символической ссылкой или reparse point.")
+        raise OSError(
+            "Каталог обновлений не может быть символической ссылкой или reparse point."
+        )
     try:
         resolved_dir = update_dir.resolve()
     except OSError:

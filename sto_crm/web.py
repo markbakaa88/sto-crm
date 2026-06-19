@@ -35,11 +35,11 @@ def load_index_html() -> str:
     return template.replace(
         '<link rel="stylesheet" href="/assets/app.css">',
         f'<style nonce="__STO_CRM_CSP_NONCE__">{css}</style>',
-        1
+        1,
     ).replace(
         '<script src="/assets/app.js" nonce="__STO_CRM_CSP_NONCE__" defer></script>',
         f'<script nonce="__STO_CRM_CSP_NONCE__">{js}</script>',
-        1
+        1,
     )
 
 
