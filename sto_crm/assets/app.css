@@ -1625,7 +1625,7 @@ body:not(.sidebar-collapsed) .brand { padding-right: 20px; }
     align-items: flex-start; justify-content: center;
     padding: var(--space-8) var(--space-4);
     overflow-y: auto;
-    
+
 }
 .modal-backdrop[hidden], .command-palette-backdrop[hidden] { display: none; }
 .modal-backdrop.open, .command-palette-backdrop.open { display: grid; opacity: 1; } .modal-backdrop.open .modal { transform: translateY(0) scale(1); }
@@ -2698,16 +2698,16 @@ html[data-initial-theme="dark"] tr:nth-child(even) {
 
 /* Vehicle Specific Styles */
 .vehicle-name-highlight { color: var(--brand-strong); font-size: 1.05em; letter-spacing: -0.2px; }
-.plate-modern { 
-    display: inline-block; 
-    padding: 2px 8px; 
-    border: 1px solid var(--line-strong); 
-    border-radius: 4px; 
-    background: #fff; 
-    color: #000; 
-    font-weight: 700; 
-    font-family: var(--font-mono); 
-    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.1); 
+.plate-modern {
+    display: inline-block;
+    padding: 2px 8px;
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    background: #fff;
+    color: #000;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.1);
     text-transform: uppercase;
 }
 .vin-mono { font-family: var(--font-mono); font-size: 0.9em; letter-spacing: 0.5px; background: var(--surface-muted); padding: 2px 6px; border-radius: 4px; }
@@ -2792,7 +2792,7 @@ html[data-initial-theme="dark"] .modern-hover tbody tr:hover {
 }
 
 /* Изменяем отступы таблиц для исключения горизонтального прокручивания на 1440px */
-.table-wrap th, 
+.table-wrap th,
 .table-wrap td {
     padding: 10px var(--space-3);
 }
@@ -3102,7 +3102,7 @@ body .section-card, body .panel, body .modal, body .command-palette, body .searc
     -webkit-backdrop-filter: var(--glass-blur) saturate(200%);
     backdrop-filter: var(--glass-blur) saturate(200%);
     border: 1px solid var(--glass-border);
-    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.06), 
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.06),
                 0 1px 2px 0 rgba(0, 0, 0, 0.02),
                 inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.85);
     transition: transform var(--dur-base) var(--ease-out),
@@ -3210,14 +3210,14 @@ body .catalog-search input:disabled, body .items-table input:disabled, body .ite
 
 /* Premium Row Hover & Interactive State Transitions */
 body .modern-hover tbody tr {
-    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), 
-                background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1), 
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
                 box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 body .modern-hover tbody tr:hover {
     background-color: var(--surface);
-    box-shadow: 0 8px 24px rgba(31, 38, 135, 0.06), 
+    box-shadow: 0 8px 24px rgba(31, 38, 135, 0.06),
                 inset 4px 0 0 var(--brand);
     transform: scale(1.004) translateX(4px);
     z-index: 5;
@@ -3225,7 +3225,7 @@ body .modern-hover tbody tr:hover {
 
 body.dark .modern-hover tbody tr:hover {
     background-color: var(--surface-subtle);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35),
                 inset 4px 0 0 var(--brand);
 }
 
@@ -3237,10 +3237,10 @@ body [role="menuitem"]:focus {
     outline: none;
 }
 
-body button:focus-visible, 
-body a:focus-visible, 
-body input:focus-visible, 
-body select:focus-visible, 
+body button:focus-visible,
+body a:focus-visible,
+body input:focus-visible,
+body select:focus-visible,
 body textarea:focus-visible,
 body [role="button"]:focus-visible,
 body [role="menuitem"]:focus-visible,

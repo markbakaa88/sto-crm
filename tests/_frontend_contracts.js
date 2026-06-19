@@ -228,7 +228,7 @@ const REQUIRED_SUBSTRINGS = [
 
 const FORBIDDEN_SUBSTRINGS = [
   "printWindow.opener = null;",
-  
+
   '<div class="field"><label>',
   'data-route="inspections"',
   "new-inspection",

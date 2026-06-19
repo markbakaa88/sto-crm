@@ -67,16 +67,16 @@ def test_skeletons_loading_rendering(crm_server):
             const appts = SkeletonBuilder.appointments(3);
             if (!appts.includes('aria-hidden="true"')) return 'appointments skeleton missing aria-hidden';
             if (!appts.includes('skeleton-shimmer')) return 'appointments skeleton missing skeleton-shimmer';
-            
+
             const ords = SkeletonBuilder.orders(3, false);
             if (!ords.includes('aria-hidden="true"')) return 'orders skeleton missing aria-hidden';
-            
+
             const custs = SkeletonBuilder.customers(3);
             if (!custs.includes('aria-hidden="true"')) return 'customers skeleton missing aria-hidden';
-            
+
             const inv = SkeletonBuilder.inventory(3);
             if (!inv.includes('aria-hidden="true"')) return 'inventory skeleton missing aria-hidden';
-            
+
             return 'OK';
         }""")
         assert skeletons_ok == "OK"

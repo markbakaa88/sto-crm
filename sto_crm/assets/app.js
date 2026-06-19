@@ -92,9 +92,9 @@ class SafeLocalStorage {
             return true;
         } catch (e) {
             console.error(`SafeLocalStorage: failed to set item for key "${key}"`, e);
-            const isQuotaError = e.name === "QuotaExceededError" || 
-                                  e.name === "NS_ERROR_DOM_QUOTA_REACHED" || 
-                                  e.code === 22 || 
+            const isQuotaError = e.name === "QuotaExceededError" ||
+                                  e.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+                                  e.code === 22 ||
                                   e.code === 1014;
             if (isQuotaError) {
                 console.warn("SafeLocalStorage: LocalStorage quota exceeded. Freeing up space by removing bootstrap cache...");
@@ -783,7 +783,7 @@ function showNextToast() {
 
     node.setAttribute("aria-live", isError ? "assertive" : "polite");
     node.setAttribute("aria-atomic", "true");
-    
+
     node.setAttribute("role", "button");
     node.setAttribute("tabindex", "0");
     node.setAttribute("aria-label", `${current.message}. Нажмите, чтобы закрыть.`);
@@ -804,11 +804,11 @@ function showNextToast() {
     node.classList.remove("show");
     node.offsetHeight; /* trigger reflow */
     node.classList.add("show");
-    
+
     announce(current.message, isError);
-    
+
     const duration = (normType === "danger" || normType === "warning") ? 6000 : 3500;
-    
+
     clearTimeout(node.timer);
     node.timer = setTimeout(() => {
         dismissCurrentToast();
@@ -818,12 +818,12 @@ function showNextToast() {
 function dismissCurrentToast() {
     const node = $("#toast");
     if (!node || !isToastActive || isToastFadingOut) return;
-    
+
     isToastFadingOut = true;
     clearTimeout(node.timer);
     node.classList.remove("show");
     node.removeAttribute("tabindex");
-    
+
     setTimeout(() => {
         node.innerHTML = "";
         isToastActive = false;
@@ -1202,12 +1202,12 @@ async function readCachedBootstrap() {
 
 async function reconcileDataVersions(localData, serverData) {
     if (!localData || !serverData) return;
-    
+
     if (localData.app?.db_path && serverData.app?.db_path && localData.app.db_path !== serverData.app.db_path) {
         toast("Внимание: На сервере изменилась активная база данных!", "warning");
         return;
     }
-    
+
     const collectionKeys = ["orders", "appointments", "customers", "vehicles", "inventory"];
     const kindPluralMap = {
         appointment: "appointments",
@@ -1216,7 +1216,7 @@ async function reconcileDataVersions(localData, serverData) {
         inventory: "inventory",
         order: "orders"
     };
-    
+
     const saveBtn = $("#modalFoot [data-save]:not([data-save='cancel']):not([data-save^='delete']):not([data-save='print-order'])");
     let editingKind = null;
     let editingId = null;
@@ -1224,18 +1224,18 @@ async function reconcileDataVersions(localData, serverData) {
         editingKind = kindPluralMap[saveBtn.dataset.save];
         editingId = saveBtn.dataset.id ? Number(saveBtn.dataset.id) : null;
     }
-    
+
     let conflictFound = false;
     let conflictDetails = "";
     const updates = {};
-    
+
     for (const key of collectionKeys) {
         const localList = localData[key] || [];
         const serverList = serverData[key] || [];
-        
+
         const localMap = new Map(localList.map(item => [Number(item.id), item]));
         const serverMap = new Map(serverList.map(item => [Number(item.id), item]));
-        
+
         let updatedCount = 0;
         for (const [id, serverItem] of serverMap.entries()) {
             const localItem = localMap.get(id);
@@ -1263,7 +1263,7 @@ async function reconcileDataVersions(localData, serverData) {
             updates[key] = updatedCount;
         }
     }
-    
+
     const updateSummary = Object.entries(updates)
         .map(([k, count]) => {
             const labels = {
@@ -1276,11 +1276,11 @@ async function reconcileDataVersions(localData, serverData) {
             return `${labels[k] || k}: ${count}`;
         })
         .join(", ");
-        
+
     if (updateSummary) {
         toast(`На сервере обновились данные во время оффлайна: ${updateSummary}`, "info");
     }
-    
+
     if (conflictFound) {
         toast(`Внимание! Редактируемый вами объект (${conflictDetails}) был обновлен другим пользователем на сервере.`, "error");
         const form = $("#entityForm") || $("#orderForm");
@@ -1370,7 +1370,7 @@ async function loadData() {
     if (state.bootstrapAbortController) state.bootstrapAbortController.abort();
     const controller = new AbortController();
     state.bootstrapAbortController = controller;
-    
+
     let localData = null;
     try {
         const cached = await readCachedBootstrap();
@@ -1391,7 +1391,7 @@ async function loadData() {
         const data = await api(`/api/bootstrap?${params}`, { signal: controller.signal });
         if (seq !== state.loadSeq) return;
         const loadedAt = new Date().toISOString();
-        
+
         if (state.offlineMode && localData) {
             try {
                 await reconcileDataVersions(localData, data);
@@ -1496,7 +1496,7 @@ function initKanbanDragAndDrop() {
     if (!board) return;
     const cards = board.querySelectorAll('.deal-card');
     const columns = board.querySelectorAll('.pipeline-column');
-    
+
     cards.forEach(card => {
         card.addEventListener('dragstart', (e) => {
             e.dataTransfer.setData('text/plain', card.dataset.id);
@@ -1504,7 +1504,7 @@ function initKanbanDragAndDrop() {
         });
         card.addEventListener('dragend', () => card.classList.remove('dragging'));
     });
-    
+
     columns.forEach(col => {
         col.addEventListener('dragover', (e) => {
             e.preventDefault();
@@ -1522,17 +1522,17 @@ function initKanbanDragAndDrop() {
             col.classList.remove('drag-over');
             const orderIdStr = e.dataTransfer.getData('text/plain');
             const orderId = Number(orderIdStr || 0);
-            const status = col.dataset.status; 
+            const status = col.dataset.status;
             const order = findOrderById(orderId);
             if (!order) return;
             if (order.status === status) return;
-            
+
             const allowed = new Set([order.status, ...(orderStatusTransitions[order.status] || [])]);
             if (!allowed.has(status)) {
                 toast(`Недопустимый переход статуса с "${order.status}" на "${status}"`, "error");
                 return;
             }
-            
+
             // Build full order structure for put
             const data = {
                 customer_id: Number(order.customer_id),
@@ -1563,7 +1563,7 @@ function initKanbanDragAndDrop() {
                     unit_cost: Number(item.unit_cost || 0)
                 }))
             };
-            
+
             const path = entityRecordPath("orders", orderId);
             try {
                 await api(path, { method: "PUT", body: JSON.stringify(data) });
@@ -2228,7 +2228,7 @@ function initAltNavigation() {
             document.body.classList.add("alt-pressed");
             return;
         }
-        
+
         if (event.altKey && !event.ctrlKey && !event.metaKey) {
             const digitMatch = event.code.match(/^Digit([1-7])$/);
             const keyChar = (event.key >= "1" && event.key <= "7") ? event.key : (digitMatch ? digitMatch[1] : null);
@@ -2547,12 +2547,12 @@ function collectSearchSuggestions() {
     if (!needle) return [];
 
     const suggestions = [];
-    
+
     // Ищем клиентов
     const customers = state.data.customers || [];
     for (const c of customers) {
-        if (String(c.name || "").toLocaleLowerCase("ru-RU").includes(needle) || 
-            String(c.phone || "").toLocaleLowerCase("ru-RU").includes(needle) || 
+        if (String(c.name || "").toLocaleLowerCase("ru-RU").includes(needle) ||
+            String(c.phone || "").toLocaleLowerCase("ru-RU").includes(needle) ||
             String(c.email || "").toLocaleLowerCase("ru-RU").includes(needle)) {
             suggestions.push({
                 icon: "👤",
@@ -2963,12 +2963,12 @@ function tableHead(labels, entityName) {
             const sortDir = isActive ? activeSort.dir : "none";
             const ariaSort = sortDir === "asc" ? "ascending" : (sortDir === "desc" ? "descending" : "none");
             const arrow = sortDir === "asc" ? " ▲" : (sortDir === "desc" ? " ▼" : "");
-            
+
             const classes = [];
             if (className) classes.push(className);
             classes.push("sortable-header");
             const classAttr = ` class="${esc(classes.join(" "))}"`;
-            
+
             return `<th scope="col" tabindex="0" role="columnheader" aria-sort="${ariaSort}" data-entity="${esc(entityName)}" data-sort-key="${esc(sortKey)}"${classAttr}>${esc(cellText)}${arrow}</th>`;
         }
         const classAttr = className ? ` class="${esc(className)}"` : "";
@@ -2984,14 +2984,14 @@ function sortCollection(array, entityName) {
         }
         return [...array];
     }
-    
+
     const key = sortInfo.key;
     const dir = sortInfo.dir;
-    
+
     return [...array].sort((a, b) => {
         let valA = a[key];
         let valB = b[key];
-        
+
         if (entityName === "vehicles" && key === "vehicle_name") {
             valA = vehicleName(a);
             valB = vehicleName(b);
@@ -3000,20 +3000,20 @@ function sortCollection(array, entityName) {
             valA = appointmentVehicle(a);
             valB = appointmentVehicle(b);
         }
-        
+
         if (valA === undefined || valA === null) valA = "";
         if (valB === undefined || valB === null) valB = "";
-        
+
         if (typeof valA === "number" && typeof valB === "number") {
             return dir === "asc" ? valA - valB : valB - valA;
         }
-        
+
         const numA = parseFloat(valA);
         const numB = parseFloat(valB);
         if (!isNaN(numA) && !isNaN(numB) && String(numA) === String(valA) && String(numB) === String(valB)) {
             return dir === "asc" ? numA - numB : numB - numA;
         }
-        
+
         const strA = String(valA).toLowerCase();
         const strB = String(valB).toLowerCase();
         if (strA < strB) return dir === "asc" ? -1 : 1;
@@ -3026,10 +3026,10 @@ function handleHeaderSort(header) {
     const entity = header.dataset.entity;
     const sortKey = header.dataset.sortKey;
     if (!entity || !sortKey) return;
-    
+
     if (!state.sort) state.sort = {};
     if (!state.sort[entity]) state.sort[entity] = { key: "", dir: "" };
-    
+
     const current = state.sort[entity];
     if (current.key === sortKey) {
         if (current.dir === "asc") {
@@ -3045,7 +3045,7 @@ function handleHeaderSort(header) {
         current.dir = "asc";
     }
     render();
-    
+
     const newHeader = document.querySelector(`.sortable-header[data-entity="${entity}"][data-sort-key="${sortKey}"]`);
     if (newHeader) {
         newHeader.focus();
@@ -3407,7 +3407,7 @@ function appointmentTimeline(days = []) {
         const isWeekend = dayOfWeek === 6 || dayOfWeek === 0;
         const load = maxCount > 0 ? (Number(day.count || 0) / maxCount) * 100 : 0;
         const isPeak = load > 70;
-        
+
         const toneClass = isPeak ? "timeline-peak" : (isWeekend ? "timeline-weekend" : "timeline-normal");
         const peakBadge = isPeak ? `<span class="timeline-badge">Пик</span>` : "";
         return `
@@ -3595,7 +3595,7 @@ function ordersTable(orders, compact) {
         </div>`;
     }
     if (!orders.length) return emptyState("Заказ-нарядов не найдено", "Создайте первый заказ или измените поиск.", `<button class="btn primary" type="button" data-action="new-order">Новый заказ</button>`, "🛠");
-    
+
     if (compact) {
         return `<div class="table-wrap responsive-table-wrap">
             <table class="compact-table responsive-table modern-hover" aria-label="Таблица последних заказ-нарядов">
@@ -3991,7 +3991,7 @@ function renderInventory() {
                             <td data-label="Поставщик"><div class="cell-title"><strong>${esc(p.supplier) || "—"}</strong></div></td>
                             <td data-label="Действия"><button class="btn ghost btn-sm" type="button" data-action="edit-inventory" data-id="${safeRecordId(p.id)}">Профиль</button></td>
                         </tr>`).join("");
-                        
+
     const inventoryVal = (state.data && state.data.reports?.inventory_value) || 0;
     return `
         ${viewHeading("Управление складом", "Учет автозапчастей и материалов. Контроль остатков, цен и закупка у поставщиков.", [], [
@@ -4290,7 +4290,7 @@ function renderReports() {
     const r = (state.data && state.data.reports) || {};
     const statusCounts = r.status_counts || {};
     const topServices = r.top_services || [];
-    
+
     return `
         ${viewHeading("Отчёты и аналитика", "Глубокий анализ показателей СТО, отчет о выручке, загрузке постов и популярным услугам.", [
             `Данные актуальны`
@@ -4312,7 +4312,7 @@ function renderReports() {
                 ${renderRevenueChartSVG(getDailyRevenue())}
             </div>
         </div>
-        
+
         <div class="workspace-grid dashboard-grid mb-5">
             <div class="panel shadow-sm">
                 <div class="panel-head panel-border-subtle">
@@ -4351,7 +4351,7 @@ function renderReports() {
                     </ul>
                 </div>
             </div>
-            
+
             <div class="panel shadow-sm">
                 <div class="panel-head panel-border-subtle">
                     <h3>⭐ Популярные работы</h3>
@@ -4384,7 +4384,7 @@ function renderReports() {
                     })()}
                 </div>
             </div>
-            
+
             <div class="panel shadow-sm">
                 <div class="panel-head panel-border-subtle">
                     <h3>💎 VIP-клиенты</h3>
@@ -5159,7 +5159,7 @@ async function openPrintOrder(id) {
         toast("Разрешите всплывающие окна, чтобы открыть печатную форму.", "error");
         return;
     }
-    
+
     printWindow.document.write("<p>Загрузка печатной формы…</p>");
     try {
         const headers = { "X-CSRF-Token": state.data.app.csrf_token };
@@ -5564,7 +5564,7 @@ function setFieldValidation(inputEl, isValid, message) {
         inputEl.setAttribute("aria-invalid", "false");
         inputEl.setCustomValidity("");
         if (hintEl) hintEl.style.display = "none";
-        
+
         successEl = document.createElement("div");
         successEl.className = "field-success";
         successEl.innerHTML = "✓ <span></span>";
@@ -5576,7 +5576,7 @@ function setFieldValidation(inputEl, isValid, message) {
         inputEl.setAttribute("aria-invalid", "true");
         inputEl.setCustomValidity(message);
         if (hintEl) hintEl.style.display = "none";
-        
+
         errorEl = document.createElement("div");
         errorEl.className = "field-error";
         errorEl.innerHTML = "⚠️ <span></span>";
@@ -5817,17 +5817,17 @@ function bindVehicleCatalog() {
         if (!vinInput) return;
         const val = vinInput.value;
         const len = val.length;
-        
+
         let decoderEl = vinInput.closest(".field")?.querySelector(".vin-decoder");
         if (!decoderEl) return;
-        
+
         decoderEl.textContent = "";
 
         const lengthEl = document.createElement("div");
         lengthEl.className = "vin-decoder-length";
         lengthEl.textContent = `${len} / 17 символов`;
         decoderEl.appendChild(lengthEl);
-        
+
         if (len >= 3) {
             const country = decodeWmi(val);
             const countryWrapEl = document.createElement("div");
@@ -6704,7 +6704,7 @@ $("#globalSearch")?.addEventListener("keydown", event => {
     }
 });
 $("#clearSearch")?.addEventListener("click", clearGlobalSearch);
-    
+
 // Search Suggestions event bindings
 $("#searchSuggestions")?.addEventListener("click", event => {
     const itemEl = event.target.closest("[data-suggestion-index]");
