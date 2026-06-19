@@ -73,3 +73,37 @@ class TestExportExtra(unittest.TestCase):
         self.assertEqual(csv_cell("normal text"), "normal text")
         self.assertEqual(csv_cell(123), 123)
         self.assertEqual(csv_cell(None), "")
+
+    def test_csv_export_unknown_entity_returns_400_not_500(self):
+        import json
+        import threading
+        import urllib.error
+        import urllib.request
+
+        from sto_crm.http_server import CRMHandler, CRMServer
+
+        server = CRMServer(("127.0.0.1", 0), CRMHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{server.server_port}/api/export/unknown_entity",
+                headers={
+                    "X-CSRF-Token": _runtime.RUNTIME.csrf_token,
+                    "X-CRM-Access-Token": _runtime.RUNTIME.access_token,
+                },
+            )
+            with urllib.request.urlopen(req, timeout=5) as response:
+                status = response.status
+                body = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            body = exc.read().decode("utf-8")
+        finally:
+            server.shutdown()
+            server.server_close()
+
+        self.assertEqual(status, 400)
+        data = json.loads(body)
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["error"], "Некорректная сущность экспорта.")

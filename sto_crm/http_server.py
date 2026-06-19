@@ -244,7 +244,11 @@ class CRMHandler(BaseHTTPRequestHandler):
                 if not secrets.compare_digest(token, _runtime.RUNTIME.csrf_token):
                     raise PermissionError("Экспорт доступен только из интерфейса CRM.")
                 entity = path.rsplit("/", 1)[-1].removesuffix(".csv")
-                filename, generator = csv_export(entity)
+                try:
+                    filename, generator = csv_export(entity)
+                except KeyError:
+                    self.send_error_json(400, "Некорректная сущность экспорта.")
+                    return
                 self.close_connection = True
                 self.send_response(200)
                 self.send_header("Content-Type", "text/csv; charset=utf-8")
