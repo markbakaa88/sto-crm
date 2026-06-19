@@ -13,7 +13,7 @@ from .config import (
     CONSUMING_STATUSES,
     ORDER_STATUS_TRANSITIONS,
 )
-from .database import write_db
+from .database import RetryingConnection, write_db
 from .runtime import now_iso, parse_float, parse_int
 from .validation import (
     active_appointment_count_for_customer,
@@ -828,7 +828,9 @@ def insert_order_items(
     )
 
 
-def list_order_items(conn: sqlite3.Connection, order_id: int) -> list[dict[str, Any]]:
+def list_order_items(
+    conn: sqlite3.Connection | RetryingConnection, order_id: int
+) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT oi.*, i.sku AS inventory_sku, i.name AS inventory_name, i.deleted_at AS inventory_deleted_at

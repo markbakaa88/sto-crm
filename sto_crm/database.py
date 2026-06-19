@@ -176,7 +176,7 @@ def db(readonly: bool) -> ContextManager[sqlite3.Connection | RetryingConnection
 
 
 @contextmanager
-def db(readonly: bool = False) -> Iterator[sqlite3.Connection | RetryingConnection]:
+def db(readonly: bool = False) -> Iterator[Any]:
     conn: sqlite3.Connection | RetryingConnection | None = None
     for attempt in range(5):
         try:

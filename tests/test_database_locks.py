@@ -160,15 +160,15 @@ def test_retrying_cursor_execute_keeps_retrying_cursor_for_chained_fetch():
 def test_retry_on_db_connect_success(patch_db_path):
     """Тестируем, что при блокировке БД при открытии соединения (connect/db) делаются ретраи."""
     init_db()
-    
+
     mock_connect = mock.MagicMock()
     # Возвращаем OperationalError два раза, затем оригинальный connect
     mock_connect.side_effect = [
         sqlite3.OperationalError("database is locked"),
         sqlite3.OperationalError("database is locked"),
-        connect(readonly=True)
+        connect(readonly=True),
     ]
-    
+
     with mock.patch("sto_crm.database.connect", mock_connect):
         with mock.patch("sto_crm.database._locked_retry_delay", return_value=0.001):
             with db(readonly=True) as conn:
@@ -180,11 +180,11 @@ def test_retry_on_db_connect_success(patch_db_path):
 def test_retry_on_db_connect_exhausted(patch_db_path):
     """Проверяем, что при постоянной блокировке при коннекте db() выбрасывает исключение после 5 попыток."""
     init_db()
-    
+
     mock_connect = mock.MagicMock(
         side_effect=sqlite3.OperationalError("database is locked")
     )
-    
+
     with mock.patch("sto_crm.database.connect", mock_connect):
         with mock.patch("sto_crm.database._locked_retry_delay", return_value=0.001):
             with pytest.raises(sqlite3.OperationalError) as excinfo:

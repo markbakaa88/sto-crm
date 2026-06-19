@@ -8,7 +8,7 @@ from collections import defaultdict
 from typing import Any
 
 from .config import APPOINTMENT_STATUSES, MAX_FINANCIAL_TOTAL, ORDER_STATUSES
-from .database import db
+from .database import RetryingConnection, db
 from .runtime import parse_float, search_needle, sql_limit
 from .services import list_order_items
 from .validation import item_is_billable
@@ -225,7 +225,9 @@ def list_orders(
         return orders
 
 
-def get_order(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
+def get_order(
+    conn: sqlite3.Connection | RetryingConnection, record_id: int
+) -> dict[str, Any]:
     row = conn.execute(
         """
         SELECT o.*, c.name AS customer_name, c.phone AS customer_phone, c.email AS customer_email,
@@ -254,13 +256,13 @@ def get_order(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
 
 
 def attach_items_and_totals(
-    conn: sqlite3.Connection, orders: list[dict[str, Any]]
+    conn: sqlite3.Connection | RetryingConnection, orders: list[dict[str, Any]]
 ) -> None:
     if not orders:
         return
     chunk_size = 900
     order_ids = [int(order["id"]) for order in orders]
-    rows = []
+    rows: list[Any] = []
     for i in range(0, len(order_ids), chunk_size):
         chunk = order_ids[i : i + chunk_size]
         placeholders = ",".join("?" for _ in chunk)

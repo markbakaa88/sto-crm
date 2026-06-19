@@ -20,7 +20,14 @@ def crm_server():
     port = get_free_port()
     project_root = Path(__file__).parent.parent.absolute()
     proc = subprocess.Popen(
-        [sys.executable, str(project_root / "main.py"), "--port", str(port), "--no-browser", "--demo"],
+        [
+            sys.executable,
+            str(project_root / "main.py"),
+            "--port",
+            str(port),
+            "--no-browser",
+            "--demo",
+        ],
         cwd=str(project_root),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

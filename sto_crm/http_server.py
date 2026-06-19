@@ -712,7 +712,7 @@ class CRMServer(ThreadingHTTPServer):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.graceful_shutdown_flag = False
-        self.shutdown_reason = None
+        self.shutdown_reason: str | None = None
         self._active_threads: set[threading.Thread] = set()
         self._active_requests: set[Any] = set()
         self._active_threads_lock = threading.Lock()

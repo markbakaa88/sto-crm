@@ -21,10 +21,19 @@ def crm_server(tmp_path):
     port = get_free_port()
     db_file = tmp_path / "test_sto_crm_analytics.sqlite3"
     project_root = Path(__file__).parent.parent.absolute()
-    
+
     # Запускаем сервер с временной базой, чтобы demo-данные сидировались с нуля
     proc = subprocess.Popen(
-        [sys.executable, str(project_root / "main.py"), "--port", str(port), "--no-browser", "--demo", "--db", str(db_file)],
+        [
+            sys.executable,
+            str(project_root / "main.py"),
+            "--port",
+            str(port),
+            "--no-browser",
+            "--demo",
+            "--db",
+            str(db_file),
+        ],
         cwd=str(project_root),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -64,13 +73,20 @@ def test_analytics_charts_and_tooltips(crm_server):
         page = context.new_page()
 
         console_errors = []
-        page.on("console", lambda msg: console_errors.append(msg.text) if (
-            msg.type == "error" or
-            "CSP" in msg.text or
-            "Content-Security-Policy" in msg.text or
-            "violate" in msg.text or
-            "refused" in msg.text
-        ) else None)
+        page.on(
+            "console",
+            lambda msg: (
+                console_errors.append(msg.text)
+                if (
+                    msg.type == "error"
+                    or "CSP" in msg.text
+                    or "Content-Security-Policy" in msg.text
+                    or "violate" in msg.text
+                    or "refused" in msg.text
+                )
+                else None
+            ),
+        )
         page.on("pageerror", lambda err: console_errors.append(f"PAGE ERROR: {err}"))
         page.goto(crm_server)
         page.wait_for_selector(".app")
@@ -84,7 +100,9 @@ def test_analytics_charts_and_tooltips(crm_server):
 
         # Дадим асинхронным процессам/репорту немного времени на прогрузку и обнаружение CSP
         page.wait_for_timeout(500)
-        assert len(console_errors) == 0, f"CSP or console errors after loading reports: {console_errors}"
+        assert len(console_errors) == 0, (
+            f"CSP or console errors after loading reports: {console_errors}"
+        )
 
         # 1. Проверим, что графики отрисовались
         bar_rects = page.locator(".bar-rect")
@@ -129,6 +147,8 @@ def test_analytics_charts_and_tooltips(crm_server):
         page.wait_for_selector("#chart-tooltip:not(.visible)", timeout=3000)
 
         # Проверка итоговой чистоты консоли
-        assert len(console_errors) == 0, f"Found console/CSP or page errors at the end: {console_errors}"
+        assert len(console_errors) == 0, (
+            f"Found console/CSP or page errors at the end: {console_errors}"
+        )
 
         browser.close()
