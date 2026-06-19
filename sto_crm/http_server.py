@@ -246,10 +246,12 @@ class CRMHandler(BaseHTTPRequestHandler):
                 self.send_header("Cross-Origin-Resource-Policy", "same-origin")
                 self.send_header(
                     "Content-Security-Policy",
-                    "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+                    "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
                 )
                 self.send_header("Connection", "close")
-                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+                self.send_header(
+                    "Content-Disposition", f'attachment; filename="{filename}"'
+                )
                 self.end_headers()
 
                 try:
@@ -261,7 +263,11 @@ class CRMHandler(BaseHTTPRequestHandler):
                         self.wfile.write(data)
                         self.wfile.write(b"\r\n")
                     self.wfile.write(b"0\r\n\r\n")
-                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError) as err:
+                except (
+                    BrokenPipeError,
+                    ConnectionResetError,
+                    ConnectionAbortedError,
+                ) as err:
                     self.close_connection = True
                     raise BrokenPipeError from err
                 return

@@ -337,9 +337,11 @@ class TestUpdatesWindowsMock(unittest.TestCase):
         mock_lstat.return_value = mock_stat_res
 
         mock_source_1 = MagicMock()
-        mock_source_1.backup.side_effect = sqlite3.OperationalError("database is locked")
+        mock_source_1.backup.side_effect = sqlite3.OperationalError(
+            "database is locked"
+        )
 
-        mock_source_2 = MagicMock() # succeeds on retry
+        mock_source_2 = MagicMock()  # succeeds on retry
 
         # connect succeeds twice
         mock_connect.side_effect = [mock_source_1, mock_source_2]
@@ -385,4 +387,3 @@ class TestUpdatesWindowsMock(unittest.TestCase):
         # Should fail on first attempt without retrying
         self.assertEqual(mock_connect.call_count, 1)
         self.assertEqual(mock_sleep.call_count, 0)
-

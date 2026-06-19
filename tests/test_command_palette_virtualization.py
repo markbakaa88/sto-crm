@@ -21,7 +21,14 @@ def crm_server():
     port = get_free_port()
     project_root = Path(__file__).parent.parent.absolute()
     proc = subprocess.Popen(
-        [sys.executable, str(project_root / "main.py"), "--port", str(port), "--no-browser", "--demo"],
+        [
+            sys.executable,
+            str(project_root / "main.py"),
+            "--port",
+            str(port),
+            "--no-browser",
+            "--demo",
+        ],
         cwd=str(project_root),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -63,7 +70,20 @@ def test_command_palette_rendering_limit(crm_server):
         console_errors = []
         page_errors = []
 
-        page.on("console", lambda msg: console_errors.append(msg.text) if (msg.type == "error" or "CSP" in msg.text or "Content-Security-Policy" in msg.text or "violate" in msg.text or "refused" in msg.text) else None)
+        page.on(
+            "console",
+            lambda msg: (
+                console_errors.append(msg.text)
+                if (
+                    msg.type == "error"
+                    or "CSP" in msg.text
+                    or "Content-Security-Policy" in msg.text
+                    or "violate" in msg.text
+                    or "refused" in msg.text
+                )
+                else None
+            ),
+        )
         page.on("pageerror", lambda err: page_errors.append(err))
 
         page.goto(crm_server)
@@ -76,7 +96,9 @@ def test_command_palette_rendering_limit(crm_server):
 
         # В демо палитре всего ~13 фиксированных команд. Но давайте отфильтруем пустым или коротким вводом.
         # Поскольку команд всего 13, а лимит 20, индикатор еще не должен рендериться.
-        items_count = page.evaluate("() => document.querySelectorAll('#commandList .command-item').length")
+        items_count = page.evaluate(
+            "() => document.querySelectorAll('#commandList .command-item').length"
+        )
         assert items_count <= 20
         assert not page.locator(".commands-more").is_visible()
 
@@ -115,7 +137,9 @@ def test_command_palette_rendering_limit(crm_server):
         # Даем немного времени для завершения рендеринга и обнаружения CSP-ошибок
         page.wait_for_timeout(500)
 
-        suggestions_count = page.evaluate("() => document.querySelectorAll('#searchSuggestions .command-item').length")
+        suggestions_count = page.evaluate(
+            "() => document.querySelectorAll('#searchSuggestions .command-item').length"
+        )
         assert suggestions_count == 20
 
         # Должен быть индикатор "+ еще N позиций"
@@ -127,19 +151,25 @@ def test_command_palette_rendering_limit(crm_server):
 
         # Проверим навигацию кнопками ArrowUp/ArrowDown по усеченному списку
         page.keyboard.press("ArrowDown")
-        active_id = page.evaluate("() => document.activeElement.getAttribute('aria-activedescendant')")
+        active_id = page.evaluate(
+            "() => document.activeElement.getAttribute('aria-activedescendant')"
+        )
         assert active_id == "searchOption0"
 
         # Долистаем до 20-го элемента (индекс 19)
         for _ in range(19):
             page.keyboard.press("ArrowDown")
 
-        active_id_last = page.evaluate("() => document.activeElement.getAttribute('aria-activedescendant')")
+        active_id_last = page.evaluate(
+            "() => document.activeElement.getAttribute('aria-activedescendant')"
+        )
         assert active_id_last == "searchOption19"
 
         # Еще одно нажатие ArrowDown перенесет обратно на 0
         page.keyboard.press("ArrowDown")
-        active_id_loop = page.evaluate("() => document.activeElement.getAttribute('aria-activedescendant')")
+        active_id_loop = page.evaluate(
+            "() => document.activeElement.getAttribute('aria-activedescendant')"
+        )
         assert active_id_loop == "searchOption0"
 
         # Прямо проверим, что элементы подсказок и индикатор не имеют inline style-атрибутов
@@ -151,7 +181,9 @@ def test_command_palette_rendering_limit(crm_server):
             }
             return false;
         }""")
-        assert not has_inline_style, "Found inline style attribute on search suggestion elements!"
+        assert not has_inline_style, (
+            "Found inline style attribute on search suggestion elements!"
+        )
 
         # Отсечем известные прерывистые/предшествующие CSP ошибки из-за спарклайнов приборной панели (dashboard widgets)
         filtered_console_errors = []
@@ -161,7 +193,11 @@ def test_command_palette_rendering_limit(crm_server):
             filtered_console_errors.append(msg)
 
         # Дополнительная проверка на отсутствие console и page error-ов (включая CSP) при/после открытия списка
-        assert len(page_errors) == 0, f"Page errors during search suggestions interaction: {page_errors}"
-        assert len(filtered_console_errors) == 0, f"Console/CSP errors during search suggestions interaction: {filtered_console_errors}"
+        assert len(page_errors) == 0, (
+            f"Page errors during search suggestions interaction: {page_errors}"
+        )
+        assert len(filtered_console_errors) == 0, (
+            f"Console/CSP errors during search suggestions interaction: {filtered_console_errors}"
+        )
 
         browser.close()

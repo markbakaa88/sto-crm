@@ -62,7 +62,9 @@ def test_keyboard_navigation_tabs(crm_server):
         page.wait_for_selector(".app")
 
         # Wait for data bootstrap to complete
-        page.evaluate("() => new Promise(resolve => { if (state.data) return resolve(); const check = setInterval(() => { if (state.data) { clearInterval(check); resolve(); } }, 50); })")
+        page.evaluate(
+            "() => new Promise(resolve => { if (state.data) return resolve(); const check = setInterval(() => { if (state.data) { clearInterval(check); resolve(); } }, 50); })"
+        )
 
         # 1. Check early state
         assert page.evaluate("state.route") == "dashboard"
@@ -85,7 +87,7 @@ def test_keyboard_navigation_tabs(crm_server):
             "customers": "4",
             "vehicles": "5",
             "inventory": "6",
-            "catalog": "7"
+            "catalog": "7",
         }
 
         assert len(hints) == 7
@@ -152,7 +154,9 @@ def test_keyboard_navigation_tabs(crm_server):
         assert not page.evaluate("document.body.classList.contains('alt-pressed')")
 
         # 5. Test first keyboard navigation event (Tab) toggles keyboard-navigation class
-        assert not page.evaluate("document.body.classList.contains('keyboard-navigation')")
+        assert not page.evaluate(
+            "document.body.classList.contains('keyboard-navigation')"
+        )
         page.keyboard.press("Tab")
         page.wait_for_timeout(50)
         assert page.evaluate("document.body.classList.contains('keyboard-navigation')")

@@ -275,9 +275,11 @@ def csv_export(entity: str) -> tuple[str, Generator[str]]:
             # Special case for catalog/car_catalog
             catalog = car_catalog_payload()
             for make in catalog["makes"]:
-                for model in (catalog["models"].get(make) or [""]):
+                for model in catalog["models"].get(make) or [""]:
                     row = {"make": make, "model": model}
-                    writer.writerow([csv_cell(row.get(header, "")) for header in headers])
+                    writer.writerow(
+                        [csv_cell(row.get(header, "")) for header in headers]
+                    )
                     yield output.getvalue()
                     output.seek(0)
                     output.truncate(0)
@@ -303,7 +305,9 @@ def csv_export(entity: str) -> tuple[str, Generator[str]]:
                     attach_items_and_totals(conn, dict_rows)  # type: ignore[arg-type]
 
                 for row in dict_rows:
-                    writer.writerow([csv_cell(row.get(header, "")) for header in headers])
+                    writer.writerow(
+                        [csv_cell(row.get(header, "")) for header in headers]
+                    )
                     yield output.getvalue()
                     output.seek(0)
                     output.truncate(0)

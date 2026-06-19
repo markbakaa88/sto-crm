@@ -728,7 +728,11 @@ def build_reports(
 
     orders_by_day = [
         {"day": name, "count": count}
-        for name, count in zip(["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"], orders_by_day_counts, strict=False)
+        for name, count in zip(
+            ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"],
+            orders_by_day_counts,
+            strict=False,
+        )
     ]
 
     revenue_by_category = {"services": 0.0, "parts": 0.0}
