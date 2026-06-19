@@ -45,14 +45,21 @@ class TestExportExtra(unittest.TestCase):
         self.assertTrue(len(chunks) > 0)
         self.assertTrue(chunks[0].startswith("\ufeff"))
         full_content = "".join(chunks)
-        self.assertIn("id;name;phone;email;source;preferred_channel;reminder_consent;vehicles_count;orders_count;notes", full_content)
+        self.assertIn(
+            "id;name;phone;email;source;preferred_channel;reminder_consent;vehicles_count;orders_count;notes",
+            full_content,
+        )
 
     def test_csv_export_orders_streams_totals_and_items(self):
         from sto_crm.export import csv_export
+
         filename, content_gen = csv_export("orders")
         self.assertEqual(filename, "orders.csv")
         full_content = "".join(content_gen)
-        self.assertIn("id;number;status;customer_name;vehicle_plate;vehicle_make;vehicle_model;authorized_by;authorized_at;follow_up_at;total;paid;due;created_at;updated_at", full_content)
+        self.assertIn(
+            "id;number;status;customer_name;vehicle_plate;vehicle_make;vehicle_model;authorized_by;authorized_at;follow_up_at;total;paid;due;created_at;updated_at",
+            full_content,
+        )
 
     def test_csv_cell_escapes_formula_prefixes(self):
         from sto_crm.runtime import csv_cell

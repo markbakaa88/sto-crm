@@ -19,10 +19,19 @@ def get_free_port():
 def crm_server(tmp_path):
     port = get_free_port()
     db_file = tmp_path / "test_sto_crm_analytics.sqlite3"
-    
+
     # Запускаем сервер с временной базой, чтобы demo-данные сидировались с нуля
     proc = subprocess.Popen(
-        ["python3", "main.py", "--port", str(port), "--no-browser", "--demo", "--db", str(db_file)],
+        [
+            "python3",
+            "main.py",
+            "--port",
+            str(port),
+            "--no-browser",
+            "--demo",
+            "--db",
+            str(db_file),
+        ],
         cwd=str(Path(__file__).parent.parent.absolute()),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

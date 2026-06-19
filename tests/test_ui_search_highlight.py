@@ -14,6 +14,7 @@ def get_free_port():
     s.close()
     return port
 
+
 @pytest.fixture
 def crm_server():
     port = get_free_port()
@@ -70,7 +71,7 @@ def test_global_search_suggestions_highlight(crm_server):
         # Verify highlights are rendered and match "иван" (case-insensitive)
         matches = page.eval_on_selector_all(
             "#searchSuggestions .search-match",
-            "elements => elements.map(el => el.textContent)"
+            "elements => elements.map(el => el.textContent)",
         )
         assert len(matches) > 0
         for m in matches:
@@ -125,7 +126,7 @@ def test_command_palette_suggestions_highlight(crm_server):
         # Check for highlights in command titles and hints
         matches = page.eval_on_selector_all(
             "#commandList .search-match",
-            "elements => elements.map(el => el.textContent)"
+            "elements => elements.map(el => el.textContent)",
         )
         assert len(matches) > 0
         for m in matches:

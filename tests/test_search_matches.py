@@ -14,6 +14,7 @@ def get_free_port():
     s.close()
     return port
 
+
 @pytest.fixture
 def crm_server():
     port = get_free_port()
@@ -41,6 +42,7 @@ def crm_server():
     proc.terminate()
     proc.wait()
 
+
 def test_highlight_text_helper_unit(crm_server):
     from playwright.sync_api import sync_playwright
 
@@ -66,23 +68,27 @@ def test_highlight_text_helper_unit(crm_server):
         assert res == 'Особый <mark class="search-match">[текст]</mark> здесь'
 
         res = page.evaluate("highlightText('Hello World', '')")
-        assert res == 'Hello World'
+        assert res == "Hello World"
 
         res = page.evaluate("highlightText('Hello World', '   ')")
-        assert res == 'Hello World'
+        assert res == "Hello World"
 
         # Test XSS vectors in text
         res = page.evaluate("highlightText('<script>alert(1)</script>', 'alert')")
-        assert res == '&lt;script&gt;<mark class="search-match">alert</mark>(1)&lt;/script&gt;'
+        assert (
+            res
+            == '&lt;script&gt;<mark class="search-match">alert</mark>(1)&lt;/script&gt;'
+        )
 
         # Test XSS vectors in query
         res = page.evaluate("highlightText('Hello World', '<script>alert</g>')")
-        assert res == 'Hello World'
+        assert res == "Hello World"
 
         res = page.evaluate("highlightText('Hello <script>', '<script>')")
         assert res == 'Hello <mark class="search-match">&lt;script&gt;</mark>'
 
         browser.close()
+
 
 def test_highlight_search_results_in_tables(crm_server):
     from playwright.sync_api import sync_playwright
@@ -112,7 +118,10 @@ def test_highlight_search_results_in_tables(crm_server):
 
         # Check that highlight occurs on match in the table
         page.wait_for_selector("[data-view='customers'] .search-match")
-        matches = page.eval_on_selector_all("[data-view='customers'] .search-match", "elements => elements.map(el => el.textContent)")
+        matches = page.eval_on_selector_all(
+            "[data-view='customers'] .search-match",
+            "elements => elements.map(el => el.textContent)",
+        )
         assert len(matches) > 0
         for m in matches:
             assert "иван" in m.lower()
@@ -130,7 +139,10 @@ def test_highlight_search_results_in_tables(crm_server):
         page.wait_for_timeout(600)
 
         page.wait_for_selector("[data-view='vehicles'] .search-match")
-        veh_matches = page.eval_on_selector_all("[data-view='vehicles'] .search-match", "elements => elements.map(el => el.textContent)")
+        veh_matches = page.eval_on_selector_all(
+            "[data-view='vehicles'] .search-match",
+            "elements => elements.map(el => el.textContent)",
+        )
         assert len(veh_matches) > 0
         for m in veh_matches:
             assert "toyota" in m.lower() or "camry" in m.lower() or "rav4" in m.lower()
@@ -148,7 +160,10 @@ def test_highlight_search_results_in_tables(crm_server):
         page.wait_for_timeout(600)
 
         page.wait_for_selector("[data-view='inventory'] .search-match")
-        inv_matches = page.eval_on_selector_all("[data-view='inventory'] .search-match", "elements => elements.map(el => el.textContent)")
+        inv_matches = page.eval_on_selector_all(
+            "[data-view='inventory'] .search-match",
+            "elements => elements.map(el => el.textContent)",
+        )
         assert len(inv_matches) > 0
         for m in inv_matches:
             assert "of" in m.lower() or "ty" in m.lower() or "фильтр" in m.lower()

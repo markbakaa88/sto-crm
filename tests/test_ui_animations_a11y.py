@@ -61,7 +61,9 @@ def test_ui_animations_a11y(crm_server):
         page.wait_for_selector(".app")
 
         # Wait for data bootstrap to complete
-        page.evaluate("() => new Promise(resolve => { if (state.data) return resolve(); const check = setInterval(() => { if (state.data) { clearInterval(check); resolve(); } }, 50); })")
+        page.evaluate(
+            "() => new Promise(resolve => { if (state.data) return resolve(); const check = setInterval(() => { if (state.data) { clearInterval(check); resolve(); } }, 50); })"
+        )
 
         # 1. Locate system menu button and verify initial state
         btn = page.locator("#systemMenuBtn")
@@ -72,14 +74,14 @@ def test_ui_animations_a11y(crm_server):
 
         # 2. Click system menu button and check if active/focused
         btn.click()
-        page.wait_for_timeout(100) # wait for open animations
+        page.wait_for_timeout(100)  # wait for open animations
 
         assert btn.get_attribute("aria-expanded") == "true"
         assert menu.is_visible()
 
         # 3. Ensure role="menu", role="menuitemcheckbox", and role="menuitem" are correct
         assert menu.get_attribute("role") == "menu"
-        
+
         # Check toggles roles
         theme_toggle = page.locator("#themeToggle")
         density_toggle = page.locator("#densityToggle")
@@ -92,7 +94,7 @@ def test_ui_animations_a11y(crm_server):
         # Check default action roles
         backup_btn = page.locator("#backupBtn")
         shutdown_btn = page.locator("#shutdownBtn")
-        
+
         assert backup_btn.get_attribute("role") == "menuitem"
         assert shutdown_btn.get_attribute("role") == "menuitem"
 
@@ -102,7 +104,7 @@ def test_ui_animations_a11y(crm_server):
 
         # Press Escape and verify that menu is closed and focus is returned to the button
         page.keyboard.press("Escape")
-        page.wait_for_timeout(100) # wait for close animations
+        page.wait_for_timeout(100)  # wait for close animations
 
         assert btn.get_attribute("aria-expanded") == "false"
         assert not menu.is_visible()

@@ -70,13 +70,17 @@ def test_order_items_keyboard_navigation(crm_server):
         page.wait_for_selector("#itemsHost")
 
         # Проверяем начальное состояние: должна быть 1 строка позиций
-        row_count = page.evaluate("() => document.querySelectorAll('#itemsHost tr[data-index]').length")
+        row_count = page.evaluate(
+            "() => document.querySelectorAll('#itemsHost tr[data-index]').length"
+        )
         assert row_count == 1
 
         # 2. Добавим вторую позицию (+ Работа), чтобы было больше одной строки
         page.click("#addService")
-        page.wait_for_timeout(400) # Даем кнопке разблокироваться/отрисоваться
-        row_count2 = page.evaluate("() => document.querySelectorAll('#itemsHost tr[data-index]').length")
+        page.wait_for_timeout(400)  # Даем кнопке разблокироваться/отрисоваться
+        row_count2 = page.evaluate(
+            "() => document.querySelectorAll('#itemsHost tr[data-index]').length"
+        )
         assert row_count2 == 2
 
         # 3. Фокусируемся на первом поле ввода названия в первой строке (data-index="0")
@@ -88,8 +92,15 @@ def test_order_items_keyboard_navigation(crm_server):
         page.wait_for_timeout(200)
 
         # Модалка должна быть открыта, строк должно остаться 2
-        assert page.evaluate("() => document.getElementById('modalBackdrop').classList.contains('open')")
-        assert page.evaluate("() => document.querySelectorAll('#itemsHost tr[data-index]').length") == 2
+        assert page.evaluate(
+            "() => document.getElementById('modalBackdrop').classList.contains('open')"
+        )
+        assert (
+            page.evaluate(
+                "() => document.querySelectorAll('#itemsHost tr[data-index]').length"
+            )
+            == 2
+        )
 
         # 5. Проверяем клавишу ArrowDown (переход на аналогичный input в строке ниже)
         page.keyboard.press("ArrowDown")
@@ -97,7 +108,7 @@ def test_order_items_keyboard_navigation(crm_server):
 
         # Фокус должен переместиться на title в строке 1
         is_focused_title1 = page.evaluate(
-            "() => document.activeElement === document.querySelector('tr[data-index=\"1\"] input[data-item=\"title\"]')"
+            '() => document.activeElement === document.querySelector(\'tr[data-index="1"] input[data-item="title"]\')'
         )
         assert is_focused_title1 is True
 
@@ -106,7 +117,7 @@ def test_order_items_keyboard_navigation(crm_server):
         page.wait_for_timeout(200)
 
         is_focused_title0 = page.evaluate(
-            "() => document.activeElement === document.querySelector('tr[data-index=\"0\"] input[data-item=\"title\"]')"
+            '() => document.activeElement === document.querySelector(\'tr[data-index="0"] input[data-item="title"]\')'
         )
         assert is_focused_title0 is True
 
@@ -116,7 +127,7 @@ def test_order_items_keyboard_navigation(crm_server):
         page.wait_for_timeout(200)
 
         is_focused_kind1 = page.evaluate(
-            "() => document.activeElement === document.querySelector('tr[data-index=\"1\"] select[data-item=\"kind\"]')"
+            '() => document.activeElement === document.querySelector(\'tr[data-index="1"] select[data-item="kind"]\')'
         )
         assert is_focused_kind1 is True
 
@@ -124,14 +135,19 @@ def test_order_items_keyboard_navigation(crm_server):
         # Фокусируем последнее поле ввода (например, себестоимость unit_cost в строке 1)
         page.focus('tr[data-index="1"] input[data-item="unit_cost"]')
         page.keyboard.press("Enter")
-        page.wait_for_timeout(400) # Даем сработать добавлению и отрисовке
+        page.wait_for_timeout(400)  # Даем сработать добавлению и отрисовке
 
         # Должна появиться 3-я строка (data-index="2")
-        assert page.evaluate("() => document.querySelectorAll('#itemsHost tr[data-index]').length") == 3
+        assert (
+            page.evaluate(
+                "() => document.querySelectorAll('#itemsHost tr[data-index]').length"
+            )
+            == 3
+        )
 
         # Фокус должен быть на первом поле третьей строки (select data-item="kind")
         is_focused_new_kind = page.evaluate(
-            "() => document.activeElement === document.querySelector('tr[data-index=\"2\"] select[data-item=\"kind\"]')"
+            '() => document.activeElement === document.querySelector(\'tr[data-index="2"] select[data-item="kind"]\')'
         )
         assert is_focused_new_kind is True
 

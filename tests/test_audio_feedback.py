@@ -135,10 +135,14 @@ def test_audio_feedback(crm_server):
         page.wait_for_selector(".app")
 
         # Wait for data bootstrap to complete
-        page.evaluate("() => new Promise(resolve => { if (state.data) return resolve(); const check = setInterval(() => { if (state.data) { clearInterval(check); resolve(); } }, 50); })")
+        page.evaluate(
+            "() => new Promise(resolve => { if (state.data) return resolve(); const check = setInterval(() => { if (state.data) { clearInterval(check); resolve(); } }, 50); })"
+        )
 
         # Ensure localStorage defaults or is set
-        __audio_setting = page.evaluate("localStorage.getItem('sto-crm-audio-feedback')")
+        __audio_setting = page.evaluate(
+            "localStorage.getItem('sto-crm-audio-feedback')"
+        )
         # Since localStorage was empty, the default state should be audioFeedback = true
         assert page.evaluate("state.audioFeedback") is True
 
@@ -152,8 +156,14 @@ def test_audio_feedback(crm_server):
         methods = [c["method"] for c in calls]
         assert "createOscillator" in methods
         # Verify the success frequency sweep: from C5 (523.25) to G5 (783.99)
-        success_set_freq = [c for c in calls if c["method"] == "oscillator.frequency.setValueAtTime"]
-        success_ramp_freq = [c for c in calls if c["method"] == "oscillator.frequency.exponentialRampToValueAtTime"]
+        success_set_freq = [
+            c for c in calls if c["method"] == "oscillator.frequency.setValueAtTime"
+        ]
+        success_ramp_freq = [
+            c
+            for c in calls
+            if c["method"] == "oscillator.frequency.exponentialRampToValueAtTime"
+        ]
         assert len(success_set_freq) == 1
         assert success_set_freq[0]["value"] == 523.25
         assert len(success_ramp_freq) == 1
@@ -172,7 +182,11 @@ def test_audio_feedback(crm_server):
         methods = [c["method"] for c in calls]
         # Two oscillators created
         assert methods.count("createOscillator") == 2
-        warning_freqs = [c["value"] for c in calls if c["method"] == "oscillator.frequency.setValueAtTime"]
+        warning_freqs = [
+            c["value"]
+            for c in calls
+            if c["method"] == "oscillator.frequency.setValueAtTime"
+        ]
         assert warning_freqs == [440.0, 440.0]
 
         # Dismiss the warning toast
@@ -187,8 +201,14 @@ def test_audio_feedback(crm_server):
         calls = page.evaluate("window.AudioContextMockCalls")
         methods = [c["method"] for c in calls]
         assert "createOscillator" in methods
-        danger_set_freq = [c for c in calls if c["method"] == "oscillator.frequency.setValueAtTime"]
-        danger_ramp_freq = [c for c in calls if c["method"] == "oscillator.frequency.linearRampToValueAtTime"]
+        danger_set_freq = [
+            c for c in calls if c["method"] == "oscillator.frequency.setValueAtTime"
+        ]
+        danger_ramp_freq = [
+            c
+            for c in calls
+            if c["method"] == "oscillator.frequency.linearRampToValueAtTime"
+        ]
         assert len(danger_set_freq) == 1
         assert danger_set_freq[0]["value"] == 700.0
         assert len(danger_ramp_freq) == 1
@@ -210,7 +230,9 @@ def test_audio_feedback(crm_server):
         page.wait_for_timeout(100)
 
         # Check localStorage and state
-        assert page.evaluate("localStorage.getItem('sto-crm-audio-feedback')") == "false"
+        assert (
+            page.evaluate("localStorage.getItem('sto-crm-audio-feedback')") == "false"
+        )
         assert page.evaluate("state.audioFeedback") is False
         assert page.locator("#audioToggle").get_attribute("aria-checked") == "false"
 

@@ -8,7 +8,7 @@ target-version = "py313"
 line-length = 88
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "RUF"]
-ignore = ["RUF001", "RUF002", "RUF003", "E501"]
+ignore = ["RUF001", "RUF002", "RUF003", "E501", "UP047"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

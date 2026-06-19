@@ -37,7 +37,9 @@ def _locked_retry_delay(attempt: int, base_delay: float = 0.05) -> float:
     return base_delay * (1.5**attempt) + random.uniform(0, 0.02)
 
 
-def _retry_locked(operation: Callable[[], T], max_retries: int = 5, base_delay: float = 0.05) -> T:  # noqa: UP047
+def _retry_locked(
+    operation: Callable[[], T], max_retries: int = 5, base_delay: float = 0.05
+) -> T:
     last_exc = None
     for attempt in range(max_retries):
         try:
@@ -107,13 +109,19 @@ class RetryingConnection:
         return RetryingCursor(self._conn.cursor())
 
     def execute(self, sql: str, parameters: Any = ()) -> RetryingCursor:
-        return _retry_locked(lambda: RetryingCursor(self._conn.execute(sql, parameters)))
+        return _retry_locked(
+            lambda: RetryingCursor(self._conn.execute(sql, parameters))
+        )
 
     def executemany(self, sql: str, seq_of_parameters: Any) -> RetryingCursor:
-        return _retry_locked(lambda: RetryingCursor(self._conn.executemany(sql, seq_of_parameters)))
+        return _retry_locked(
+            lambda: RetryingCursor(self._conn.executemany(sql, seq_of_parameters))
+        )
 
     def executescript(self, sql_script: str) -> RetryingCursor:
-        return _retry_locked(lambda: RetryingCursor(self._conn.executescript(sql_script)))
+        return _retry_locked(
+            lambda: RetryingCursor(self._conn.executescript(sql_script))
+        )
 
     def commit(self):
         return _retry_locked(lambda: self._conn.commit())
@@ -156,18 +164,15 @@ def connect(readonly: bool = False) -> sqlite3.Connection:
 
 
 @overload
-def db(readonly: Literal[False] = False) -> ContextManager[sqlite3.Connection]:
-    ...
+def db(readonly: Literal[False] = False) -> ContextManager[sqlite3.Connection]: ...
 
 
 @overload
-def db(readonly: Literal[True]) -> ContextManager[RetryingConnection]:
-    ...
+def db(readonly: Literal[True]) -> ContextManager[RetryingConnection]: ...
 
 
 @overload
-def db(readonly: bool) -> ContextManager[sqlite3.Connection | RetryingConnection]:
-    ...
+def db(readonly: bool) -> ContextManager[sqlite3.Connection | RetryingConnection]: ...
 
 
 @contextmanager

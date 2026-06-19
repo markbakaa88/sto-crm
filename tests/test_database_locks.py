@@ -11,13 +11,14 @@ from sto_crm.database import connect, db, init_db
 @pytest.fixture
 def patch_db_path(tmp_path):
     import sto_crm.runtime
+
     temp_db = tmp_path / "test_locks.sqlite3"
     new_runtime = sto_crm.runtime.Runtime(
         db_path=temp_db,
         start_time=sto_crm.runtime.RUNTIME.start_time,
         csrf_token=sto_crm.runtime.RUNTIME.csrf_token,
         access_token=sto_crm.runtime.RUNTIME.access_token,
-        bootstrap_token=sto_crm.runtime.RUNTIME.bootstrap_token
+        bootstrap_token=sto_crm.runtime.RUNTIME.bootstrap_token,
     )
     with mock.patch("sto_crm.runtime.RUNTIME", new_runtime):
         yield temp_db
@@ -39,7 +40,7 @@ def test_retry_on_cursor_execute_success(patch_db_path):
     mock_execute.side_effect = [
         sqlite3.OperationalError("database is locked"),
         sqlite3.OperationalError("database is locked"),
-        mock.MagicMock()  # Успешный результат
+        mock.MagicMock(),  # Успешный результат
     ]
 
     with mock.patch("sto_crm.database._locked_retry_delay", return_value=0.001):
@@ -48,7 +49,7 @@ def test_retry_on_cursor_execute_success(patch_db_path):
             mock_cursor = mock.MagicMock()
             mock_cursor.execute = mock_execute
             retrying_cursor._cursor = mock_cursor
-            
+
             retrying_cursor.execute("SELECT 1")
             assert mock_execute.call_count == 3
 
@@ -56,7 +57,9 @@ def test_retry_on_cursor_execute_success(patch_db_path):
 def test_retry_on_cursor_execute_exhausted(patch_db_path):
     """Проверяем, что при постоянной блокировке после 5 попыток выбрасывается OperationalError."""
     init_db()
-    mock_execute = mock.MagicMock(side_effect=sqlite3.OperationalError("database is locked"))
+    mock_execute = mock.MagicMock(
+        side_effect=sqlite3.OperationalError("database is locked")
+    )
 
     with mock.patch("sto_crm.database._locked_retry_delay", return_value=0.001):
         with db(readonly=True) as conn:
@@ -64,7 +67,7 @@ def test_retry_on_cursor_execute_exhausted(patch_db_path):
             mock_cursor = mock.MagicMock()
             mock_cursor.execute = mock_execute
             retrying_cursor._cursor = mock_cursor
-            
+
             with pytest.raises(sqlite3.OperationalError) as excinfo:
                 retrying_cursor.execute("SELECT 1")
             assert "locked" in str(excinfo.value).lower()
@@ -79,7 +82,7 @@ def test_concurrent_read_write_locks(patch_db_path):
     и успешно завершает запрос.
     """
     init_db()
-    
+
     # Переключаем в DELETE режим для симуляции блокировки читателей
     conn = connect()
     conn.execute("PRAGMA journal_mode = DELETE")
@@ -111,7 +114,7 @@ def test_concurrent_read_write_locks(patch_db_path):
             # Временно выключаем busy_timeout у читателя, чтобы вызвать мгновенные OperationalError (locked)
             # на SQLite C-уровне, что заставит сработать нашу retry-логику на Python.
             conn.execute("PRAGMA busy_timeout = 0")
-            
+
             res = conn.execute("SELECT 1").fetchone()[0]
             assert res == 1
         end_time = time.time()
@@ -152,4 +155,3 @@ def test_retrying_cursor_execute_keeps_retrying_cursor_for_chained_fetch():
     assert raw_cursor.fetchall.call_count == 2
     assert raw_cursor.fetchone.call_count == 2
     assert raw_cursor.fetchmany.call_count == 2
-
