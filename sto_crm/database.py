@@ -177,11 +177,22 @@ def db(readonly: bool) -> ContextManager[sqlite3.Connection | RetryingConnection
 
 @contextmanager
 def db(readonly: bool = False) -> Iterator[sqlite3.Connection | RetryingConnection]:
-    if readonly:
-        conn = _retry_locked(lambda: connect(readonly=True))
-        conn = RetryingConnection(conn)
-    else:
-        conn = connect()
+    conn: sqlite3.Connection | RetryingConnection | None = None
+    for attempt in range(5):
+        try:
+            if readonly:
+                c = connect(readonly=True)
+                conn = RetryingConnection(c)
+            else:
+                conn = connect()
+            break
+        except sqlite3.OperationalError as exc:
+            if "locked" in str(exc).lower() and attempt < 4:
+                time.sleep(_locked_retry_delay(attempt, 0.05))
+                continue
+            raise
+    if conn is None:
+        raise sqlite3.OperationalError("database is locked")
     try:
         yield conn
         in_trans = False
