@@ -1,6 +1,8 @@
 import sys
 import types
+
 import pytest
+
 
 @pytest.fixture(autouse=True)
 def ensure_main_module():
