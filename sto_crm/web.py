@@ -37,7 +37,7 @@ def load_index_html() -> str:
         f'<style nonce="__STO_CRM_CSP_NONCE__">{css}</style>',
         1
     ).replace(
-        '<script src="/assets/app.js" defer></script>',
+        '<script src="/assets/app.js" nonce="__STO_CRM_CSP_NONCE__" defer></script>',
         f'<script nonce="__STO_CRM_CSP_NONCE__">{js}</script>',
         1
     )
