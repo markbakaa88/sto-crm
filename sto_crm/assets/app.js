@@ -2569,8 +2569,8 @@ function collectSearchSuggestions() {
         const vehicles = state.data.vehicles || [];
         for (const v of vehicles) {
             const name = vehicleName(v) || v.plate || "";
-            if (name.toLocaleLowerCase("ru-RU").includes(needle) || 
-                String(v.plate || "").toLocaleLowerCase("ru-RU").includes(needle) || 
+            if (name.toLocaleLowerCase("ru-RU").includes(needle) ||
+                String(v.plate || "").toLocaleLowerCase("ru-RU").includes(needle) ||
                 String(v.vin || "").toLocaleLowerCase("ru-RU").includes(needle)) {
                 suggestions.push({
                     icon: "🚗",
@@ -2587,8 +2587,8 @@ function collectSearchSuggestions() {
     if (suggestions.length < 300) {
         const orders = state.data.orders || [];
         for (const o of orders) {
-            if (String(o.number || "").toLocaleLowerCase("ru-RU").includes(needle) || 
-                String(o.customer_name || "").toLocaleLowerCase("ru-RU").includes(needle) || 
+            if (String(o.number || "").toLocaleLowerCase("ru-RU").includes(needle) ||
+                String(o.customer_name || "").toLocaleLowerCase("ru-RU").includes(needle) ||
                 String(o.vehicle_plate || "").toLocaleLowerCase("ru-RU").includes(needle)) {
                 suggestions.push({
                     icon: "📋",
@@ -2606,7 +2606,7 @@ function collectSearchSuggestions() {
         const inventory = state.data.inventory || [];
         for (const item of inventory) {
             const title = item.name || item.title || "";
-            if (title.toLocaleLowerCase("ru-RU").includes(needle) || 
+            if (title.toLocaleLowerCase("ru-RU").includes(needle) ||
                 String(item.sku || "").toLocaleLowerCase("ru-RU").includes(needle)) {
                 suggestions.push({
                     icon: "📦",
@@ -4134,7 +4134,7 @@ function renderOrdersByDayChartSVG(data) {
     const chartHeight = height - paddingTop - paddingBottom;
 
     const maxVal = Math.max(...data.map(d => d.count), 5);
-    
+
     // Сетка по Y (горизонтальные линии)
     const gridLines = [];
     const divisions = 4;
@@ -4235,9 +4235,9 @@ function renderRevenueByCategoryChartSVG(data) {
     const d2 = `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc2} 1 ${x0} ${y0} Z`;
 
     const segments = `
-        <path class="donut-segment" 
+        <path class="donut-segment"
               d="${d1}"
-              fill="var(--brand, #0a9396)" 
+              fill="var(--brand, #0a9396)"
               stroke="var(--surface, #ffffff)"
               stroke-width="1.5"
               tabindex="0"
@@ -4246,9 +4246,9 @@ function renderRevenueByCategoryChartSVG(data) {
               data-category="Услуги"
               data-value="${services}"
         />
-        <path class="donut-segment" 
+        <path class="donut-segment"
               d="${d2}"
-              fill="var(--info, #1d4ed8)" 
+              fill="var(--info, #1d4ed8)"
               stroke="var(--surface, #ffffff)"
               stroke-width="1.5"
               tabindex="0"
@@ -4331,7 +4331,7 @@ function renderReports() {
                 </div>
             </div>
         </div>
-        
+
         <div class="workspace-grid dashboard-grid">
             <div class="panel shadow-sm">
                 <div class="panel-head panel-border-subtle">
