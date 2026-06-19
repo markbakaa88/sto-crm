@@ -29,6 +29,14 @@ def crm_server(tmp_path):
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+
+    url = f"http://127.0.0.1:{port}/"
+    for _ in range(30):
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+                break
+        except OSError:
+            time.sleep(0.2)
     else:
         proc.terminate()
         proc.wait()
