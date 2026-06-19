@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+
 def test_no_trailing_whitespace():
     # Directories to scan
     project_root = Path(__file__).resolve().parent.parent
@@ -33,7 +34,7 @@ def test_no_trailing_whitespace():
                         continue
 
                     try:
-                        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                        with open(file_path, encoding="utf-8", errors="ignore") as f:
                             lines = f.readlines()
                     except Exception as e:
                         print(f"Skipping {file_path} due to error {e}")
@@ -47,4 +48,4 @@ def test_no_trailing_whitespace():
                             )
                             break
 
-    assert not offending_files, f"Found trailing whitespace in the following files:\n" + "\n".join(offending_files)
+    assert not offending_files, "Found trailing whitespace in the following files:\n" + "\n".join(offending_files)
