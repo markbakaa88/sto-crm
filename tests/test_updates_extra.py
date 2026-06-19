@@ -45,6 +45,13 @@ class TestUpdatesWindowsMock(unittest.TestCase):
                 self.assertEqual(args_called[0], "powershell.exe")
                 self.assertEqual(args_called[1], "-NoProfile")
 
+                # Проверим, что переданы корректные flags (creationflags) для скрытия консольного окна на Windows
+                kwargs_called = mock_popen.call_args[1]
+                self.assertEqual(kwargs_called.get("close_fds"), True)
+                self.assertIn("creationflags", kwargs_called)
+                import subprocess
+                self.assertEqual(kwargs_called["creationflags"], getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+
                 # Проверим, что какой-то файл скрипта .ps1 был записан в tmp_path / "updates"
                 updates_dir = tmp_path / "updates"
                 ps1_files = list(updates_dir.glob("*.ps1"))
@@ -387,3 +394,35 @@ class TestUpdatesWindowsMock(unittest.TestCase):
         # Should fail on first attempt without retrying
         self.assertEqual(mock_connect.call_count, 1)
         self.assertEqual(mock_sleep.call_count, 0)
+
+    @patch("os.name", "nt")
+    @patch("os.lstat")
+    def test_is_unsafe_link_or_reparse_lstat_win(self, mock_lstat):
+        from sto_crm.updates import is_unsafe_link_or_reparse
+
+        res_mock = MagicMock()
+        res_mock.st_file_attributes = 0x400
+        mock_lstat.return_value = res_mock
+
+        path_mock = MagicMock(spec=Path)
+        path_mock.is_symlink.return_value = False
+
+        self.assertTrue(is_unsafe_link_or_reparse(path_mock))
+
+    @patch("os.name", "nt")
+    @patch("os.lstat")
+    @patch("ctypes.windll", create=True)
+    def test_is_unsafe_link_or_reparse_ctypes_win(self, mock_windll, mock_lstat):
+        from sto_crm.updates import is_unsafe_link_or_reparse
+
+        # lstat fails/returns no attributes
+        mock_lstat.side_effect = Exception("error")
+
+        mock_windll.kernel32.GetFileAttributesW.return_value = 0x400
+
+        path_mock = MagicMock(spec=Path)
+        path_mock.is_symlink.return_value = False
+        path_mock.__str__.return_value = "C:\\path\\junction"
+
+        self.assertTrue(is_unsafe_link_or_reparse(path_mock))
+        mock_windll.kernel32.GetFileAttributesW.assert_called_once_with("C:\\path\\junction")

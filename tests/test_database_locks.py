@@ -192,3 +192,37 @@ def test_retry_on_db_connect_exhausted(patch_db_path):
                     pass
             assert "locked" in str(excinfo.value).lower()
             assert mock_connect.call_count == 5
+
+
+def test_init_db_wal_fallback(patch_db_path):
+    """Проверяем, что при ошибке включения режима WAL в init_db() происходит fallback на DELETE."""
+    # Используем собственный sub-class sqlite3.Connection через фабрику в sqlite3.connect
+    class FallbackMockConnection(sqlite3.Connection):
+        def execute(self, sql, *args, **kwargs):
+            if "PRAGMA journal_mode = WAL" in sql:
+                raise sqlite3.OperationalError("WAL is not supported on network shares")
+            return super().execute(sql, *args, **kwargs)
+
+    original_connect = sqlite3.connect
+
+    def mock_sql_connect(*args, **kwargs):
+        kwargs["factory"] = FallbackMockConnection
+        return original_connect(*args, **kwargs)
+
+    with mock.patch("sqlite3.connect", mock_sql_connect):
+        init_db()
+
+    # Проверим, что БД в итоге не WAL
+    with db() as conn:
+        mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        assert mode.lower() != "wal"
+
+
+def test_connect_readonly_no_touch(patch_db_path):
+    """Проверяем, что connect(readonly=True) не создает/изменяет файл БД (не вызывает ensure_private_file_created)."""
+    with mock.patch("sto_crm.database.ensure_private_file_created") as mock_ensure_created:
+        # Пытаемся открыть несуществующую БД в режиме readonly
+        with pytest.raises(sqlite3.OperationalError):
+            connect(readonly=True)
+        # Убеждаемся, что touch не делался
+        mock_ensure_created.assert_not_called()

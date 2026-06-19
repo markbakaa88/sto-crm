@@ -63,6 +63,30 @@ _UPDATE_INSTALL_IN_PROGRESS = False
 _UPDATE_INSTALL_SCHEDULED = False
 
 
+def is_unsafe_link_or_reparse(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    if os.name == "nt":
+        try:
+            stat = os.lstat(path)
+            attrs = getattr(stat, "st_file_attributes", 0)
+            if attrs & 0x400:  # FILE_ATTRIBUTE_REPARSE_POINT
+                return True
+        except Exception:
+            pass
+        try:
+            import ctypes
+            # Use getattr to prevent mypy warnings on non-Windows platforms
+            windll = getattr(ctypes, "windll", None)
+            if windll is not None:
+                attrs = windll.kernel32.GetFileAttributesW(str(path))
+                if attrs != -1 and (attrs & 0x400):  # FILE_ATTRIBUTE_REPARSE_POINT
+                    return True
+        except Exception:
+            pass
+    return False
+
+
 def can_install_windows_update() -> bool:
     """Return whether this runtime can safely replace itself with a Windows exe."""
     app_path = app_executable_path()
@@ -107,13 +131,13 @@ def _safe_unlink(path: Path) -> None:
 def ensure_real_dir(directory: Path, name: str) -> None:
     """Создаёт и валидирует директорию, защищая от атак с символическими ссылками."""
     if directory.exists():
-        if directory.is_symlink():
-            raise OSError(f"Каталог {name} не может быть символической ссылкой.")
+        if is_unsafe_link_or_reparse(directory):
+            raise OSError(f"Каталог {name} не может быть символической ссылкой или reparse point.")
         if not directory.is_dir():
             raise OSError(f"Путь к каталогу {name} занят файлом.")
     ensure_private_dir(directory)
-    if directory.is_symlink():
-        raise OSError(f"Каталог {name} не может быть символической ссылкой.")
+    if is_unsafe_link_or_reparse(directory):
+        raise OSError(f"Каталог {name} не может быть символической ссылкой или reparse point.")
     if not directory.is_dir():
         raise OSError(f"Каталог {name} не является директорией.")
 
@@ -130,16 +154,16 @@ def validate_safe_path(target: Path) -> None:
     if ".." in target.parts or ".." in target.as_posix() or "\\" in target.as_posix():
         raise OSError("Недопустимый путь (содержит переход '..' или обратный слэш).")
     try:
-        if target.parent.exists() and target.parent.is_symlink():
-            raise OSError("Родительский каталог не может быть символической ссылкой.")
+        if target.parent.exists() and is_unsafe_link_or_reparse(target.parent):
+            raise OSError("Родительский каталог не может быть символической ссылкой или reparse point.")
         resolved_parent = target.parent.resolve()
         resolved_target = target.resolve()
         if resolved_parent not in resolved_target.parents:
             raise OSError(
                 "Недопустимый путь (выход за пределы родительского каталога)."
             )
-        if target.exists() and target.is_symlink():
-            raise OSError("Путь не может быть символической ссылкой.")
+        if target.exists() and is_unsafe_link_or_reparse(target):
+            raise OSError("Путь не может быть символической ссылкой или reparse point.")
     except OSError as exc:
         raise OSError(f"Ошибка проверки безопасности пути: {exc}") from exc
 
@@ -153,9 +177,9 @@ def prune_backups(backup_dir: Path, keep_path: Path | None = None) -> None:
         if keep_path is not None:
             with contextlib.suppress(OSError):
                 keep_resolved = keep_path.resolve()
-        if backup_dir.exists() and backup_dir.is_symlink():
+        if backup_dir.exists() and is_unsafe_link_or_reparse(backup_dir):
             raise OSError(
-                "Каталог резервных копий не может быть символической ссылкой."
+                "Каталог резервных копий не может быть символической ссылкой или reparse point."
             )
         try:
             resolved_dir = backup_dir.resolve()
@@ -170,7 +194,7 @@ def prune_backups(backup_dir: Path, keep_path: Path | None = None) -> None:
                     continue
             except OSError:
                 continue
-            if path.is_file() and not path.is_symlink():
+            if path.is_file() and not is_unsafe_link_or_reparse(path):
                 backups.append(
                     (stat.st_mtime, stat.st_size, path, resolved == keep_resolved)
                 )
@@ -190,8 +214,8 @@ def prune_updates_dir(update_dir: Path) -> None:
     """Удаляет старые временные файлы и резервные копии .exe из папки обновлений."""
     if not update_dir.exists():
         return
-    if update_dir.is_symlink():
-        raise OSError("Каталог обновлений не может быть символической ссылкой.")
+    if is_unsafe_link_or_reparse(update_dir):
+        raise OSError("Каталог обновлений не может быть символической ссылкой или reparse point.")
     try:
         resolved_dir = update_dir.resolve()
     except OSError:
@@ -205,7 +229,7 @@ def prune_updates_dir(update_dir: Path) -> None:
             resolved_path = path.resolve()
             if resolved_dir not in resolved_path.parents:
                 continue
-            if path.is_file() and not path.is_symlink():
+            if path.is_file() and not is_unsafe_link_or_reparse(path):
                 name = path.name.lower()
                 is_temp = (
                     name.startswith("download-")
@@ -234,14 +258,14 @@ def create_backup() -> dict[str, Any]:
             resolved_target = target.resolve()
             if resolved_dir not in resolved_target.parents:
                 raise OSError("Недопустимый путь к файлу резервной копии.")
-            if target.exists() and target.is_symlink():
+            if target.exists() and is_unsafe_link_or_reparse(target):
                 raise OSError(
-                    "Файл резервной копии не может быть символической ссылкой."
+                    "Файл резервной копии не может быть символической ссылкой или reparse point."
                 )
             ensure_private_file_created(target)
-            if target.is_symlink():
+            if is_unsafe_link_or_reparse(target):
                 raise OSError(
-                    "Файл резервной копии не может быть символической ссылкой."
+                    "Файл резервной копии не может быть символической ссылкой или reparse point."
                 )
             max_retries = 5
             base_delay = 0.05
@@ -284,9 +308,9 @@ def latest_backup_info() -> dict[str, Any] | None:
     with _BACKUP_LOCK:
         backup_dir = _runtime.RUNTIME.db_path.parent / "backups"
         try:
-            if backup_dir.exists() and backup_dir.is_symlink():
+            if backup_dir.exists() and is_unsafe_link_or_reparse(backup_dir):
                 raise OSError(
-                    "Каталог резервных копий не может быть символической ссылкой."
+                    "Каталог резервных копий не может быть символической ссылкой или reparse point."
                 )
             resolved_dir = backup_dir.resolve()
             backups = []
@@ -295,7 +319,7 @@ def latest_backup_info() -> dict[str, Any] | None:
                     resolved_path = path.resolve()
                     if resolved_dir not in resolved_path.parents:
                         continue
-                    if path.is_file() and not path.is_symlink():
+                    if path.is_file() and not is_unsafe_link_or_reparse(path):
                         backups.append(path)
                 except OSError:
                     continue
@@ -744,9 +768,9 @@ def download_release_asset(asset: dict[str, Any], target: Path) -> dict[str, Any
             ) from exc
         tmp_target.unlink(missing_ok=True)
         ensure_private_file_created(tmp_target)
-        if tmp_target.is_symlink():
+        if is_unsafe_link_or_reparse(tmp_target):
             raise OSError(
-                "Временный файл обновления не может быть символической ссылкой."
+                "Временный файл обновления не может быть символической ссылкой или reparse point."
             )
         with (
             urllib.request.urlopen(request, timeout=GITHUB_UPDATE_TIMEOUT) as response,  # nosec B310
@@ -940,7 +964,10 @@ def schedule_windows_update(downloaded_exe: Path, expected_sha256: str) -> None:
         "-File",
         str(script_path),
     ]
-    subprocess.Popen(command, cwd=str(update_dir), close_fds=True)  # nosec B603
+    kwargs: dict[str, Any] = {}
+    if os.name == "nt":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+    subprocess.Popen(command, cwd=str(update_dir), close_fds=True, **kwargs)  # nosec B603
 
 
 def install_update_from_github() -> dict[str, Any]:

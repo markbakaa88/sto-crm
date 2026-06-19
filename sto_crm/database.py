@@ -140,10 +140,16 @@ class RetryingConnection:
 
 
 def connect(readonly: bool = False) -> sqlite3.Connection:
-    ensure_private_file_created(_runtime.RUNTIME.db_path)
-    conn = sqlite3.connect(
-        _runtime.RUNTIME.db_path, timeout=30, isolation_level="DEFERRED"
-    )
+    if readonly:
+        path_str = _runtime.RUNTIME.db_path.as_posix()
+        conn = sqlite3.connect(
+            f"file:{path_str}?mode=ro", uri=True, timeout=30, isolation_level="DEFERRED"
+        )
+    else:
+        ensure_private_file_created(_runtime.RUNTIME.db_path)
+        conn = sqlite3.connect(
+            _runtime.RUNTIME.db_path, timeout=30, isolation_level="DEFERRED"
+        )
     conn.row_factory = sqlite3.Row
     try:
         conn.create_function(
@@ -153,13 +159,14 @@ def connect(readonly: bool = False) -> sqlite3.Connection:
         conn.create_function("CASEFOLD", 1, lambda value: str(value or "").casefold())
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 30000")
-    conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA temp_store = MEMORY")
-    conn.execute("PRAGMA mmap_size = 30000000000")
-    conn.execute("PRAGMA page_size = 4096")
     if readonly:
         conn.execute("PRAGMA query_only = ON")
-    ensure_private_file(_runtime.RUNTIME.db_path)
+    else:
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA mmap_size = 30000000000")
+        conn.execute("PRAGMA page_size = 4096")
+        ensure_private_file(_runtime.RUNTIME.db_path)
     return conn
 
 
@@ -246,7 +253,17 @@ def init_db(seed_demo: bool = False) -> None:
     ensure_private_dir(_runtime.RUNTIME.db_path.parent)
     with db() as conn:
         try:
-            conn.execute("PRAGMA journal_mode = WAL")
+            try:
+                conn.execute("PRAGMA journal_mode = WAL")
+            except sqlite3.OperationalError as exc:
+                safe_log(
+                    f"Предупреждение: не удалось включить режим WAL ({exc}). "
+                    "Используется резервный режим journal_mode=DELETE."
+                )
+                try:
+                    conn.execute("PRAGMA journal_mode = DELETE")
+                except sqlite3.OperationalError:
+                    pass
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS customers (
