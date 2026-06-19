@@ -1,51 +1,59 @@
 import os
+import shutil
+import subprocess
 from pathlib import Path
+
+from check_whitespace import VALID_EXTENSIONS, check_file, get_files
+
+
+def install_git_hook(root: Path) -> None:
+    """Automatically copy the pre-commit hook into Git hooks directory."""
+    try:
+        res = subprocess.run(
+            ["git", "rev-parse", "--git-path", "hooks"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        hooks_dir = Path(res.stdout.strip())
+        if not hooks_dir.is_absolute():
+            hooks_dir = root / hooks_dir
+
+        if hooks_dir.exists() and hooks_dir.is_dir():
+            target_hook = hooks_dir / "pre-commit"
+            source_hook = root / "pre-commit-hook.sh"
+            if source_hook.exists():
+                shutil.copy2(source_hook, target_hook)
+                # On non-Windows platforms, make the hook executable
+                if os.name != "nt":
+                    try:
+                        target_hook.chmod(0o755)
+                    except OSError:
+                        pass
+    except Exception:
+        # Fail silently if not in a git repo or git CLI is missing
+        pass
 
 
 def test_no_trailing_whitespace():
-    # Directories to scan
-    project_root = Path(__file__).resolve().parent.parent
-    targets = [
-        project_root / "sto_crm",
-        project_root / "tests"
-    ]
+    root = Path(__file__).resolve().parent.parent
+    install_git_hook(root)
 
-    # Extensions to check
-    extensions = {".py", ".js", ".css", ".html"}
-
-    # Exclusions
-    exclude_dirs = {".venv", "node_modules", "__pycache__", ".pytest_cache", ".ruff_cache", ".git"}
+    file_names = get_files(staged_only=False)
 
     offending_files = []
-
-    for target_dir in targets:
-        if not target_dir.exists():
+    for name in file_names:
+        file_path = root / name
+        if not file_path.exists() or not file_path.is_file():
             continue
 
-        for root, dirs, files in os.walk(target_dir):
-            # Prune excluded directories in-place
-            dirs[:] = [d for d in dirs if d not in exclude_dirs]
+        if file_path.suffix.lower() not in VALID_EXTENSIONS:
+            continue
 
-            for file in files:
-                file_path = Path(root) / file
-                if file_path.suffix in extensions:
-                    # Exclude node_modules or venv just in case it leaks in
-                    if any(part in file_path.parts for part in exclude_dirs):
-                        continue
-
-                    try:
-                        with open(file_path, encoding="utf-8", errors="ignore") as f:
-                            lines = f.readlines()
-                    except Exception as e:
-                        print(f"Skipping {file_path} due to error {e}")
-                        continue
-
-                    for line_idx, line in enumerate(lines):
-                        stripped_nl = line.rstrip("\r\n")
-                        if stripped_nl != stripped_nl.rstrip(" \t"):
-                            offending_files.append(
-                                f"{file_path.relative_to(project_root)}:line {line_idx + 1}"
-                            )
-                            break
+        errors = check_file(file_path)
+        if errors:
+            for line_num, _ in errors:
+                offending_files.append(f"{name}:line {line_num}")
 
     assert not offending_files, "Found trailing whitespace in the following files:\n" + "\n".join(offending_files)
