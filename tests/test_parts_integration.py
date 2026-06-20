@@ -1,4 +1,5 @@
 import concurrent.futures
+import email.message
 import io
 import os
 import socket
@@ -98,7 +99,7 @@ class TestSupplierPartsIntegration(unittest.TestCase):
             sto_crm.config.ROSSKO_KEY2 = "key2"
 
             mock_urlopen.side_effect = urllib.error.HTTPError(
-                "http://example.com/api", 401, "Unauthorized", None, io.BytesIO(b"")
+                "http://example.com/api", 401, "Unauthorized", email.message.Message(), io.BytesIO(b"")
             )
             adapter = RosskoAdapter()
             self.assertEqual(adapter.search_parts("555", "CTR"), [])
@@ -106,7 +107,7 @@ class TestSupplierPartsIntegration(unittest.TestCase):
                 adapter.order_part("555", "CTR", 1)
 
             mock_urlopen.side_effect = urllib.error.HTTPError(
-                "http://example.com/api", 403, "Forbidden", None, io.BytesIO(b"")
+                "http://example.com/api", 403, "Forbidden", email.message.Message(), io.BytesIO(b"")
             )
             self.assertEqual(adapter.search_parts("555", "CTR"), [])
             with self.assertRaises(RuntimeError):
@@ -120,7 +121,7 @@ class TestSupplierPartsIntegration(unittest.TestCase):
             sto_crm.config.ROSSKO_KEY2 = "key2"
 
             mock_urlopen.side_effect = urllib.error.HTTPError(
-                "http://example.com/api", 500, "Internal Server Error", None, io.BytesIO(b"")
+                "http://example.com/api", 500, "Internal Server Error", email.message.Message(), io.BytesIO(b"")
             )
             adapter = RosskoAdapter()
             self.assertEqual(adapter.search_parts("555", "CTR"), [])
@@ -128,7 +129,7 @@ class TestSupplierPartsIntegration(unittest.TestCase):
                 adapter.order_part("555", "CTR", 1)
 
             mock_urlopen.side_effect = urllib.error.HTTPError(
-                "http://example.com/api", 502, "Bad Gateway", None, io.BytesIO(b"")
+                "http://example.com/api", 502, "Bad Gateway", email.message.Message(), io.BytesIO(b"")
             )
             self.assertEqual(adapter.search_parts("555", "CTR"), [])
             with self.assertRaises(RuntimeError):
@@ -142,7 +143,7 @@ class TestSupplierPartsIntegration(unittest.TestCase):
             sto_crm.config.ROSSKO_KEY2 = "key2"
 
             mock_urlopen.side_effect = urllib.error.HTTPError(
-                "http://example.com/api", 429, "Too Many Requests", None, io.BytesIO(b"")
+                "http://example.com/api", 429, "Too Many Requests", email.message.Message(), io.BytesIO(b"")
             )
             adapter = RosskoAdapter()
             self.assertEqual(adapter.search_parts("555", "CTR"), [])
@@ -150,7 +151,7 @@ class TestSupplierPartsIntegration(unittest.TestCase):
                 adapter.order_part("555", "CTR", 1)
 
             mock_urlopen.side_effect = urllib.error.HTTPError(
-                "http://example.com/api", 503, "Service Unavailable", None, io.BytesIO(b"")
+                "http://example.com/api", 503, "Service Unavailable", email.message.Message(), io.BytesIO(b"")
             )
             self.assertEqual(adapter.search_parts("555", "CTR"), [])
             with self.assertRaises(RuntimeError):
@@ -245,7 +246,7 @@ class TestSupplierPartsIntegration(unittest.TestCase):
             sto_crm.config.MX_GROUP_TOKEN = "token"
 
             mock_urlopen.side_effect = urllib.error.HTTPError(
-                "http://example.com/api", 401, "Unauthorized", None, io.BytesIO(b"")
+                "http://example.com/api", 401, "Unauthorized", email.message.Message(), io.BytesIO(b"")
             )
             adapter = MXGroupAdapter()
             self.assertEqual(adapter.search_parts("555", "CTR"), [])
@@ -259,7 +260,7 @@ class TestSupplierPartsIntegration(unittest.TestCase):
             sto_crm.config.MX_GROUP_TOKEN = "token"
 
             mock_urlopen.side_effect = urllib.error.HTTPError(
-                "http://example.com/api", 500, "Internal Server Error", None, io.BytesIO(b"")
+                "http://example.com/api", 500, "Internal Server Error", email.message.Message(), io.BytesIO(b"")
             )
             adapter = MXGroupAdapter()
             self.assertEqual(adapter.search_parts("555", "CTR"), [])
@@ -273,7 +274,7 @@ class TestSupplierPartsIntegration(unittest.TestCase):
             sto_crm.config.MX_GROUP_TOKEN = "token"
 
             mock_urlopen.side_effect = urllib.error.HTTPError(
-                "http://example.com/api", 429, "Too Many Requests", None, io.BytesIO(b"")
+                "http://example.com/api", 429, "Too Many Requests", email.message.Message(), io.BytesIO(b"")
             )
             adapter = MXGroupAdapter()
             self.assertEqual(adapter.search_parts("555", "CTR"), [])
@@ -361,7 +362,7 @@ class TestSupplierPartsIntegration(unittest.TestCase):
             sto_crm.config.TM_PARTS_KEY = "apikey"
 
             mock_urlopen.side_effect = urllib.error.HTTPError(
-                "http://example.com/api", 401, "Unauthorized", None, io.BytesIO(b"")
+                "http://example.com/api", 401, "Unauthorized", email.message.Message(), io.BytesIO(b"")
             )
             adapter = TMPartsAdapter()
             self.assertEqual(adapter.search_parts("555", "CTR"), [])
@@ -375,7 +376,7 @@ class TestSupplierPartsIntegration(unittest.TestCase):
             sto_crm.config.TM_PARTS_KEY = "apikey"
 
             mock_urlopen.side_effect = urllib.error.HTTPError(
-                "http://example.com/api", 500, "Internal Server Error", None, io.BytesIO(b"")
+                "http://example.com/api", 500, "Internal Server Error", email.message.Message(), io.BytesIO(b"")
             )
             adapter = TMPartsAdapter()
             self.assertEqual(adapter.search_parts("555", "CTR"), [])
@@ -389,7 +390,7 @@ class TestSupplierPartsIntegration(unittest.TestCase):
             sto_crm.config.TM_PARTS_KEY = "apikey"
 
             mock_urlopen.side_effect = urllib.error.HTTPError(
-                "http://example.com/api", 429, "Too Many Requests", None, io.BytesIO(b"")
+                "http://example.com/api", 429, "Too Many Requests", email.message.Message(), io.BytesIO(b"")
             )
             adapter = TMPartsAdapter()
             self.assertEqual(adapter.search_parts("555", "CTR"), [])
