@@ -623,7 +623,8 @@ class TestCoverageEdge(unittest.TestCase):
         import sys
         from unittest.mock import patch
 
-        spec = importlib.util.spec_from_file_location("__main__", "sto_crm/__main__.py")
+        main_path = str(Path(__file__).parent.parent / "sto_crm" / "__main__.py")
+        spec = importlib.util.spec_from_file_location("__main__", main_path)
         self.assertIsNotNone(spec)
         assert spec is not None
         assert spec.loader is not None
