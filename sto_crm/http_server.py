@@ -216,6 +216,79 @@ class CRMHandler(BaseHTTPRequestHandler):
                     }
                 )
                 return
+            if method == "GET" and path.startswith("/api/parts/search"):
+                self.validate_local_request_context()
+                self.require_access_token()
+
+                # OEM query parameter is required
+                q_vals = query.get("q", [])
+                if not q_vals or not q_vals[0].strip():
+                    self.send_error_json(400, "Параметр поиска q (OEM номер) является обязательным.")
+                    return
+                oem = q_vals[0]
+
+                brand_vals = query.get("brand", [])
+                brand = brand_vals[0] if brand_vals else None
+
+                # Check for optional force cache refresh query parameter
+                force_vals = query.get("force", [])
+                force_refresh = force_vals[0] == "true" if force_vals else False
+
+                from .parts_service import search_supplier_parts
+                try:
+                    parts = search_supplier_parts(oem, brand, force_refresh)
+                    self.send_json({"ok": True, "parts": parts})
+                except Exception as exc:
+                    self.send_error_json(500, f"Ошибка при проценке запчастей: {exc}")
+                return
+
+            if method == "POST" and path == "/api/parts/order":
+                self.validate_local_request_context()
+                self.require_access_token()
+
+                # Check CSRF since it is a mutating request but not automatically validated
+                # under validate_mutating_request (since that only knows route entities map)
+                self.require_csrf_token()
+                self.require_json_content_type()
+
+                payload = self.read_json()
+
+                oem = payload.get("oem")
+                brand = payload.get("brand")
+                supplier = payload.get("supplier")
+                quantity_raw = payload.get("quantity")
+                price_raw = payload.get("price")
+
+                if not oem or not brand or not supplier or quantity_raw is None or price_raw is None:
+                    self.send_error_json(400, "Поля oem, brand, supplier, quantity и price являются обязательными.")
+                    return
+
+                try:
+                    quantity = int(quantity_raw)
+                    if quantity <= 0:
+                        raise ValueError
+                except (ValueError, TypeError):
+                    self.send_error_json(400, "Количество должно быть положительным целым числом.")
+                    return
+
+                try:
+                    price = float(price_raw)
+                    if price < 0:
+                        raise ValueError
+                except (ValueError, TypeError):
+                    self.send_error_json(400, "Цена должна быть неотрицательным числом.")
+                    return
+
+                from .parts_service import place_supplier_order
+                try:
+                    order_tracking_id = place_supplier_order(oem, brand, supplier, quantity, price)
+                    self.send_json({"ok": True, "order_tracking_id": order_tracking_id})
+                except ValueError as exc:
+                    self.send_error_json(400, str(exc))
+                except Exception as exc:
+                    self.send_error_json(500, f"Ошибка при оформлении заказа: {exc}")
+                return
+
             if method == "GET" and path == "/api/bootstrap":
                 self.validate_local_request_context()
                 if query.get("bootstrap_token") != [_runtime.RUNTIME.bootstrap_token]:

@@ -369,6 +369,30 @@ def init_db(seed_demo: bool = False) -> None:
                     deleted_at TEXT
                 );
 
+                CREATE TABLE IF NOT EXISTS supplier_parts_cache (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    oem TEXT NOT NULL,
+                    brand TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    price REAL NOT NULL,
+                    stock INTEGER NOT NULL,
+                    delivery_days INTEGER NOT NULL,
+                    supplier TEXT NOT NULL,
+                    cached_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS supplier_orders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    oem TEXT NOT NULL,
+                    brand TEXT NOT NULL,
+                    supplier TEXT NOT NULL,
+                    quantity INTEGER NOT NULL,
+                    price REAL NOT NULL,
+                    order_tracking_id TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'created',
+                    created_at TEXT NOT NULL
+                );
+
                 """
             )
             ensure_schema(conn)
@@ -791,6 +815,16 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_vehicle ON orders(vehicle_id)")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_appointments_vehicle ON appointments(vehicle_id)"
+    )
+    # New supplier integration indexes
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_parts_cache_oem_brand ON supplier_parts_cache(CASEFOLD(oem), CASEFOLD(brand))"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_parts_cache_cached_at ON supplier_parts_cache(cached_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_supplier_orders_oem_brand ON supplier_orders(CASEFOLD(oem), CASEFOLD(brand))"
     )
     unique_indexes = (
         (

@@ -17,6 +17,8 @@ a = Analysis(
         'sto_crm.catalog',
         'sto_crm.cli',
         'sto_crm.config',
+        'sto_crm.parts_api',
+        'sto_crm.parts_service',
         'sto_crm.database',
         'sto_crm.export',
         'sto_crm.http_server',

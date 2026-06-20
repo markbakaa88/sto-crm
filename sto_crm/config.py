@@ -130,3 +130,36 @@ ITEM_APPROVAL_STATUSES = {
     "declined": "Отказ",
 }
 BILLABLE_ITEM_STATUSES = {"approved"}
+
+# API Rossko, MX Group, TM Parts settings
+ROSSKO_KEY1 = os.environ.get("ROSSKO_KEY1", "")
+ROSSKO_KEY2 = os.environ.get("ROSSKO_KEY2", "")
+ROSSKO_API_URL = os.environ.get("ROSSKO_API_URL", "https://api.rossko.ru")
+
+MX_GROUP_TOKEN = os.environ.get("MX_GROUP_TOKEN", "")
+MX_GROUP_API_URL = os.environ.get("MX_GROUP_API_URL", "https://api.mxgroup.ru")
+
+TM_PARTS_KEY = os.environ.get("TM_PARTS_KEY", "")
+TM_PARTS_API_URL = os.environ.get("TM_PARTS_API_URL", "https://api.tmparts.ru")
+
+# Default TTL of cache is 2 hours (7200 seconds)
+PARTS_CACHE_TTL_HOURS = 2
+PARTS_CACHE_TTL_SECONDS = PARTS_CACHE_TTL_HOURS * 3600
+PARTS_API_TIMEOUT = _get_env_int("PARTS_API_TIMEOUT", 10)
+
+
+def log_configuration_status() -> None:
+    """Log which supplier APIs are initialized based on env vars."""
+    from .runtime import safe_log
+    suppliers = []
+    if ROSSKO_KEY1 and ROSSKO_KEY2:
+        suppliers.append("Rossko")
+    if MX_GROUP_TOKEN:
+        suppliers.append("MX Group")
+    if TM_PARTS_KEY:
+        suppliers.append("TM Parts")
+
+    if suppliers:
+        safe_log(f"Настройки внешних API автозапчастей загружены для: {', '.join(suppliers)}")
+    else:
+        safe_log("Настройки внешних API автозапчастей не обнаружены/не заданы в переменных окружения")
