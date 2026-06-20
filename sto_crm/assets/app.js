@@ -2909,6 +2909,48 @@ const SkeletonBuilder = {
             `;
         }
         return html;
+    },
+    partsPricing(count = 2) {
+        let html = "";
+        for (let j = 0; j < count; j++) {
+            html += `
+                <div class="parts-pricing-group skeleton-row" aria-hidden="true">
+                    <div class="parts-pricing-supplier-title" >
+                        <h3>${this.bar(30, "14px", "skeleton-text")}</h3>
+                        <span class="parts-count-badge">${this.bar(15, "10px", "skeleton-text")}</span>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="parts-pricing-table">
+                            <thead>
+                                <tr>
+                                    <th>Артикул</th>
+                                    <th>Бренд</th>
+                                    <th>Наименование</th>
+                                    <th class="money">Наличие</th>
+                                    <th class="money">Срок</th>
+                                    <th class="money">Цена</th>
+                                    <th>Действие</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${Array.from({ length: 3 }).map(() => `
+                                    <tr>
+                                        <td>${this.bar(25, "10px", "skeleton-text")}</td>
+                                        <td><strong>${this.bar(30, "10px", "skeleton-text")}</strong></td>
+                                        <td>${this.bar(70, "12px", "skeleton-text")}</td>
+                                        <td class="money">${this.bar(20, "10px", "skeleton-text")}</td>
+                                        <td class="money">${this.bar(20, "10px", "skeleton-text")}</td>
+                                        <td class="money"><strong>${this.bar(30, "12px", "skeleton-text")}</strong></td>
+                                        <td>${this.bar(40, "24px", "skeleton-badge")}</td>
+                                    </tr>
+                                `).join("")}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+        return html;
     }
 };
 
@@ -6089,21 +6131,54 @@ function openOrderModal(order = {}) {
                     ${historicalOrder ? `${hiddenInput("complaint", order.complaint || "")}${hiddenInput("diagnosis", order.diagnosis || "")}${hiddenInput("recommendations", order.recommendations || "")}` : ""}
                 </div>
             </fieldset>
-            <div class="toolbar">
-                <div class="toolbar-left"><strong>Работы и запчасти</strong></div>
-                <div class="toolbar-right">
-                    <button class="btn" type="button" id="addService" ${historicalOrder ? "disabled" : ""}>+ Работа</button>
-                    <button class="btn" type="button" id="addPart" ${historicalOrder ? "disabled" : ""}>+ Запчасть</button>
+            <div class="order-tabs-header btn-group" role="tablist" aria-label="Разделы заказ-наряда">
+                <button type="button" class="btn active" id="btnTabItems" role="tab" aria-selected="true" aria-controls="orderTabItems">Позиции к оплате</button>
+                <button type="button" class="btn" id="btnTabPartsLookup" role="tab" aria-selected="false" aria-controls="orderTabPartsLookup">Проценка запчастей</button>
+            </div>
+            <div id="orderTabItems" class="order-tab-panel" role="tabpanel" aria-labelledby="btnTabItems">
+                <div class="toolbar">
+                    <div class="toolbar-left"><strong>Работы и запчасти</strong></div>
+                    <div class="toolbar-right">
+                        <button class="btn" type="button" id="addService" ${historicalOrder ? "disabled" : ""}>+ Работа</button>
+                        <button class="btn" type="button" id="addPart" ${historicalOrder ? "disabled" : ""}>+ Запчасть</button>
+                        <button class="btn" type="button" id="addSupplierPart" ${historicalOrder ? "disabled" : ""}>+ Проценка</button>
+                    </div>
+                </div>
+                <div class="business-hints" aria-label="Подсказки заказ-наряда">
+                    <strong>Подсказки:</strong>
+                    <span class="hint-chip" data-tone="success"><span class="hint-dot ok" aria-hidden="true"></span>Согласовано — входит в сумму</span>
+                    <span class="hint-chip" data-tone="warning"><span class="hint-dot warning" aria-hidden="true"></span>Отложено или отказ — не списывает склад</span>
+                    <span class="hint-chip" data-tone="info"><span class="hint-dot info" aria-hidden="true"></span>Итоги пересчитываются сразу</span>
+                </div>
+                <div class="notice">Запчасть можно выбрать со склада или указать вручную как «вне склада» — такие позиции не списывают остатки, но учитываются в сумме заказ-наряда.</div>
+                <div id="itemsHost"></div>
+            </div>
+            <div id="orderTabPartsLookup" class="order-tab-panel" role="tabpanel" aria-labelledby="btnTabPartsLookup" hidden>
+                <div class="parts-pricing-host stack">
+                    <div class="parts-pricing-fieldset">
+                        <legend class="sr-only">Параметры поиска оригинальных деталей (проценка)</legend>
+                        <div class="parts-pricing-search-grid">
+                            <div class="field">
+                                <label for="partsLookupOem">Артикул (OEM номер)</label>
+                                <input type="text" id="partsLookupOem" class="control" placeholder="Например: 555" ${historicalOrder ? "disabled" : ""}>
+                            </div>
+                            <div class="field">
+                                <label for="partsLookupBrand">Бренд (необязательно)</label>
+                                <input type="text" id="partsLookupBrand" class="control" placeholder="Например: CTR" ${historicalOrder ? "disabled" : ""}>
+                            </div>
+                            <div class="field d-flex align-items-end">
+                                <button type="button" id="btnPartsLookupSearch" class="btn primary" aria-label="Найти деталь" ${historicalOrder ? "disabled" : ""}>Найти деталь</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="partsLookupResults" class="parts-pricing-results">
+                        <div class="parts-pricing-empty" role="status">
+                            <strong>Введите OEM-номер и нажмите «Найти деталь»</strong>
+                            <p class="muted">Выполняется поиск и сравнение по складам Rossko, MX Group и TM Parts.</p>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div class="business-hints" aria-label="Подсказки заказ-наряда">
-                <strong>Подсказки:</strong>
-                <span class="hint-chip" data-tone="success"><span class="hint-dot ok" aria-hidden="true"></span>Согласовано — входит в сумму</span>
-                <span class="hint-chip" data-tone="warning"><span class="hint-dot warning" aria-hidden="true"></span>Отложено или отказ — не списывает склад</span>
-                <span class="hint-chip" data-tone="info"><span class="hint-dot info" aria-hidden="true"></span>Итоги пересчитываются сразу</span>
-            </div>
-            <div class="notice">Запчасть можно выбрать со склада или указать вручную как «вне склада» — такие позиции не списывают остатки, но учитываются в сумме заказ-наряда.</div>
-            <div id="itemsHost"></div>
         </form>`,
         `${order.id && !closedFinancialOrder ? `<button class="btn danger" type="button" data-save="delete-order" data-id="${safeRecordId(order.id)}">Удалить</button>` : ""}
          ${order.id ? `<button class="btn ghost" type="button" data-save="print-order" data-id="${safeRecordId(order.id)}">Печать</button>` : ""}
@@ -6163,6 +6238,21 @@ function openOrderModal(order = {}) {
             if (totals) totals.outerHTML = orderTotalsHtml();
         });
     });
+
+    // Tabs event listeners
+    $("#btnTabItems")?.addEventListener("click", () => switchOrderModalTab("items"));
+    $("#btnTabPartsLookup")?.addEventListener("click", () => switchOrderModalTab("partsLookup"));
+    $("#addSupplierPart")?.addEventListener("click", () => switchOrderModalTab("partsLookup"));
+
+    $("#btnPartsLookupSearch")?.addEventListener("click", triggerPartsLookupSearch);
+    const pressSearchOnEnter = (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            triggerPartsLookupSearch();
+        }
+    };
+    $("#partsLookupOem")?.addEventListener("keydown", pressSearchOnEnter);
+    $("#partsLookupBrand")?.addEventListener("keydown", pressSearchOnEnter);
 }
 
 function renderOrderItems() {
@@ -6434,6 +6524,235 @@ function syncAllOrderItems() {
             item[input.dataset.item] = input.value;
         });
     });
+}
+
+function switchOrderModalTab(targetTab) {
+    const btnItems = $("#btnTabItems");
+    const btnPartsLookup = $("#btnTabPartsLookup");
+    const tabPanelItems = $("#orderTabItems");
+    const tabPanelPartsLookup = $("#orderTabPartsLookup");
+
+    if (targetTab === "items") {
+        btnItems.classList.add("active");
+        btnItems.setAttribute("aria-selected", "true");
+        btnPartsLookup.classList.remove("active");
+        btnPartsLookup.setAttribute("aria-selected", "false");
+        tabPanelItems.hidden = false;
+        tabPanelPartsLookup.hidden = true;
+    } else {
+        btnItems.classList.remove("active");
+        btnItems.setAttribute("aria-selected", "false");
+        btnPartsLookup.classList.add("active");
+        btnPartsLookup.setAttribute("aria-selected", "true");
+        tabPanelItems.hidden = true;
+        tabPanelPartsLookup.hidden = false;
+        $("#partsLookupOem")?.focus();
+    }
+}
+
+async function triggerPartsLookupSearch() {
+    const oemInput = $("#partsLookupOem");
+    const brandInput = $("#partsLookupBrand");
+    const resultsHost = $("#partsLookupResults");
+
+    if (!oemInput || !resultsHost) return;
+    const oem = oemInput.value.trim();
+    const brand = brandInput ? brandInput.value.trim() : "";
+
+    if (!oem) {
+        toast("Артикул (OEM номер) является обязательным для проценки.", "warn");
+        oemInput.focus();
+        return;
+    }
+
+    // Announce start of loading to screen reader
+    announce("Выполняется поиск запчастей у поставщиков...");
+
+    // Clear results and show Shimmer Loader
+    resultsHost.innerHTML = SkeletonBuilder.partsPricing(2);
+
+    const searchUrl = `/api/parts/search?q=${encodeURIComponent(oem)}${brand ? `&brand=${encodeURIComponent(brand)}` : ""}`;
+    try {
+        const responseData = await api(searchUrl);
+        if (!responseData || !responseData.ok) {
+            throw new Error(responseData?.message || "Неверный формат ответа от сервера");
+        }
+        renderPartsLookupResults(responseData.parts || []);
+    } catch (error) {
+        console.error(error);
+        resultsHost.innerHTML = `
+            <div class="parts-pricing-empty" role="alert">
+                <strong class="parts-pricing-error-title">Ошибка выполнения проценки</strong>
+                <p class="muted">${esc(error.message || "Пожалуйста, попробуйте позже.")}</p>
+            </div>
+        `;
+    }
+}
+
+function renderPartsLookupResults(parts) {
+    const resultsHost = $("#partsLookupResults");
+    if (!resultsHost) return;
+
+    if (!parts || parts.length === 0) {
+        resultsHost.innerHTML = `
+            <div class="parts-pricing-empty" role="status">
+                <strong>Детали не найдены</strong>
+                <p class="muted">Возможно, указан неверный OEM-артикул или детали распроданы.</p>
+            </div>
+        `;
+        announce("Запчасти по вашему запросу не найдены.");
+        return;
+    }
+
+    // Group parts by supplier
+    const supplierGroups = {
+        "rossko": { name: "Rossko", parts: [] },
+        "mx_group": { name: "MX Group", parts: [] },
+        "tm_parts": { name: "TM Parts", parts: [] }
+    };
+
+    parts.forEach(part => {
+        const supplierKey = String(part.supplier || "").toLowerCase();
+        if (supplierGroups[supplierKey]) {
+            supplierGroups[supplierKey].parts.push(part);
+        } else {
+            // Handle dynamically other suppliers or fallback
+            if (!supplierGroups[supplierKey]) {
+                supplierGroups[supplierKey] = { name: part.supplier, parts: [] };
+            }
+            supplierGroups[supplierKey].parts.push(part);
+        }
+    });
+
+    // Sort parts within each group (by price ascending, then delivery_days ascending)
+    Object.keys(supplierGroups).forEach(key => {
+        supplierGroups[key].parts.sort((a, b) => {
+            const priceDiff = num(a.price) - num(b.price);
+            if (priceDiff !== 0) return priceDiff;
+            return num(a.delivery_days) - num(b.delivery_days);
+        });
+    });
+
+    let html = "";
+    let totalCount = 0;
+
+    // Sort suppliers: we show Rossko, MX Group, TM Parts. Any other dynamic suppliers afterwards.
+    const sortedSupplierKeys = ["rossko", "mx_group", "tm_parts"].concat(
+        Object.keys(supplierGroups).filter(k => !["rossko", "mx_group", "tm_parts"].includes(k))
+    );
+
+    sortedSupplierKeys.forEach(supplierKey => {
+        const group = supplierGroups[supplierKey];
+        if (!group || group.parts.length === 0) return;
+
+        totalCount += group.parts.length;
+
+        // Let's count pluralization manually or use pluralRu:
+        // Russian for item/items: 1 позиция, 2 позиции, 5 позиций.
+        const oneForm = "позиция";
+        const fewForm = "позиции";
+        const manyForm = "позиций";
+        const pluralQty = pluralRu(group.parts.length, oneForm, fewForm, manyForm);
+
+        html += `
+            <div class="parts-pricing-group">
+                <div class="parts-pricing-supplier-title">
+                    <h3>${esc(group.name)}</h3>
+                    <span class="parts-count-badge">${group.parts.length} ${pluralQty}</span>
+                </div>
+                <div class="table-wrap">
+                    <table class="parts-pricing-table" aria-label="Результаты проценки от ${esc(group.name)}">
+                        <thead>
+                            <tr>
+                                <th>Артикул</th>
+                                <th>Бренд</th>
+                                <th>Наименование</th>
+                                <th class="money">Наличие</th>
+                                <th class="money">Срок</th>
+                                <th class="money">Цена</th>
+                                <th>Действие</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${group.parts.map(p => `
+                                <tr>
+                                    <td><span class="part-oem-badge">${esc(p.oem)}</span></td>
+                                    <td><strong>${esc(p.brand)}</strong></td>
+                                    <td>${esc(p.name)}</td>
+                                    <td class="money">${qty(p.stock)}</td>
+                                    <td class="money">${p.delivery_days} ${pluralRu(p.delivery_days, "день", "дня", "дней")}</td>
+                                    <td class="money"><strong>${money(p.price)}</strong></td>
+                                    <td>
+                                        <button type="button" class="btn primary btn-select-part"
+                                            data-part-oem="${esc(p.oem)}"
+                                            data-part-brand="${esc(p.brand)}"
+                                            data-part-name="${esc(p.name)}"
+                                            data-part-price="${p.price}"
+                                            data-part-supplier="${esc(p.supplier)}"
+                                            aria-label="Выбрать ${esc(p.brand)} ${esc(p.oem)}">
+                                            Выбрать
+                                        </button>
+                                    </td>
+                                </tr>
+                            `).join("")}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    });
+
+    if (totalCount === 0) {
+        resultsHost.innerHTML = `
+            <div class="parts-pricing-empty" role="status">
+                <strong>Детали не найдены</strong>
+                <p class="muted">Ни один из поставщиков (Rossko, MX Group, TM Parts) не вернул результатов.</p>
+            </div>
+        `;
+        announce("Детали не найдены.");
+        return;
+    }
+
+    resultsHost.innerHTML = html;
+
+    // Bind click event listeners to "Выбрать" buttons
+    $$(".btn-select-part", resultsHost).forEach(button => {
+        button.addEventListener("click", selectSupplierPart);
+    });
+
+    announce(`Найдено ${totalCount} ${pluralRu(totalCount, "позиция", "позиции", "позиций")} запчастей.`);
+}
+
+function selectSupplierPart(event) {
+    if (state.orderDraftReadOnly) return;
+    const btn = event.currentTarget;
+    const oem = btn.dataset.partOem;
+    const brand = btn.dataset.partBrand;
+    const name = btn.dataset.partName;
+    const price = num(btn.dataset.partPrice);
+
+    // Add new part to order items list
+    state.orderDraftItems.push({
+        kind: "part",
+        inventory_id: "", // outside stock (vendor order)
+        title: `[${brand} ${oem}] ${name}`,
+        approval_status: "approved",
+        quantity: 1,
+        unit_price: price,
+        unit_cost: 0
+    });
+
+    // Mark form as dirty
+    markModalDirty();
+
+    // Re-render order items
+    renderOrderItems();
+
+    // Switch to items tab to show the added item
+    switchOrderModalTab("items");
+
+    // Notify user
+    toast(`Добавлено: ${brand} ${oem}`, "success");
 }
 
 function insufficientStockMessage(status) {

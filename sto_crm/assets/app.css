@@ -3621,3 +3621,120 @@ body.dark .vin-decoder-country {
     border-top: 1px solid var(--line);
     pointer-events: none;
 }
+
+/* Проценка запчастей */
+.parts-pricing-host {
+    margin-top: var(--space-6);
+    border-top: 1px solid var(--line-strong);
+    padding-top: var(--space-6);
+}
+.parts-pricing-fieldset {
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    background: var(--surface-subtle);
+}
+.parts-pricing-search-form {
+    margin-bottom: var(--space-4);
+}
+.parts-pricing-search-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: var(--space-4);
+    align-items: flex-end;
+}
+@media (max-width: 600px) {
+    .parts-pricing-search-grid {
+        grid-template-columns: 1fr;
+    }
+}
+.parts-pricing-search-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+.parts-pricing-results {
+    margin-top: var(--space-4);
+}
+.parts-pricing-empty {
+    padding: var(--space-4);
+    color: var(--ink-muted);
+    font-style: italic;
+    text-align: center;
+    background: var(--surface);
+    border: 1px dashed var(--line);
+    border-radius: var(--radius-sm);
+}
+.parts-pricing-group {
+    margin-bottom: var(--space-5);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+}
+.parts-pricing-supplier-title {
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--font-size-md);
+    font-weight: 600;
+    color: var(--on-brand);
+    background: var(--brand-gradient);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-3);
+}
+body.dark .parts-pricing-supplier-title {
+    color: var(--ink);
+    background: var(--surface-muted);
+    border-bottom: 1px solid var(--line-strong);
+}
+.parts-count-badge {
+    font-size: var(--font-size-xs);
+    background: var(--on-brand-muted-bg);
+    border: 1px solid var(--on-brand-muted-border);
+    padding: 2px 6px;
+    border-radius: var(--radius-xs);
+    color: var(--on-brand-muted-ink);
+}
+body.dark .parts-count-badge {
+    background: var(--neutral-soft);
+    border-color: var(--neutral-border);
+    color: var(--ink);
+}
+.part-oem-badge {
+    padding: 2px 6px;
+    border-radius: var(--radius-xs);
+    font-family: var(--font-mono);
+    background: var(--badge-neutral-bg);
+    color: var(--badge-neutral-ink);
+}
+.parts-pricing-error-title {
+    color: var(--danger);
+}
+.parts-pricing-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.parts-pricing-table th, .parts-pricing-table td {
+    padding: 10px var(--space-4);
+    font-size: var(--font-size-xs);
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    vertical-align: middle;
+}
+.parts-pricing-table th {
+    background: var(--surface-subtle);
+    color: var(--ink-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.parts-pricing-table tr:hover td {
+    background: var(--table-row-hover);
+}
+.btn-select-part {
+    padding: 4px 12px;
+    font-size: var(--font-size-xs);
+}
+
