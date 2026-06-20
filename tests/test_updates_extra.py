@@ -1,7 +1,6 @@
+import os
 import sqlite3
 import unittest
-import os
-import inspect
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
