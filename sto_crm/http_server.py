@@ -253,9 +253,12 @@ class CRMHandler(BaseHTTPRequestHandler):
 
                 payload = self.read_json()
 
-                oem = payload.get("oem")
-                brand = payload.get("brand")
-                supplier = payload.get("supplier")
+                oem_raw = payload.get("oem")
+                oem = str(oem_raw) if oem_raw is not None else ""
+                brand_raw = payload.get("brand")
+                brand = str(brand_raw) if brand_raw is not None else ""
+                supplier_raw = payload.get("supplier")
+                supplier = str(supplier_raw) if supplier_raw is not None else ""
                 quantity_raw = payload.get("quantity")
                 price_raw = payload.get("price")
 
@@ -364,22 +367,22 @@ class CRMHandler(BaseHTTPRequestHandler):
                 return
 
             payload = self.read_json() if method in {"POST", "PUT"} else {}
-            parts = [p for p in path.split("/") if p]
-            if parts and parts[0] == "api":
+            path_parts = [p for p in path.split("/") if p]
+            if path_parts and path_parts[0] == "api":
                 self.require_access_token()
-            if len(parts) < 2 or parts[0] != "api":
+            if len(path_parts) < 2 or path_parts[0] != "api":
                 self.send_error_json(404, "Маршрут не найден.")
                 return
-            entity = parts[1]
+            entity = path_parts[1]
 
-            if entity == "backup" and len(parts) == 2 and method == "POST":
+            if entity == "backup" and len(path_parts) == 2 and method == "POST":
                 backup = create_backup()
                 self.send_json(public_backup_payload(backup) or {})
                 return
             if (
                 entity == "update"
-                and len(parts) == 3
-                and parts[2] == "install"
+                and len(path_parts) == 3
+                and path_parts[2] == "install"
                 and method == "POST"
             ):
                 result = install_update_from_github()
@@ -405,7 +408,7 @@ class CRMHandler(BaseHTTPRequestHandler):
                     timer.daemon = True
                     timer.start()
                 return
-            if entity == "shutdown" and len(parts) == 2 and method == "POST":
+            if entity == "shutdown" and len(path_parts) == 2 and method == "POST":
                 self.send_json({"ok": True})
                 safe_log(
                     "Получена команда перехода в оффлайн. Планирование мягкого завершения работы..."
@@ -438,15 +441,15 @@ class CRMHandler(BaseHTTPRequestHandler):
                 self.send_error_json(404, "Маршрут не найден.")
                 return
             if method == "POST":
-                if len(parts) != 2:
+                if len(path_parts) != 2:
                     self.send_error_json(404, "Маршрут не найден.")
                     return
                 record_id = 0
             elif method in {"PUT", "DELETE"}:
-                if len(parts) != 3:
+                if len(path_parts) != 3:
                     self.send_error_json(404, "Маршрут не найден.")
                     return
-                record_id = parse_int_field(parts[2], "идентификатор записи")
+                record_id = parse_int_field(path_parts[2], "идентификатор записи")
             else:
                 self.send_error_json(405, "Метод не поддерживается.")
                 return
