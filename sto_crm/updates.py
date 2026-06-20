@@ -67,22 +67,99 @@ def is_unsafe_link_or_reparse(path: Path) -> bool:
     if path.is_symlink():
         return True
     if os.name == "nt":
+        # Cloud reparse points (OneDrive, iCloud, etc.) are safe and should not be blocked.
+        # IO_REPARSE_TAG_CLOUD = 0x9000001A
+        # IO_REPARSE_TAG_CLOUD_1 = 0x9000101A
+        # IO_REPARSE_TAG_CLOUD_2 = 0x9000201A
+        # IO_REPARSE_TAG_CLOUD_3 = 0x9000301A
+        # IO_REPARSE_TAG_CLOUD_4 = 0x9000401A
+        # IO_REPARSE_TAG_CLOUD_5 = 0x9000501A
+        # IO_REPARSE_TAG_CLOUD_6 = 0x9000601A
+        # IO_REPARSE_TAG_CLOUD_7 = 0x9000701A
+        # IO_REPARSE_TAG_CLOUD_8 = 0x9000801A
+        # IO_REPARSE_TAG_CLOUD_9 = 0x9000901A
+        # IO_REPARSE_TAG_CLOUD_A = 0x9000A01A
+        # IO_REPARSE_TAG_CLOUD_B = 0x9000B01A
+        # IO_REPARSE_TAG_CLOUD_C = 0x9000C01A
+        # IO_REPARSE_TAG_CLOUD_D = 0x9000D01A
+        # IO_REPARSE_TAG_CLOUD_E = 0x9000E01A
+        # IO_REPARSE_TAG_CLOUD_F = 0x9000F01A
+        # IO_REPARSE_TAG_ONEDRIVE = 0x80000021
+        # IO_REPARSE_TAG_CLOUD_MASK = 0x0000F000 or general mask checks.
+        # Reparse tags for Cloud Files are 0x9000XXXX.
+        # Specifically, we can check the reparse tag if we read the reparse point metadata.
+        # But wait, does os.lstat or GetFileAttributesW tell us the precise tag?
+        # GetFileAttributesW only returns attributes, which is just FILE_ATTRIBUTE_REPARSE_POINT (0x400).
+        # To get the actual reparse tag, we normally open the file with FILE_FLAG_OPEN_REPARSE_POINT
+        # and query the tag via DeviceIoControl (FSCTL_GET_REPARSE_POINT), or check WIN32_FIND_DATA st_reparse_tag.
+        # In Python, os.lstat(path) returns stat_result, under Python 3.8+ on Windows it has st_reparse_tag!
         try:
-            stat = os.lstat(path)
-            attrs = getattr(stat, "st_file_attributes", 0)
+            stat_val = os.lstat(path)
+            attrs = getattr(stat_val, "st_file_attributes", 0)
             if attrs & 0x400:  # FILE_ATTRIBUTE_REPARSE_POINT
-                return True
+                # st_reparse_tag only populated if it is a reparse point
+                tag = getattr(stat_val, "st_reparse_tag", 0)
+                # 0x9000001A: IO_REPARSE_TAG_CLOUD_APIS (OneDrive/iCloud placeholder)
+                # 0x80000021: IO_REPARSE_TAG_ONEDRIVE
+                # Let's check if the tag is OneDrive/Cloud APIs and allow it.
+                # All Cloud Files tags share 0x9000XXXX or OneDrive 0x80000021 tag.
+                # symlink (0xA000000C) and mount point/junction (0xA0000003) must be blocked.
+                # More generally: cloud files (0x9000001A, etc.) or OneDrive (0x80000021) are safe.
+                # Let's list known cloud tags, or just check tag & 0xF0000000 or similar?
+                # Actually, standard tags we want to block are:
+                # IO_REPARSE_TAG_SYMLINK = 0xA000000C
+                # IO_REPARSE_TAG_MOUNT_POINT = 0xA0000003
+                # Let's block if tag is 0xA000000C or 0xA0000003, or if tag is not a cloud/safe tag.
+                # Safe tags list:
+                # - IO_REPARSE_TAG_CLOUD_APIS (0x9000001A)
+                # - IO_REPARSE_TAG_ONEDRIVE (0x80000021)
+                # - Any tag matching cloud pattern 0x9000XXXX or 0x90000000 to 0x9000FFFF:
+                is_cloud_tag = (
+                    tag == 0x80000021
+                    or (tag & 0xFFFF0000) == 0x90000000
+                )
+                if not is_cloud_tag:
+                    return True
         except Exception:
             pass
         try:
             import ctypes
-
-            # Use getattr to prevent mypy warnings on non-Windows platforms
+            # GetFileAttributesW doesn't provide st_reparse_tag, so we can't rely on it alone.
+            # But since python lstat has st_reparse_tag on Windows, we prioritize that.
+            # If for some reason we need a ctypes fallback, we'd have to find the file or open it.
+            # Let's use ctypes FindFirstFileW which returns WIN32_FIND_DATA structure containing dwReserved0 (reparse tag).
             windll = getattr(ctypes, "windll", None)
             if windll is not None:
                 attrs = windll.kernel32.GetFileAttributesW(str(path))
                 if attrs != -1 and (attrs & 0x400):  # FILE_ATTRIBUTE_REPARSE_POINT
-                    return True
+                    # Check tag via FindFirstFileW
+                    class WIN32_FIND_DATAW(ctypes.Structure):
+                        _fields_ = [
+                            ("dwFileAttributes", ctypes.c_ulong),
+                            ("ftCreationTime", ctypes.c_ulonglong),
+                            ("ftLastAccessTime", ctypes.c_ulonglong),
+                            ("ftLastWriteTime", ctypes.c_ulonglong),
+                            ("nFileSizeHigh", ctypes.c_ulong),
+                            ("nFileSizeLow", ctypes.c_ulong),
+                            ("dwReserved0", ctypes.c_ulong), # st_reparse_tag
+                            ("dwReserved1", ctypes.c_ulong),
+                            ("cFileName", ctypes.c_wchar * 260),
+                            ("cAlternateFileName", ctypes.c_wchar * 14),
+                        ]
+                    find_data = WIN32_FIND_DATAW()
+                    handle = windll.kernel32.FindFirstFileW(str(path), ctypes.byref(find_data))
+                    if handle != -1:
+                        windll.kernel32.FindClose(handle)
+                        tag = find_data.dwReserved0
+                        is_cloud_tag = (
+                            tag == 0x80000021
+                            or (tag & 0xFFFF0000) == 0x90000000
+                        )
+                        if not is_cloud_tag:
+                            return True
+                    else:
+                        # If FindFirstFile fails but attributes say reparse, block it just in case
+                        return True
         except Exception:
             pass
     return False
@@ -154,22 +231,44 @@ def ensure_real_backup_dir(backup_dir: Path) -> None:
 
 def validate_safe_path(target: Path) -> None:
     """Проверяет путь на отсутствие элементов обхода директорий и корректность вложенности."""
-    if "Mock" in type(target).__name__ or "Mock" in type(target.parent).__name__:
+    # Normalize backslashes to forward slashes on Windows
+    if os.name == "nt":
+        cls = target.__class__
+        try:
+            normalized = cls(str(target).replace("\\", "/"))
+        except (NotImplementedError, TypeError):
+            normalized = target
+    else:
+        normalized = target
+
+    posix_str = normalized.as_posix()
+    if ".." in normalized.parts or ".." in posix_str:
+        raise OSError("Недопустимый путь (содержит переход '..').")
+    if os.name != "nt" and "\\" in posix_str:
+        raise OSError("Недопустимый путь (содержит обратный слэш).")
+
+    # Mocks and Pure paths do not support filesystem operations, so we return early before those
+    if (
+        "Mock" in type(target).__name__
+        or "Mock" in type(target.parent).__name__
+        or "Mock" in type(normalized).__name__
+        or "Mock" in type(normalized.parent).__name__
+        or "Pure" in type(normalized).__name__
+    ):
         return
-    if ".." in target.parts or ".." in target.as_posix() or "\\" in target.as_posix():
-        raise OSError("Недопустимый путь (содержит переход '..' или обратный слэш).")
+
     try:
-        if target.parent.exists() and is_unsafe_link_or_reparse(target.parent):
+        if normalized.parent.exists() and is_unsafe_link_or_reparse(normalized.parent):
             raise OSError(
                 "Родительский каталог не может быть символической ссылкой или reparse point."
             )
-        resolved_parent = target.parent.resolve()
-        resolved_target = target.resolve()
+        resolved_parent = normalized.parent.resolve()
+        resolved_target = normalized.resolve()
         if resolved_parent not in resolved_target.parents:
             raise OSError(
                 "Недопустимый путь (выход за пределы родительского каталога)."
             )
-        if target.exists() and is_unsafe_link_or_reparse(target):
+        if normalized.exists() and is_unsafe_link_or_reparse(normalized):
             raise OSError("Путь не может быть символической ссылкой или reparse point.")
     except OSError as exc:
         raise OSError(f"Ошибка проверки безопасности пути: {exc}") from exc

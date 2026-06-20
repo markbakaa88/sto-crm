@@ -789,12 +789,12 @@ class CRMHandler(BaseHTTPRequestHandler):
         self.send_header("Cross-Origin-Opener-Policy", "same-origin")
         self.send_header("Cross-Origin-Resource-Policy", "same-origin")
         script_src = (
-            f"script-src 'self' 'nonce-{script_nonce}'"
+            f"script-src 'self' 'nonce-{script_nonce}' 'strict-dynamic' 'unsafe-inline'"
             if script_nonce
             else "script-src 'self'"
         )
         style_src = (
-            f"style-src 'self' 'nonce-{style_nonce}'"
+            f"style-src 'self' 'nonce-{style_nonce}' 'unsafe-inline'"
             if style_nonce
             else "style-src 'self'"
         )
@@ -829,6 +829,12 @@ class CRMServer(ThreadingHTTPServer):
         self._active_threads: set[threading.Thread] = set()
         self._active_requests: set[Any] = set()
         self._active_threads_lock = threading.Lock()
+
+    def shutdown(self) -> None:
+        super().shutdown()
+        self.wait_for_active_threads(5.0)
+        from .database import close_all_connections
+        close_all_connections()
 
     def process_request(self, request: Any, client_address: Any) -> None:
         t = threading.Thread(

@@ -104,7 +104,7 @@
     --sidebar-active-bg: rgba(255, 255, 255, 0.1);
     --ink: #0f172a;
     --ink-soft: #334155;
-    --ink-muted: #475569;
+    --ink-muted: #2d3748;
     --ink-faint: #64748b;
     --line: rgba(15, 23, 42, 0.08);
     --line-strong: #cbd5e1;
@@ -133,7 +133,7 @@
     --brand-border: rgba(0, 95, 115, 0.2);
     --estimate-border: rgba(147, 51, 234, 0.2);
     --disabled-bg: #f1f5f9;
-    --disabled-ink: #334155;
+    --disabled-ink: #1e293b;
     --disabled-border: #cbd5e1;
     --badge-neutral-bg: #eef2f7;
     --badge-neutral-ink: #475569;
@@ -3241,11 +3241,11 @@ body button:focus-visible,
 body a:focus-visible,
 body input:focus-visible,
 body select:focus-visible,
-body textarea:focus-visible,
-body [role="button"]:focus-visible,
-body [role="menuitem"]:focus-visible,
-body #commandBtn:focus-visible,
-body #refreshBtn:focus-visible,
+body textarea:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+}
 body #systemMenuBtn:focus-visible,
 body #primaryCtaBtn:focus-visible,
 body #primaryCtaMore:focus-visible,

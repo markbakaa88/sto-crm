@@ -372,3 +372,34 @@ class TestAuditHardening(unittest.TestCase):
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS ux_vehicles_vin_active ON vehicles(CASEFOLD(TRIM(vin))) WHERE deleted_at IS NULL AND TRIM(vin) <> ''"
             )
+
+    def test_redact_local_paths_windows_spaces(self):
+        """Test redact_local_paths correctly masks absolute Windows paths containing spaces."""
+        from sto_crm.runtime import redact_local_paths
+
+        log_msg = r"Failed to open C:\Program Files\STO CRM\sto_crm.sqlite3 database file!"
+        redacted = redact_local_paths(log_msg)
+        self.assertNotIn("Program Files", redacted)
+        self.assertNotIn("STO CRM", redacted)
+        self.assertIn("sto_crm.sqlite3 database file!", redacted)
+
+        # UNC path with spaces
+        log_unc = r"Backup failed to \\Network Share\Folder With Spaces\file.db"
+        redacted_unc = redact_local_paths(log_unc)
+        self.assertNotIn("Folder With Spaces", redacted_unc)
+        self.assertIn("file.db", redacted_unc)
+
+    def test_validate_safe_path_windows_backslash(self):
+        """Test validate_safe_path with backslash paths behaves correctly on Windows/mocked Windows."""
+        from sto_crm.updates import validate_safe_path
+        from pathlib import PureWindowsPath
+
+        with patch("os.name", "nt"):
+            # Should pass: normal absolute Windows path
+            validate_safe_path(PureWindowsPath(r"C:\Users\User\AppData\Local\STO_CRM\db.sqlite3"))
+            # Should pass: relative windows path
+            validate_safe_path(PureWindowsPath(r"subfolder\file.txt"))
+
+            # Should raise: path traversal with backslashes
+            with self.assertRaises(OSError):
+                validate_safe_path(PureWindowsPath(r"subfolder\..\..\other.txt"))

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random
 import sqlite3
+import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager as ContextManager
@@ -139,6 +140,20 @@ class RetryingConnection:
         return getattr(self._conn, name)
 
 
+_open_connections: set[sqlite3.Connection] = set()
+_open_connections_lock = threading.Lock()
+
+
+def close_all_connections() -> None:
+    with _open_connections_lock:
+        for conn in list(_open_connections):
+            try:
+                conn.close()
+            except Exception:
+                pass
+        _open_connections.clear()
+
+
 def connect(readonly: bool = False) -> sqlite3.Connection:
     if readonly:
         db_uri = _runtime.RUNTIME.db_path.resolve(strict=False).as_uri() + "?mode=ro"
@@ -148,6 +163,8 @@ def connect(readonly: bool = False) -> sqlite3.Connection:
         conn = sqlite3.connect(
             _runtime.RUNTIME.db_path, timeout=30, isolation_level="DEFERRED"
         )
+    with _open_connections_lock:
+        _open_connections.add(conn)
     conn.row_factory = sqlite3.Row
     try:
         conn.create_function(
@@ -227,6 +244,11 @@ def db(readonly: bool = False) -> Iterator[Any]:
             conn.close()
         except (sqlite3.Error, AttributeError):
             pass
+        if conn is not None:
+            raw_conn = conn if isinstance(conn, sqlite3.Connection) else getattr(conn, "_conn", None)
+            if raw_conn is not None:
+                with _open_connections_lock:
+                    _open_connections.discard(raw_conn)
 
 
 @contextmanager

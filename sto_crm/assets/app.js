@@ -4688,7 +4688,7 @@ function dispatchViewAction(source, event = null) {
         else if (action === "new-order") openOrderModal();
         else if (action === "edit-order") openOrderModal(findOrderById(id));
         else if (action === "duplicate-order") {
-            if (source.disabled || source.dataset.debounced === "true") return;
+            if (source.disabled || source.dataset.debounced === "true" || state.saving) return;
             source.dataset.debounced = "true";
             source.disabled = true;
             source.setAttribute("aria-busy", "true");
@@ -4696,7 +4696,7 @@ function dispatchViewAction(source, event = null) {
                 source.disabled = false;
                 source.setAttribute("aria-busy", "false");
                 delete source.dataset.debounced;
-            }, 500);
+            }, 600);
             const order = findOrderById(id);
             if (requireRecord(order, "Заказ")) openOrderModal(orderDuplicateDraft(order));
         }
@@ -4812,6 +4812,13 @@ function shouldKeepModalForEscape(event) {
         if (active.type === "date" || active.type === "datetime-local") {
             return true;
         }
+    }
+    // Also prevent closing modal on Escape if native browser/OS dynamic date/time suggestions or picker dropdown is active.
+    // In Chromium-based browsers, when datepicker popup is open, escaping it first targets the input or picker overlay.
+    // However, if the datepicker has active focus or is open, active element is the input.
+    // To be secure, check if any input[type="date"] or input[type="datetime-local"] is active.
+    if (document.activeElement && (document.activeElement.tagName === "INPUT" && (document.activeElement.type === "date" || document.activeElement.type === "datetime-local"))) {
+        return true;
     }
     if (!(target instanceof HTMLElement)) return false;
     if (target.isContentEditable) return true;
@@ -5253,7 +5260,7 @@ function markModalDirty() {
 function setSaveButtonsBusy(isBusy) {
     state.saving = isBusy;
     $("#modalBackdrop")?.classList.toggle("saving", isBusy);
-    $$("#modalFoot [data-save], #modalClose, #addService, #addPart").forEach(button => {
+    $$("#modalFoot [data-save], #modalClose, #addService, #addPart, [data-action='duplicate-order']").forEach(button => {
         if (isBusy) {
             button.dataset.wasDisabled = button.disabled ? "1" : "0";
             button.disabled = true;
@@ -6196,7 +6203,7 @@ function openOrderModal(order = {}) {
         vehicle.dispatchEvent(new Event("change", { bubbles: true }));
     });
     $("#addService")?.addEventListener("click", event => {
-        if (state.orderDraftReadOnly) return;
+        if (state.orderDraftReadOnly || state.saving) return;
         const btn = event.currentTarget;
         if (btn.disabled || btn.dataset.debounced === "true") return;
         btn.dataset.debounced = "true";
@@ -6208,13 +6215,13 @@ function openOrderModal(order = {}) {
                 btn.setAttribute("aria-busy", "false");
             }
             delete btn.dataset.debounced;
-        }, 300);
+        }, 600);
         markModalDirty();
         state.orderDraftItems.push({ kind: "service", title: "", approval_status: "approved", quantity: 1, unit_price: 0, unit_cost: 0 });
         renderOrderItems();
     });
     $("#addPart")?.addEventListener("click", event => {
-        if (state.orderDraftReadOnly) return;
+        if (state.orderDraftReadOnly || state.saving) return;
         const btn = event.currentTarget;
         if (btn.disabled || btn.dataset.debounced === "true") return;
         btn.dataset.debounced = "true";
@@ -6226,7 +6233,7 @@ function openOrderModal(order = {}) {
                 btn.setAttribute("aria-busy", "false");
             }
             delete btn.dataset.debounced;
-        }, 300);
+        }, 600);
         markModalDirty();
         state.orderDraftItems.push({ kind: "part", inventory_id: "", title: "", approval_status: "approved", quantity: 1, unit_price: 0, unit_cost: 0 });
         renderOrderItems();

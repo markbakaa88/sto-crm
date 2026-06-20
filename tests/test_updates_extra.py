@@ -407,12 +407,22 @@ class TestUpdatesWindowsMock(unittest.TestCase):
 
         res_mock = MagicMock()
         res_mock.st_file_attributes = 0x400
+        res_mock.st_reparse_tag = 0  # not a cloud/onedrive tag
         mock_lstat.return_value = res_mock
 
         path_mock = MagicMock(spec=Path)
         path_mock.is_symlink.return_value = False
 
         self.assertTrue(is_unsafe_link_or_reparse(path_mock))
+
+        # Check cloud/onedrive tags are permitted (return False)
+        # OneDrive tag 0x80000021
+        res_mock.st_reparse_tag = 0x80000021
+        self.assertFalse(is_unsafe_link_or_reparse(path_mock))
+
+        # Cloud API tag 0x9000001A
+        res_mock.st_reparse_tag = 0x9000001A
+        self.assertFalse(is_unsafe_link_or_reparse(path_mock))
 
     @patch("os.name", "nt")
     @patch("os.lstat")
@@ -439,6 +449,16 @@ class TestUpdatesWindowsMock(unittest.TestCase):
         mock_lstat.side_effect = lstat_side_effect
 
         mock_windll.kernel32.GetFileAttributesW.return_value = 0x400
+        # Mock FindFirstFileW structure
+        mock_windll.kernel32.FindFirstFileW.return_value = 12345
+        # We need FindFirstFileW to write 0 st_reparse_tag value into find_data structure
+        # to trigger true-positives for junctions/symlinks
+        # dwReserved0 is st_reparse_tag
+        def find_first_side_effect(path, find_data_ref, *args):
+            find_data_ref._obj.dwReserved0 = 0  # not a cloud/onedrive tag
+            return 12345
+
+        mock_windll.kernel32.FindFirstFileW.side_effect = find_first_side_effect
 
         path_mock = MagicMock(spec=Path)
         path_mock.is_symlink.return_value = False
@@ -448,3 +468,11 @@ class TestUpdatesWindowsMock(unittest.TestCase):
         mock_windll.kernel32.GetFileAttributesW.assert_called_once_with(
             "C:\\path\\junction"
         )
+
+        # check that cloud api behaves correctly on ctypes path
+        def find_first_cloud_side_effect(path, find_data_ref, *args):
+            find_data_ref._obj.dwReserved0 = 0x9000001A
+            return 12345
+
+        mock_windll.kernel32.FindFirstFileW.side_effect = find_first_cloud_side_effect
+        self.assertFalse(is_unsafe_link_or_reparse(path_mock))
