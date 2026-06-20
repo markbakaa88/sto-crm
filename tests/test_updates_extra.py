@@ -451,6 +451,7 @@ class TestUpdatesWindowsMock(unittest.TestCase):
         mock_windll.kernel32.GetFileAttributesW.return_value = 0x400
         # Mock FindFirstFileW structure
         mock_windll.kernel32.FindFirstFileW.return_value = 12345
+
         # We need FindFirstFileW to write 0 st_reparse_tag value into find_data structure
         # to trigger true-positives for junctions/symlinks
         # dwReserved0 is st_reparse_tag

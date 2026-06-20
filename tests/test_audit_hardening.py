@@ -377,7 +377,9 @@ class TestAuditHardening(unittest.TestCase):
         """Test redact_local_paths correctly masks absolute Windows paths containing spaces."""
         from sto_crm.runtime import redact_local_paths
 
-        log_msg = r"Failed to open C:\Program Files\STO CRM\sto_crm.sqlite3 database file!"
+        log_msg = (
+            r"Failed to open C:\Program Files\STO CRM\sto_crm.sqlite3 database file!"
+        )
         redacted = redact_local_paths(log_msg)
         self.assertNotIn("Program Files", redacted)
         self.assertNotIn("STO CRM", redacted)
@@ -391,12 +393,15 @@ class TestAuditHardening(unittest.TestCase):
 
     def test_validate_safe_path_windows_backslash(self):
         """Test validate_safe_path with backslash paths behaves correctly on Windows/mocked Windows."""
-        from sto_crm.updates import validate_safe_path
         from pathlib import PureWindowsPath
+
+        from sto_crm.updates import validate_safe_path
 
         with patch("os.name", "nt"):
             # Should pass: normal absolute Windows path
-            validate_safe_path(PureWindowsPath(r"C:\Users\User\AppData\Local\STO_CRM\db.sqlite3"))
+            validate_safe_path(
+                PureWindowsPath(r"C:\Users\User\AppData\Local\STO_CRM\db.sqlite3")
+            )
             # Should pass: relative windows path
             validate_safe_path(PureWindowsPath(r"subfolder\file.txt"))
 

@@ -172,6 +172,7 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(server, "wait_for_active_threads"):
             server.wait_for_active_threads(5.0)
         from .database import close_all_connections
+
         close_all_connections()
         time.sleep(0.1)
     return 0

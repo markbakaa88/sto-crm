@@ -394,7 +394,9 @@ class TestHttpServerExtra(unittest.TestCase):
                 self.assertEqual(mock_timer.call_args[0][0], 0.3)
                 self.assertEqual(mock_timer.call_args[0][1], mock_server.shutdown)
                 self.assertTrue(getattr(mock_server, "graceful_shutdown_flag", False))
-                self.assertEqual(getattr(mock_server, "shutdown_reason", None), "offline")
+                self.assertEqual(
+                    getattr(mock_server, "shutdown_reason", None), "offline"
+                )
 
         # Test isinstance(mock_server, CRMServer) -> True, triggering if path
         mock_server_class = mock_server.__class__

@@ -245,7 +245,11 @@ def db(readonly: bool = False) -> Iterator[Any]:
         except (sqlite3.Error, AttributeError):
             pass
         if conn is not None:
-            raw_conn = conn if isinstance(conn, sqlite3.Connection) else getattr(conn, "_conn", None)
+            raw_conn = (
+                conn
+                if isinstance(conn, sqlite3.Connection)
+                else getattr(conn, "_conn", None)
+            )
             if raw_conn is not None:
                 with _open_connections_lock:
                     _open_connections.discard(raw_conn)

@@ -114,16 +114,14 @@ def is_unsafe_link_or_reparse(path: Path) -> bool:
                 # - IO_REPARSE_TAG_CLOUD_APIS (0x9000001A)
                 # - IO_REPARSE_TAG_ONEDRIVE (0x80000021)
                 # - Any tag matching cloud pattern 0x9000XXXX or 0x90000000 to 0x9000FFFF:
-                is_cloud_tag = (
-                    tag == 0x80000021
-                    or (tag & 0xFFFF0000) == 0x90000000
-                )
+                is_cloud_tag = tag == 0x80000021 or (tag & 0xFFFF0000) == 0x90000000
                 if not is_cloud_tag:
                     return True
         except Exception:
             pass
         try:
             import ctypes
+
             # GetFileAttributesW doesn't provide st_reparse_tag, so we can't rely on it alone.
             # But since python lstat has st_reparse_tag on Windows, we prioritize that.
             # If for some reason we need a ctypes fallback, we'd have to find the file or open it.
@@ -141,19 +139,21 @@ def is_unsafe_link_or_reparse(path: Path) -> bool:
                             ("ftLastWriteTime", ctypes.c_ulonglong),
                             ("nFileSizeHigh", ctypes.c_ulong),
                             ("nFileSizeLow", ctypes.c_ulong),
-                            ("dwReserved0", ctypes.c_ulong), # st_reparse_tag
+                            ("dwReserved0", ctypes.c_ulong),  # st_reparse_tag
                             ("dwReserved1", ctypes.c_ulong),
                             ("cFileName", ctypes.c_wchar * 260),
                             ("cAlternateFileName", ctypes.c_wchar * 14),
                         ]
+
                     find_data = WIN32_FIND_DATAW()
-                    handle = windll.kernel32.FindFirstFileW(str(path), ctypes.byref(find_data))
+                    handle = windll.kernel32.FindFirstFileW(
+                        str(path), ctypes.byref(find_data)
+                    )
                     if handle != -1:
                         windll.kernel32.FindClose(handle)
                         tag = find_data.dwReserved0
                         is_cloud_tag = (
-                            tag == 0x80000021
-                            or (tag & 0xFFFF0000) == 0x90000000
+                            tag == 0x80000021 or (tag & 0xFFFF0000) == 0x90000000
                         )
                         if not is_cloud_tag:
                             return True

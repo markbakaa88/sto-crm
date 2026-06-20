@@ -834,6 +834,7 @@ class CRMServer(ThreadingHTTPServer):
         super().shutdown()
         self.wait_for_active_threads(5.0)
         from .database import close_all_connections
+
         close_all_connections()
 
     def process_request(self, request: Any, client_address: Any) -> None:
