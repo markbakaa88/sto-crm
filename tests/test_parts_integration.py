@@ -1,3 +1,4 @@
+import concurrent.futures
 import io
 import os
 import socket
@@ -601,6 +602,282 @@ class TestSupplierPartsIntegration(unittest.TestCase):
 
         t.join(timeout=2)
         timer.join(timeout=2)
+
+    def test_adapters_missing_configs(self):
+        # Test adapters when keys/tokens are missing
+        import sto_crm.config
+        orig_rossko1 = sto_crm.config.ROSSKO_KEY1
+        orig_rossko2 = sto_crm.config.ROSSKO_KEY2
+        orig_mx = sto_crm.config.MX_GROUP_TOKEN
+        orig_tm = sto_crm.config.TM_PARTS_KEY
+        try:
+            sto_crm.config.ROSSKO_KEY1 = ""
+            sto_crm.config.ROSSKO_KEY2 = ""
+            sto_crm.config.MX_GROUP_TOKEN = ""
+            sto_crm.config.TM_PARTS_KEY = ""
+
+            rossko = RosskoAdapter()
+            self.assertEqual(rossko.search_parts("555"), [])
+            with self.assertRaises(ValueError):
+                rossko.order_part("555", "CTR", 1)
+
+            mx = MXGroupAdapter()
+            self.assertEqual(mx.search_parts("555"), [])
+            with self.assertRaises(ValueError):
+                mx.order_part("555", "CTR", 1)
+
+            tm = TMPartsAdapter()
+            self.assertEqual(tm.search_parts("555"), [])
+            with self.assertRaises(ValueError):
+                tm.order_part("555", "CTR", 1)
+        finally:
+            sto_crm.config.ROSSKO_KEY1 = orig_rossko1
+            sto_crm.config.ROSSKO_KEY2 = orig_rossko2
+            sto_crm.config.MX_GROUP_TOKEN = orig_mx
+            sto_crm.config.TM_PARTS_KEY = orig_tm
+
+    @patch("urllib.request.urlopen")
+    def test_adapters_brand_none_and_bad_responses(self, mock_urlopen):
+        import sto_crm.config
+        with patch.dict(os.environ, {
+            "ROSSKO_KEY1": "k1", "ROSSKO_KEY2": "k2",
+            "MX_GROUP_TOKEN": "tok", "TM_PARTS_KEY": "tmk"
+        }):
+            sto_crm.config.ROSSKO_KEY1 = "k1"
+            sto_crm.config.ROSSKO_KEY2 = "k2"
+            sto_crm.config.MX_GROUP_TOKEN = "tok"
+            sto_crm.config.TM_PARTS_KEY = "tmk"
+
+            # 1. Rossko search brand=None, order empty json
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = b'{"success": true, "parts": [{"price": 500.0}]}'
+            mock_urlopen.return_value.__enter__.return_value = mock_resp
+            rossko = RosskoAdapter()
+            res = rossko.search_parts("555", None)
+            self.assertEqual(len(res), 1)
+
+            mock_resp.read.return_value = b'{"success": true}' # no order_id
+            self.assertIsNone(rossko.order_part("555", "CTR", 1))
+
+            # 2. MX Group search brand=None, empty response, order empty json
+            mock_resp.read.return_value = b'{"items": [{"price": 600.0}]}'
+            mx = MXGroupAdapter()
+            res_mx = mx.search_parts("555", None)
+            self.assertEqual(len(res_mx), 1)
+
+            # Not isinstance dict
+            mock_resp.read.return_value = b'[]'
+            self.assertEqual(mx.search_parts("555"), [])
+
+            # Not result (null)
+            mock_resp.read.return_value = b'null'
+            self.assertEqual(mx.search_parts("555"), [])
+
+            mock_resp.read.return_value = b'{"items": null}'
+            self.assertEqual(mx.search_parts("555"), [])
+
+            mock_resp.read.return_value = b'{}'
+            self.assertIsNone(mx.order_part("555", "CTR", 1))
+
+            # 3. TM Parts search brand=None, bad format, order empty json
+            mock_resp.read.return_value = b'[{"price": 700.0}]'
+            tm = TMPartsAdapter()
+            res_tm = tm.search_parts("555", None)
+            self.assertEqual(len(res_tm), 1)
+
+            mock_resp.read.return_value = b'{}' # dict instead of list
+            self.assertEqual(tm.search_parts("555"), [])
+
+            mock_resp.read.return_value = b'{}'
+            self.assertIsNone(tm.order_part("555", "CTR", 1))
+
+    def test_aggregator_error_handling_and_timeout(self):
+        from sto_crm.parts_api.aggregator import PartsAggregator
+        agg = PartsAggregator()
+
+        # 1. Unknown supplier exception in order_closest_part
+        with self.assertRaises(ValueError):
+            agg.order_closest_part("555", "CTR", "unknown_supplier", 1)
+
+        # 2. query_all handles exceptions in adapter search_parts
+        with patch.object(RosskoAdapter, "search_parts", side_effect=Exception("Rossko failure")), \
+             patch.object(MXGroupAdapter, "search_parts", side_effect=Exception("MX failure")), \
+             patch.object(TMPartsAdapter, "search_parts", side_effect=Exception("TM failure")):
+            results = agg.query_all("555", "CTR")
+            self.assertEqual(results, [])
+
+        # 3. Test exception inside pool thread future.result() and not_done log paths:
+        mock_future_done = MagicMock()
+        mock_future_done.result.side_effect = Exception("Future exception")
+
+        mock_future_undone = MagicMock()
+
+        def mock_wait(fs, timeout=None, return_when=None):
+            return {mock_future_done}, {mock_future_undone}
+
+        with patch("concurrent.futures.wait", side_effect=mock_wait):
+            mock_futures = [mock_future_done, mock_future_done, mock_future_undone]
+            futures_iter = iter(mock_futures)
+            def mock_submit(fn, *args, **kwargs):
+                return next(futures_iter)
+
+            with patch.object(concurrent.futures.ThreadPoolExecutor, "submit", side_effect=mock_submit):
+                results = agg.query_all("555", "CTR")
+                self.assertEqual(results, [])
+
+    def test_abstract_adapter_interface(self):
+        from sto_crm.parts_api import PartSearchResult, PartsSupplierAdapter
+        class TestDummyAdapter(PartsSupplierAdapter):
+            @property
+            def supplier_name(self) -> str:
+                return super().supplier_name
+
+            def search_parts(self, oem: str, brand: str | None = None) -> list[PartSearchResult]:
+                return super().search_parts(oem, brand)
+
+            def order_part(self, oem: str, brand: str, quantity: int) -> str | None:
+                return super().order_part(oem, brand, quantity)
+
+        adapter = TestDummyAdapter()
+        self.assertIsNone(adapter.supplier_name)
+        self.assertIsNone(adapter.search_parts("oem"))
+        self.assertIsNone(adapter.order_part("oem", "brand", 1))
+
+    def test_parts_service_edge_cases(self):
+        # 1. place_supplier_order on empty cache
+        with self.assertRaises(ValueError):
+            place_supplier_order("UNKNOWN_OEM", "CTR", "rossko", 1, 100.0)
+
+        # 2. place_supplier_order with lack of stock
+        # Populate cache with small stock
+        with write_db() as conn:
+            conn.execute(
+                """
+                INSERT INTO supplier_parts_cache (oem, brand, name, price, stock, delivery_days, supplier, cached_at)
+                VALUES ('LACK', 'CTR', 'Lack of stock part', 100.0, 2, 1, 'rossko', ?)
+                """,
+                (datetime.now().isoformat(),)
+            )
+
+        with self.assertRaises(ValueError):
+            place_supplier_order("LACK", "CTR", "rossko", 5, 100.0)
+
+        # 3. place_supplier_order with adapter declining order (order_closest_part returns None)
+        with patch("sto_crm.parts_api.rossko.RosskoAdapter.order_part", return_value=None):
+            with self.assertRaises(RuntimeError):
+                place_supplier_order("LACK", "CTR", "rossko", 1, 100.0)
+
+        # 4. place_supplier_order split deduction across multiple cache rows
+        # Remove old lack items
+        with write_db() as conn:
+            conn.execute("DELETE FROM supplier_parts_cache WHERE oem = 'SPLIT'")
+            # Insert two rows of split parts
+            conn.execute(
+                """
+                INSERT INTO supplier_parts_cache (oem, brand, name, price, stock, delivery_days, supplier, cached_at)
+                VALUES ('SPLIT', 'CTR', 'Split part 1', 100.0, 2, 1, 'rossko', ?)
+                """,
+                (datetime.now().isoformat(),)
+            )
+            conn.execute(
+                """
+                INSERT INTO supplier_parts_cache (oem, brand, name, price, stock, delivery_days, supplier, cached_at)
+                VALUES ('SPLIT', 'CTR', 'Split part 2', 100.0, 3, 1, 'rossko', ?)
+                """,
+                (datetime.now().isoformat(),)
+            )
+
+        with patch("sto_crm.parts_api.rossko.RosskoAdapter.order_part", return_value="SPLIT-ORD-123"):
+            order_id = place_supplier_order("SPLIT", "CTR", "rossko", 4, 100.0)
+            self.assertEqual(order_id, "SPLIT-ORD-123")
+
+            # Check cache stock after splitting: total was 5, ordered 4.
+            # Row 1 (stock 2) should be completely depleted (stock 0)
+            # Row 2 (stock 3) should have remaining 1 (3 - (4 - 2) = 1)
+            cached_rows = _get_cached_parts("SPLIT", "CTR")
+            stocks = sorted([r["stock"] for r in cached_rows])
+            self.assertEqual(stocks, [0, 1])
+
+        # 5. Invalid date parsing format inside cache results fallback to refresh
+        with write_db() as conn:
+            conn.execute("DELETE FROM supplier_parts_cache WHERE oem = 'INVALID_DATE'")
+            conn.execute(
+                """
+                INSERT INTO supplier_parts_cache (oem, brand, name, price, stock, delivery_days, supplier, cached_at)
+                VALUES ('INVALID_DATE', 'CTR', 'Invalid date part', 100.0, 5, 1, 'rossko', 'bad-date-format')
+                """
+            )
+
+        with patch("sto_crm.parts_api.rossko.RosskoAdapter.search_parts") as mock_rossko, \
+             patch("sto_crm.parts_api.mxgroup.MXGroupAdapter.search_parts") as mock_mx, \
+             patch("sto_crm.parts_api.tmparts.TMPartsAdapter.search_parts") as mock_tm:
+            mock_rossko.return_value = []
+            mock_mx.return_value = []
+            mock_tm.return_value = []
+
+            # Searching should fallback (due to invalid date format) and query adapters
+            search_supplier_parts("INVALID_DATE", "CTR")
+            mock_rossko.assert_called_once_with("INVALID_DATE", "CTR")
+
+        # 6. search_supplier_parts and updates without brand
+        with patch("sto_crm.parts_api.rossko.RosskoAdapter.search_parts") as mock_rossko, \
+             patch("sto_crm.parts_api.mxgroup.MXGroupAdapter.search_parts") as mock_mx, \
+             patch("sto_crm.parts_api.tmparts.TMPartsAdapter.search_parts") as mock_tm:
+            mock_rossko.return_value = [{"oem": "NOBRAND", "brand": "", "name": "No brand part", "price": 10.0, "stock": 1, "delivery_days": 1, "supplier": "rossko"}]
+            mock_mx.return_value = []
+            mock_tm.return_value = []
+
+            # Missing brand case
+            results_nobrand = search_supplier_parts("NOBRAND", None)
+            self.assertEqual(len(results_nobrand), 1)
+            mock_rossko.assert_called_once_with("NOBRAND", None)
+
+            # Retrieve from cache without brand
+            cached_nobrand = _get_cached_parts("NOBRAND", None)
+            self.assertEqual(len(cached_nobrand), 1)
+            self.assertEqual(cached_nobrand[0]["oem"], "NOBRAND")
+
+    def test_place_supplier_order_unreachable_loop_exit(self):
+        # Force the loop in place_supplier_order to exit without break
+        # by mocking `sum` to bypass the total stock validation check.
+        # Clear cache first
+        with write_db() as conn:
+            conn.execute("DELETE FROM supplier_parts_cache")
+            conn.execute(
+                """
+                INSERT INTO supplier_parts_cache (oem, brand, name, price, stock, delivery_days, supplier, cached_at)
+                VALUES ('UNREACH', 'CTR', 'Low stock part', 10.0, 1, 1, 'rossko', ?)
+                """,
+                (datetime.now().isoformat(),)
+            )
+
+        with patch("sto_crm.parts_service.sum", return_value=10), \
+             patch("sto_crm.parts_api.rossko.RosskoAdapter.order_part", return_value="TRK-UNREACH"):
+            # We want quantity=5, but actual stock=1.
+            # sum is mocked to 10, so validation passes.
+            # The loop for cache_row in matching_cached:
+            #   cache_row['stock'] (1) is less than quantity (5).
+            #   goes to else: quantity -= 1 (4), updates stock=0.
+            #   loop ends!
+            order_id = place_supplier_order("UNREACH", "CTR", "rossko", 5, 10.0)
+            self.assertEqual(order_id, "TRK-UNREACH")
+
+            # Verify that stock was set to 0
+            cached = _get_cached_parts("UNREACH", "CTR")
+            self.assertEqual(cached[0]["stock"], 0)
+
+    @patch("urllib.request.urlopen")
+    def test_rossko_adapter_request_no_data(self, mock_urlopen):
+        import sto_crm.config
+        with patch.dict(os.environ, {"ROSSKO_KEY1": "k1", "ROSSKO_KEY2": "k2"}):
+            sto_crm.config.ROSSKO_KEY1 = "k1"
+            sto_crm.config.ROSSKO_KEY2 = "k2"
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = b'{"ok": true}'
+            mock_urlopen.return_value.__enter__.return_value = mock_resp
+            adapter = RosskoAdapter()
+            res = adapter._request("/test_no_data", None)
+            self.assertEqual(res, {"ok": True})
 
 
 def get_free_port():
