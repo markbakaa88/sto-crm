@@ -59,14 +59,17 @@ def test_parts_pricing_lookup_and_selection(crm_server):
         page = context.new_page()
 
         # Mock supplier pricing search API response using route
-        page.route("**/api/parts/search?*", lambda route: route.fulfill(
-            status=200,
-            content_type="application/json",
-            body='{"ok":true,"parts":['
-                 '{"oem":"555","brand":"CTR","name":"Наконечник рулевой","price":1200.0,"stock":5,"delivery_days":2,"supplier":"rossko"},'
-                 '{"oem":"555","brand":"CTR","name":"Наконечник рулевой MX","price":1300.0,"stock":10,"delivery_days":1,"supplier":"mx_group"}'
-                 ']}'
-        ))
+        page.route(
+            "**/api/parts/search?*",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body='{"ok":true,"parts":['
+                '{"oem":"555","brand":"CTR","name":"Наконечник рулевой","price":1200.0,"stock":5,"delivery_days":2,"supplier":"rossko"},'
+                '{"oem":"555","brand":"CTR","name":"Наконечник рулевой MX","price":1300.0,"stock":10,"delivery_days":1,"supplier":"mx_group"}'
+                "]}",
+            ),
+        )
 
         page.goto(crm_server)
         page.wait_for_selector(".app")
@@ -98,8 +101,13 @@ def test_parts_pricing_lookup_and_selection(crm_server):
         assert groups_count > 0
 
         # Assert supplier names header exist
-        supplier_titles = page.locator(".parts-pricing-supplier-title h3").all_text_contents()
-        assert any("Rossko" in title or "MX Group" in title or "TM Parts" in title for title in supplier_titles)
+        supplier_titles = page.locator(
+            ".parts-pricing-supplier-title h3"
+        ).all_text_contents()
+        assert any(
+            "Rossko" in title or "MX Group" in title or "TM Parts" in title
+            for title in supplier_titles
+        )
 
         # Assert no style="..." (CSP compliant checks on dynamically generated elements)
         style_attrs = page.evaluate("""() => {
@@ -123,7 +131,12 @@ def test_parts_pricing_lookup_and_selection(crm_server):
         assert page.is_hidden("#orderTabPartsLookup")
 
         # 10. Verify order items table has our new added item
-        item_titles = [el.get_attribute("value") or "" for el in page.locator("#itemsHost td[data-label='Наименование'] input").all()]
+        item_titles = [
+            el.get_attribute("value") or ""
+            for el in page.locator(
+                "#itemsHost td[data-label='Наименование'] input"
+            ).all()
+        ]
         assert any("[CTR 555]" in title for title in item_titles)
 
         browser.close()

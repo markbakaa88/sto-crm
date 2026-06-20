@@ -421,8 +421,11 @@ class TestUpdatesWindowsMock(unittest.TestCase):
         from sto_crm.updates import is_unsafe_link_or_reparse
 
         original_lstat = os.lstat
+
         def lstat_side_effect(path, *args, **kwargs):
-            if isinstance(path, MagicMock) or (hasattr(path, "__str__") and "junction" in str(path)):
+            if isinstance(path, MagicMock) or (
+                hasattr(path, "__str__") and "junction" in str(path)
+            ):
                 raise Exception("error")
             # Простейшая защита по имени файла/пути без вызова inspect.stack
             try:
@@ -432,6 +435,7 @@ class TestUpdatesWindowsMock(unittest.TestCase):
             except Exception:
                 pass
             raise Exception("error")
+
         mock_lstat.side_effect = lstat_side_effect
 
         mock_windll.kernel32.GetFileAttributesW.return_value = 0x400

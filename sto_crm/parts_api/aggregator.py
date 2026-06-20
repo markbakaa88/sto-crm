@@ -30,20 +30,24 @@ class PartsAggregator:
             try:
                 return adapter.search_parts(oem, brand)
             except Exception as e:
-                safe_log(f"Ошибка при запросе к поставщику {adapter.supplier_name}: {e}")
+                safe_log(
+                    f"Ошибка при запросе к поставщику {adapter.supplier_name}: {e}"
+                )
                 return []
 
         # Use ThreadPoolExecutor to run tasks concurrently
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.adapters)) as executor:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=len(self.adapters)
+        ) as executor:
             futures = {
                 executor.submit(query_one, adapter): adapter.supplier_name
                 for adapter in self.adapters
             }
             # Wait with a timeout (plus a safe margin of 2 seconds over standard HTTP timeout)
             from ..config import PARTS_API_TIMEOUT
+
             done, not_done = concurrent.futures.wait(
-                futures,
-                timeout=PARTS_API_TIMEOUT + 2
+                futures, timeout=PARTS_API_TIMEOUT + 2
             )
 
             for future in done:
@@ -52,7 +56,9 @@ class PartsAggregator:
                     results.extend(res)
                 except Exception as e:
                     supplier_name = futures[future]
-                    safe_log(f"Пул потоков выбросил исключение для {supplier_name}: {e}")
+                    safe_log(
+                        f"Пул потоков выбросил исключение для {supplier_name}: {e}"
+                    )
 
             # Log any timed out calls
             for future in not_done:

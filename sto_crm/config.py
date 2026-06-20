@@ -151,6 +151,7 @@ PARTS_API_TIMEOUT = _get_env_int("PARTS_API_TIMEOUT", 10)
 def log_configuration_status() -> None:
     """Log which supplier APIs are initialized based on env vars."""
     from .runtime import safe_log
+
     suppliers = []
     if ROSSKO_KEY1 and ROSSKO_KEY2:
         suppliers.append("Rossko")
@@ -160,6 +161,10 @@ def log_configuration_status() -> None:
         suppliers.append("TM Parts")
 
     if suppliers:
-        safe_log(f"Настройки внешних API автозапчастей загружены для: {', '.join(suppliers)}")
+        safe_log(
+            f"Настройки внешних API автозапчастей загружены для: {', '.join(suppliers)}"
+        )
     else:
-        safe_log("Настройки внешних API автозапчастей не обнаружены/не заданы в переменных окружения")
+        safe_log(
+            "Настройки внешних API автозапчастей не обнаружены/не заданы в переменных окружения"
+        )

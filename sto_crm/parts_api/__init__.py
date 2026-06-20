@@ -9,11 +9,11 @@ from typing import TypedDict
 class PartSearchResult(TypedDict):
     oem: str
     brand: str
-    name: str # part description
+    name: str  # part description
     price: float
     stock: int
     delivery_days: int
-    supplier: str # 'rossko', 'mx_group', or 'tm_parts'
+    supplier: str  # 'rossko', 'mx_group', or 'tm_parts'
 
 
 class PartsSupplierAdapter(ABC):
@@ -24,7 +24,9 @@ class PartsSupplierAdapter(ABC):
         pass
 
     @abstractmethod
-    def search_parts(self, oem: str, brand: str | None = None) -> list[PartSearchResult]:
+    def search_parts(
+        self, oem: str, brand: str | None = None
+    ) -> list[PartSearchResult]:
         """Perform search query on supplier API via standard urllib query."""
         pass
 

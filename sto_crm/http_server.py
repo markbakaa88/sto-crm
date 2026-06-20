@@ -223,7 +223,9 @@ class CRMHandler(BaseHTTPRequestHandler):
                 # OEM query parameter is required
                 q_vals = query.get("q", [])
                 if not q_vals or not q_vals[0].strip():
-                    self.send_error_json(400, "Параметр поиска q (OEM номер) является обязательным.")
+                    self.send_error_json(
+                        400, "Параметр поиска q (OEM номер) является обязательным."
+                    )
                     return
                 oem = q_vals[0]
 
@@ -235,6 +237,7 @@ class CRMHandler(BaseHTTPRequestHandler):
                 force_refresh = force_vals[0] == "true" if force_vals else False
 
                 from .parts_service import search_supplier_parts
+
                 try:
                     parts = search_supplier_parts(oem, brand, force_refresh)
                     self.send_json({"ok": True, "parts": parts})
@@ -262,8 +265,17 @@ class CRMHandler(BaseHTTPRequestHandler):
                 quantity_raw = payload.get("quantity")
                 price_raw = payload.get("price")
 
-                if not oem or not brand or not supplier or quantity_raw is None or price_raw is None:
-                    self.send_error_json(400, "Поля oem, brand, supplier, quantity и price являются обязательными.")
+                if (
+                    not oem
+                    or not brand
+                    or not supplier
+                    or quantity_raw is None
+                    or price_raw is None
+                ):
+                    self.send_error_json(
+                        400,
+                        "Поля oem, brand, supplier, quantity и price являются обязательными.",
+                    )
                     return
 
                 try:
@@ -271,7 +283,9 @@ class CRMHandler(BaseHTTPRequestHandler):
                     if quantity <= 0:
                         raise ValueError
                 except (ValueError, TypeError):
-                    self.send_error_json(400, "Количество должно быть положительным целым числом.")
+                    self.send_error_json(
+                        400, "Количество должно быть положительным целым числом."
+                    )
                     return
 
                 try:
@@ -279,12 +293,17 @@ class CRMHandler(BaseHTTPRequestHandler):
                     if price < 0:
                         raise ValueError
                 except (ValueError, TypeError):
-                    self.send_error_json(400, "Цена должна быть неотрицательным числом.")
+                    self.send_error_json(
+                        400, "Цена должна быть неотрицательным числом."
+                    )
                     return
 
                 from .parts_service import place_supplier_order
+
                 try:
-                    order_tracking_id = place_supplier_order(oem, brand, supplier, quantity, price)
+                    order_tracking_id = place_supplier_order(
+                        oem, brand, supplier, quantity, price
+                    )
                     self.send_json({"ok": True, "order_tracking_id": order_tracking_id})
                 except ValueError as exc:
                     self.send_error_json(400, str(exc))

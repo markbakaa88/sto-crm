@@ -16,7 +16,12 @@ class TMPartsAdapter(PartsSupplierAdapter):
     def supplier_name(self) -> str:
         return "tm_parts"
 
-    def _request(self, path: str, query_params: dict[str, str] | None = None, data: dict[str, Any] | None = None) -> Any:
+    def _request(
+        self,
+        path: str,
+        query_params: dict[str, str] | None = None,
+        data: dict[str, Any] | None = None,
+    ) -> Any:
         url = config.TM_PARTS_API_URL.rstrip("/") + path
         if query_params:
             url += "?" + urllib.parse.urlencode(query_params)
@@ -32,7 +37,7 @@ class TMPartsAdapter(PartsSupplierAdapter):
             url,
             data=req_bytes,
             headers=headers,
-            method="POST" if data is not None else "GET"
+            method="POST" if data is not None else "GET",
         )
         try:
             with urllib.request.urlopen(req, timeout=config.PARTS_API_TIMEOUT) as resp:
@@ -41,7 +46,9 @@ class TMPartsAdapter(PartsSupplierAdapter):
         except Exception as e:
             raise RuntimeError(f"TM Parts API Error: {e}") from e
 
-    def search_parts(self, oem: str, brand: str | None = None) -> list[PartSearchResult]:
+    def search_parts(
+        self, oem: str, brand: str | None = None
+    ) -> list[PartSearchResult]:
         if not config.TM_PARTS_KEY:
             return []
 
@@ -56,15 +63,17 @@ class TMPartsAdapter(PartsSupplierAdapter):
 
             results: list[PartSearchResult] = []
             for item in result:
-                results.append({
-                    "oem": str(item.get("oem", oem)),
-                    "brand": str(item.get("brand", brand or "")),
-                    "name": str(item.get("name", "Запчасть TM Parts")),
-                    "price": float(item.get("price", 0.0)),
-                    "stock": int(item.get("stock", 0)),
-                    "delivery_days": int(item.get("delivery_days", 1)),
-                    "supplier": self.supplier_name
-                })
+                results.append(
+                    {
+                        "oem": str(item.get("oem", oem)),
+                        "brand": str(item.get("brand", brand or "")),
+                        "name": str(item.get("name", "Запчасть TM Parts")),
+                        "price": float(item.get("price", 0.0)),
+                        "stock": int(item.get("stock", 0)),
+                        "delivery_days": int(item.get("delivery_days", 1)),
+                        "supplier": self.supplier_name,
+                    }
+                )
             return results
         except Exception:
             return []
@@ -73,11 +82,7 @@ class TMPartsAdapter(PartsSupplierAdapter):
         if not config.TM_PARTS_KEY:
             raise ValueError("TM Parts API Key is not configured.")
 
-        params = {
-            "oem": oem,
-            "brand": brand,
-            "qty": quantity
-        }
+        params = {"oem": oem, "brand": brand, "qty": quantity}
         try:
             result = self._request("/api/v2/orders", data=params)
             if result and result.get("id"):

@@ -28,7 +28,7 @@ class MXGroupAdapter(PartsSupplierAdapter):
             url,
             data=req_bytes,
             headers=headers,
-            method="POST" if data is not None else "GET"
+            method="POST" if data is not None else "GET",
         )
         try:
             with urllib.request.urlopen(req, timeout=config.PARTS_API_TIMEOUT) as resp:
@@ -37,7 +37,9 @@ class MXGroupAdapter(PartsSupplierAdapter):
         except Exception as e:
             raise RuntimeError(f"MX Group API Error: {e}") from e
 
-    def search_parts(self, oem: str, brand: str | None = None) -> list[PartSearchResult]:
+    def search_parts(
+        self, oem: str, brand: str | None = None
+    ) -> list[PartSearchResult]:
         if not config.MX_GROUP_TOKEN:
             return []
 
@@ -54,15 +56,17 @@ class MXGroupAdapter(PartsSupplierAdapter):
             items = result.get("items", [])
             results: list[PartSearchResult] = []
             for item in items:
-                results.append({
-                    "oem": str(item.get("oem", oem)),
-                    "brand": str(item.get("brand", brand or "")),
-                    "name": str(item.get("name", "Запчасть MX Group")),
-                    "price": float(item.get("price", 0.0)),
-                    "stock": int(item.get("quantity", 0)),
-                    "delivery_days": int(item.get("days", 1)),
-                    "supplier": self.supplier_name
-                })
+                results.append(
+                    {
+                        "oem": str(item.get("oem", oem)),
+                        "brand": str(item.get("brand", brand or "")),
+                        "name": str(item.get("name", "Запчасть MX Group")),
+                        "price": float(item.get("price", 0.0)),
+                        "stock": int(item.get("quantity", 0)),
+                        "delivery_days": int(item.get("days", 1)),
+                        "supplier": self.supplier_name,
+                    }
+                )
             return results
         except Exception:
             return []
@@ -71,11 +75,7 @@ class MXGroupAdapter(PartsSupplierAdapter):
         if not config.MX_GROUP_TOKEN:
             raise ValueError("MX Group token is not configured.")
 
-        params = {
-            "oem": oem,
-            "brand": brand,
-            "quantity": quantity
-        }
+        params = {"oem": oem, "brand": brand, "quantity": quantity}
         try:
             result = self._request("/api/v1/orders", params)
             if result and result.get("order_id"):

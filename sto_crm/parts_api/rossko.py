@@ -44,7 +44,9 @@ class RosskoAdapter(PartsSupplierAdapter):
             # Propagate or log
             raise RuntimeError(f"Rossko API Error: {e}") from e
 
-    def search_parts(self, oem: str, brand: str | None = None) -> list[PartSearchResult]:
+    def search_parts(
+        self, oem: str, brand: str | None = None
+    ) -> list[PartSearchResult]:
         if not config.ROSSKO_KEY1 or not config.ROSSKO_KEY2:
             return []
 
@@ -62,15 +64,17 @@ class RosskoAdapter(PartsSupplierAdapter):
             parts = result.get("parts", [])
             results: list[PartSearchResult] = []
             for p in parts:
-                results.append({
-                    "oem": str(p.get("oem", oem)),
-                    "brand": str(p.get("brand", brand or "")),
-                    "name": str(p.get("name", "Запчасть Rossko")),
-                    "price": float(p.get("price", 0.0)),
-                    "stock": int(p.get("stock", 0)),
-                    "delivery_days": int(p.get("delivery_days", 1)),
-                    "supplier": self.supplier_name
-                })
+                results.append(
+                    {
+                        "oem": str(p.get("oem", oem)),
+                        "brand": str(p.get("brand", brand or "")),
+                        "name": str(p.get("name", "Запчасть Rossko")),
+                        "price": float(p.get("price", 0.0)),
+                        "stock": int(p.get("stock", 0)),
+                        "delivery_days": int(p.get("delivery_days", 1)),
+                        "supplier": self.supplier_name,
+                    }
+                )
             return results
         except Exception:
             return []
@@ -79,11 +83,7 @@ class RosskoAdapter(PartsSupplierAdapter):
         if not config.ROSSKO_KEY1 or not config.ROSSKO_KEY2:
             raise ValueError("Rossko API keys are not configured.")
 
-        params = {
-            "oem": oem,
-            "brand": brand,
-            "quantity": quantity
-        }
+        params = {"oem": oem, "brand": brand, "quantity": quantity}
         try:
             result = self._request("/api/v1/order", params)
             if result and result.get("success") and "order_id" in result:

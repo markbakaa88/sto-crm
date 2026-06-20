@@ -17,18 +17,23 @@ class DummyRequest:
     def makefile(self, mode, *args, **kwargs):
         if "r" in mode:
             import io
+
             return io.BytesIO(self.rfile_content)
         elif "w" in mode:
             import io
+
             class HTTPBytesWriter(io.BytesIO):
                 def __init__(self, outer):
                     super().__init__()
                     self.outer = outer
+
                 def write(self, b):
                     self.outer.bytes_written += b
                     return len(b)
+
                 def flush(self):
                     pass
+
             return HTTPBytesWriter(self)
         return None
 
@@ -67,7 +72,9 @@ class TestHttpPartsRoutes(unittest.TestCase):
         raw_req_lines = [f"{method} {path} HTTP/1.1"]
         for k, v in headers.items():
             raw_req_lines.append(f"{k}: {v}")
-        raw_req_content = "\r\n".join(raw_req_lines).encode("utf-8") + b"\r\n\r\n" + body
+        raw_req_content = (
+            "\r\n".join(raw_req_lines).encode("utf-8") + b"\r\n\r\n" + body
+        )
 
         request = DummyRequest(raw_req_content)
         client_address = ("127.0.0.1", 12345)
@@ -76,7 +83,9 @@ class TestHttpPartsRoutes(unittest.TestCase):
         # Instantiate CRMHandler, it runs handle_one_request inside __init__ if request is setup properly,
         # but BaseHTTPRequestHandler does a lot of socket-level stuff.
         # We can mock BaseHTTPRequestHandler constructor behavior to run setup, handle, and finish manually.
-        with patch("http.server.BaseHTTPRequestHandler.__init__", lambda *args, **kwargs: None):
+        with patch(
+            "http.server.BaseHTTPRequestHandler.__init__", lambda *args, **kwargs: None
+        ):
             handler = CRMHandler(request, client_address, server)  # type: ignore[arg-type]
             handler.request = request  # type: ignore[assignment]
             handler.client_address = client_address
@@ -86,6 +95,7 @@ class TestHttpPartsRoutes(unittest.TestCase):
             # Setup headers
             import http.client
             import io
+
             headers_raw = ""
             for k, v in headers.items():
                 headers_raw += f"{k}: {v}\r\n"
@@ -102,7 +112,15 @@ class TestHttpPartsRoutes(unittest.TestCase):
     @patch("sto_crm.parts_service.search_supplier_parts")
     def test_get_parts_search_route(self, mock_search):
         mock_search.return_value = [
-            {"oem": "123", "brand": "CTR", "name": "Part A", "price": 100.0, "stock": 1, "delivery_days": 1, "supplier": "rossko"}
+            {
+                "oem": "123",
+                "brand": "CTR",
+                "name": "Part A",
+                "price": 100.0,
+                "stock": 1,
+                "delivery_days": 1,
+                "supplier": "rossko",
+            }
         ]
 
         headers = {
@@ -110,7 +128,9 @@ class TestHttpPartsRoutes(unittest.TestCase):
             "X-CRM-Access-Token": "test_access_token",
             "X-CSRF-Token": "test_csrf_token",
         }
-        handler = self._make_handler("GET", "/api/parts/search?q=123&brand=CTR", headers=headers)
+        handler = self._make_handler(
+            "GET", "/api/parts/search?q=123&brand=CTR", headers=headers
+        )
         handler.handle_request("GET")
 
         # Verify call parameters
@@ -137,7 +157,9 @@ class TestHttpPartsRoutes(unittest.TestCase):
             "Content-Type": "application/json",
             "Content-Length": str(len(body)),
         }
-        handler = self._make_handler("POST", "/api/parts/order", body=body, headers=headers)
+        handler = self._make_handler(
+            "POST", "/api/parts/order", body=body, headers=headers
+        )
         handler.handle_request("POST")
 
         mock_place_order.assert_called_once_with("123", "CTR", "rossko", 2, 1000.0)

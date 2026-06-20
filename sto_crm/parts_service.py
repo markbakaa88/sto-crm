@@ -27,6 +27,7 @@ def search_supplier_parts(
         # Check if the cache is expired (TTL 2 hours)
         # All items for this oem+brand must have the same cached_at tag, we check the first one.
         from datetime import datetime
+
         try:
             cached_at_str = cached_results[0]["cached_at"]
             cached_at = datetime.fromisoformat(cached_at_str)
@@ -45,7 +46,7 @@ def search_supplier_parts(
                     for r in cached_results
                 ]
         except Exception:
-            pass # fallback to refresh
+            pass  # fallback to refresh
 
     # Query API providers
     aggregator = PartsAggregator()
@@ -70,9 +71,7 @@ def place_supplier_order(
     # 1. Validate matching part is in cache (or verify cache exists)
     cached_results = _get_cached_parts(oem_clean, brand_clean)
     # Check if there is stock available for the requested supplier
-    matching_cached = [
-        c for c in cached_results if c["supplier"] == supplier
-    ]
+    matching_cached = [c for c in cached_results if c["supplier"] == supplier]
     if not matching_cached:
         raise ValueError(
             f"Запрошенная запчасть {oem_clean} ({brand_clean}) от поставщика {supplier} отсутствует в кэше. Сначала выполните поиск."
@@ -104,7 +103,15 @@ def place_supplier_order(
             (oem, brand, supplier, quantity, price, order_tracking_id, status, created_at)
             VALUES (?, ?, ?, ?, ?, ?, 'created', ?)
             """,
-            (oem_clean, brand_clean, supplier, quantity, price, order_tracking_id, stamp)
+            (
+                oem_clean,
+                brand_clean,
+                supplier,
+                quantity,
+                price,
+                order_tracking_id,
+                stamp,
+            ),
         )
         # Deduct quantity from cache
         for cache_row in matching_cached:
@@ -112,14 +119,14 @@ def place_supplier_order(
                 new_stock = cache_row["stock"] - quantity
                 conn.execute(
                     "UPDATE supplier_parts_cache SET stock = ? WHERE id = ?",
-                    (new_stock, cache_row["id"])
+                    (new_stock, cache_row["id"]),
                 )
                 break
             else:
                 quantity -= cache_row["stock"]
                 conn.execute(
                     "UPDATE supplier_parts_cache SET stock = 0 WHERE id = ?",
-                    (cache_row["id"],)
+                    (cache_row["id"],),
                 )
 
     return order_tracking_id
@@ -135,7 +142,7 @@ def _get_cached_parts(oem: str, brand: str | None = None) -> list[dict[str, Any]
                 FROM supplier_parts_cache
                 WHERE CASEFOLD(oem) = CASEFOLD(?) AND CASEFOLD(brand) = CASEFOLD(?)
                 """,
-                (oem, brand)
+                (oem, brand),
             ).fetchall()
         else:
             rows = conn.execute(
@@ -144,7 +151,7 @@ def _get_cached_parts(oem: str, brand: str | None = None) -> list[dict[str, Any]
                 FROM supplier_parts_cache
                 WHERE CASEFOLD(oem) = CASEFOLD(?)
                 """,
-                (oem,)
+                (oem,),
             ).fetchall()
         return [dict(r) for r in rows]
 
@@ -159,12 +166,12 @@ def _update_parts_cache(
         if brand:
             conn.execute(
                 "DELETE FROM supplier_parts_cache WHERE CASEFOLD(oem) = CASEFOLD(?) AND CASEFOLD(brand) = CASEFOLD(?)",
-                (oem, brand)
+                (oem, brand),
             )
         else:
             conn.execute(
                 "DELETE FROM supplier_parts_cache WHERE CASEFOLD(oem) = CASEFOLD(?)",
-                (oem,)
+                (oem,),
             )
 
         # Bulk insert
@@ -182,6 +189,6 @@ def _update_parts_cache(
                     item["stock"],
                     item["delivery_days"],
                     item["supplier"],
-                    stamp
-                )
+                    stamp,
+                ),
             )
