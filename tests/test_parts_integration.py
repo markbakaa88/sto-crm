@@ -84,7 +84,7 @@ class TestSupplierPartsIntegration(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 adapter.order_part("555", "CTR", 1)
 
-            mock_urlopen.side_effect = socket.timeout("timed out")
+            mock_urlopen.side_effect = TimeoutError("timed out")
             self.assertEqual(adapter.search_parts("555", "CTR"), [])
             with self.assertRaises(RuntimeError):
                 adapter.order_part("555", "CTR", 1)
@@ -232,7 +232,7 @@ class TestSupplierPartsIntegration(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 adapter.order_part("555", "CTR", 1)
 
-            mock_urlopen.side_effect = socket.timeout("timed out")
+            mock_urlopen.side_effect = TimeoutError("timed out")
             self.assertEqual(adapter.search_parts("555", "CTR"), [])
             with self.assertRaises(RuntimeError):
                 adapter.order_part("555", "CTR", 1)
@@ -348,7 +348,7 @@ class TestSupplierPartsIntegration(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 adapter.order_part("555", "CTR", 1)
 
-            mock_urlopen.side_effect = socket.timeout("timed out")
+            mock_urlopen.side_effect = TimeoutError("timed out")
             self.assertEqual(adapter.search_parts("555", "CTR"), [])
             with self.assertRaises(RuntimeError):
                 adapter.order_part("555", "CTR", 1)
