@@ -730,13 +730,13 @@ class TestSupplierPartsIntegration(unittest.TestCase):
         class TestDummyAdapter(PartsSupplierAdapter):
             @property
             def supplier_name(self) -> str:
-                return super().supplier_name
+                return super().supplier_name  # type: ignore[safe-super]
 
             def search_parts(self, oem: str, brand: str | None = None) -> list[PartSearchResult]:
-                return super().search_parts(oem, brand)
+                return super().search_parts(oem, brand)  # type: ignore[safe-super]
 
             def order_part(self, oem: str, brand: str, quantity: int) -> str | None:
-                return super().order_part(oem, brand, quantity)
+                return super().order_part(oem, brand, quantity)  # type: ignore[safe-super]
 
         adapter = TestDummyAdapter()
         self.assertIsNone(adapter.supplier_name)

@@ -77,10 +77,10 @@ class TestHttpPartsRoutes(unittest.TestCase):
         # but BaseHTTPRequestHandler does a lot of socket-level stuff.
         # We can mock BaseHTTPRequestHandler constructor behavior to run setup, handle, and finish manually.
         with patch("http.server.BaseHTTPRequestHandler.__init__", lambda *args, **kwargs: None):
-            handler = CRMHandler(request, client_address, server)
-            handler.request = request
+            handler = CRMHandler(request, client_address, server)  # type: ignore[arg-type]
+            handler.request = request  # type: ignore[assignment]
             handler.client_address = client_address
-            handler.server = server
+            handler.server = server  # type: ignore[assignment]
             handler.rfile = DummyRequest(body).makefile("rb")
 
             # Setup headers
