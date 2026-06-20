@@ -1,5 +1,7 @@
 import sqlite3
 import unittest
+import os
+import inspect
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -419,8 +421,19 @@ class TestUpdatesWindowsMock(unittest.TestCase):
     def test_is_unsafe_link_or_reparse_ctypes_win(self, mock_windll, mock_lstat):
         from sto_crm.updates import is_unsafe_link_or_reparse
 
-        # lstat fails/returns no attributes
-        mock_lstat.side_effect = Exception("error")
+        original_lstat = os.lstat
+        def lstat_side_effect(path, *args, **kwargs):
+            if isinstance(path, MagicMock) or (hasattr(path, "__str__") and "junction" in str(path)):
+                raise Exception("error")
+            # Простейшая защита по имени файла/пути без вызова inspect.stack
+            try:
+                p_str = str(path)
+                if "coverage" in p_str or "pytest" in p_str or "unittest" in p_str:
+                    return original_lstat(path, *args, **kwargs)
+            except Exception:
+                pass
+            raise Exception("error")
+        mock_lstat.side_effect = lstat_side_effect
 
         mock_windll.kernel32.GetFileAttributesW.return_value = 0x400
 
