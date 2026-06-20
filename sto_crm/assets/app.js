@@ -4803,23 +4803,17 @@ function shouldKeepModalForEscape(event) {
     if (event.defaultPrevented) return true;
     const target = event.target;
     const active = document.activeElement;
-    if (target instanceof HTMLInputElement) {
-        if (target.type === "date" || target.type === "datetime-local") {
-            return true;
-        }
-    }
-    if (active instanceof HTMLInputElement) {
-        if (active.type === "date" || active.type === "datetime-local") {
-            return true;
-        }
-    }
-    // Also prevent closing modal on Escape if native browser/OS dynamic date/time suggestions or picker dropdown is active.
-    // In Chromium-based browsers, when datepicker popup is open, escaping it first targets the input or picker overlay.
-    // However, if the datepicker has active focus or is open, active element is the input.
-    // To be secure, check if any input[type="date"] or input[type="datetime-local"] is active.
-    if (document.activeElement && (document.activeElement.tagName === "INPUT" && (document.activeElement.type === "date" || document.activeElement.type === "datetime-local"))) {
+
+    const isDateTimeInput = (el) => {
+        if (!el || el.tagName !== "INPUT") return false;
+        const type = el.type ? el.type.toLowerCase() : "";
+        return ["date", "datetime-local", "time", "month", "week"].includes(type);
+    };
+
+    if (isDateTimeInput(target) || isDateTimeInput(active)) {
         return true;
     }
+
     if (!(target instanceof HTMLElement)) return false;
     if (target.isContentEditable) return true;
     if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true;

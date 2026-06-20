@@ -3206,6 +3206,7 @@ body .catalog-search input:disabled, body .items-table input:disabled, body .ite
     border-color: var(--disabled-border);
     cursor: not-allowed;
     opacity: 1;
+    -webkit-text-fill-color: var(--disabled-ink);
 }
 
 /* Premium Row Hover & Interactive State Transitions */
@@ -3241,7 +3242,11 @@ body button:focus-visible,
 body a:focus-visible,
 body input:focus-visible,
 body select:focus-visible,
-body textarea:focus-visible {
+body textarea:focus-visible,
+body [role="button"]:focus-visible,
+body [role="menuitem"]:focus-visible,
+body [role="menuitemcheckbox"]:focus-visible,
+body [tabindex]:focus-visible {
     outline: 2px solid var(--brand);
     outline-offset: 2px;
     border-radius: var(--radius-sm);
