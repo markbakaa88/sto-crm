@@ -146,11 +146,38 @@ class _UpdatesFacade(types.ModuleType):
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
     def __setattr__(self, name: str, value: Any) -> None:
+        if name != "_originals" and name not in self.__dict__.setdefault("_originals", {}):
+            orig = None
+            for module in (_backup, _updater, _checker, _installer, _runtime, _database):
+                if hasattr(module, name):
+                    orig = getattr(module, name)
+                    break
+            self.__dict__["_originals"][name] = orig
+
         # Route assignments to submodules to sync mock overrides
         for module in (_backup, _updater, _checker, _installer, _runtime, _database):
             if hasattr(module, name):
                 setattr(module, name, value)
         super().__setattr__(name, value)
+
+    def __delattr__(self, name: str) -> None:
+        originals = self.__dict__.setdefault("_originals", {})
+        if name in originals:
+            orig_val = originals[name]
+            for module in (_backup, _updater, _checker, _installer, _runtime, _database):
+                if hasattr(module, name):
+                    if orig_val is None:
+                        try:
+                            delattr(module, name)
+                        except AttributeError:
+                            pass
+                    else:
+                        setattr(module, name, orig_val)
+            del originals[name]
+        try:
+            super().__delattr__(name)
+        except AttributeError:
+            pass
 
 
 sys.modules[__name__].__class__ = _UpdatesFacade

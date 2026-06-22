@@ -79,10 +79,42 @@ class _StoCrmFacade(types.ModuleType):
     def __setattr__(self, name: str, value: Any) -> None:
         if name == "RUNTIME":
             runtime.RUNTIME = value
+        if name != "_originals" and name not in self.__dict__.setdefault("_originals", {}):
+            orig = None
+            if name == "RUNTIME":
+                orig = runtime.RUNTIME
+            else:
+                for module in _IMPLEMENTATION_MODULES:
+                    if hasattr(module, name):
+                        orig = getattr(module, name)
+                        break
+            self.__dict__["_originals"][name] = orig
+
         for module in _IMPLEMENTATION_MODULES:
             if hasattr(module, name):
                 setattr(module, name, value)
         super().__setattr__(name, value)
+
+    def __delattr__(self, name: str) -> None:
+        originals = self.__dict__.setdefault("_originals", {})
+        if name in originals:
+            orig_val = originals[name]
+            if name == "RUNTIME":
+                runtime.RUNTIME = orig_val
+            for module in _IMPLEMENTATION_MODULES:
+                if hasattr(module, name):
+                    if orig_val is None:
+                        try:
+                            delattr(module, name)
+                        except AttributeError:
+                            pass
+                    else:
+                        setattr(module, name, orig_val)
+            del originals[name]
+        try:
+            super().__delattr__(name)
+        except AttributeError:
+            pass
 
 
 sys.modules[__name__].__class__ = _StoCrmFacade
