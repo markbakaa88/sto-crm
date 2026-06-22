@@ -260,6 +260,7 @@ try {
     Invoke-Checked $python @("-m", "unittest", "discover", "-v")
     Invoke-Checked $python @("-m", "coverage", "run", "--source=sto_crm", "-m", "pytest", "-q")
     Invoke-Checked $python @("-m", "coverage", "report", "--fail-under=80")
+    Invoke-Checked $python @((Join-Path $ProjectRoot "tools\build_frontend_bundle.py"), "--check")
     Invoke-Checked $python @((Join-Path $ProjectRoot "tests\check_frontend_contracts.py"))
     Invoke-Checked $python @("-m", "ruff", "check", ".")
 

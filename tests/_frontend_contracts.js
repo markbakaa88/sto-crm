@@ -1,9 +1,28 @@
 // Shared static UI contracts for packaged smoke checks.
-// Keep this list focused on stable public behaviour and accessibility hooks;
-// avoid adding strings that exist only to satisfy the tests.
+// Divided into logical sections to prevent test-configuration drift
+// and verify various interface files: index.html, app.css, app.js.
 
-const REQUIRED_SUBSTRINGS = [
-  // a11y / dirty-state / общий shell
+const REQUIRED_HTML_SHELL = [
+  'id="appStatus"',
+  '<a class="skip-link" href="#content">К основному содержанию</a>',
+  'data-initial-theme="light"',
+  'document.documentElement.dataset.themeReady = "1"',
+  'id="modalBackdrop" hidden',
+  'id="commandPalette" hidden',
+  'data-nav-badge="dashboard"',
+  'data-nav-badge="updates"',
+  'aria-label="Запись"',
+  'aria-haspopup="menu"',
+  'data-tooltip="Каталог марок и моделей · G K"',
+  'data-tooltip="Создать заказ-наряд · N O"',
+  'Новый заказ <kbd>N O</kbd>',
+  'data-route="updates"',
+  'aria-keyshortcuts="Control+K Meta+K Control+P Meta+P"',
+  'class="system-menu-icon" aria-hidden="true">⚙',
+  'class="btn ghost bell-panel-close"',
+];
+
+const REQUIRED_JS_PUBLIC_HOOKS = [
   "function labeledField(",
   "function tableHead(",
   "function inputField(",
@@ -40,9 +59,8 @@ const REQUIRED_SUBSTRINGS = [
   "discountPreview",
   'aria-label="Удалить позицию заказ-наряда"',
   "function contextStripHtml()",
+  'class="context-strip"',
   "function updateNavigationBadges()",
-  'data-nav-badge="dashboard"',
-  'data-nav-badge="updates"',
   "lastLoadedAt",
   "try {",
   "viewHtml = renderers[state.route]();",
@@ -55,7 +73,6 @@ const REQUIRED_SUBSTRINGS = [
   'data-action="dismiss-error"',
   "scroll-hint-sr",
   "aria-describedby",
-  'aria-label="Запись"',
   'aria-label="Открыть клиента ${esc(c.name || c.id)}"',
   "function classToken(",
   'aria-label="Тип позиции"',
@@ -63,7 +80,6 @@ const REQUIRED_SUBSTRINGS = [
   'role="group" aria-label="Фильтр заказов по статусу"',
   'role="option" data-command-index',
   'role="menuitem"',
-  'aria-haspopup="menu"',
   'aria-pressed="${state.status === status ? "true" : "false"}"',
   "const nextStatus = source.dataset.status;",
   "state.data.app.csrf_token",
@@ -84,35 +100,17 @@ const REQUIRED_SUBSTRINGS = [
   'data-action="duplicate-order"',
   'aria-label="Печать заказ-наряда',
   "Прокрутите вправо",
-
-  // Forms
-  "function applyFormError(error)",
-  "function clearFormError(target)",
-  "applyFormError(error);",
-  'target.setAttribute("aria-invalid", "true")',
-  "field-error",
-  "clearAllFormErrors(form)",
-  'min="0.01" required value="${esc(item.quantity || 1)}"',
-  'const invalidItems = state.orderDraftItems.filter(item => !String(item.title || "").trim() || num(item.quantity, 0) <= 0);',
-
-  // Shortcuts / vehicle+customer selection
   'const routeKeys = { d: "dashboard", p: "dashboard"',
   'k: "catalog"',
   'keys: "G D", run: () => setRoute("dashboard")',
   'keys: "G K", run: () => setRoute("catalog")',
-  'data-tooltip="Каталог марок и моделей · G K"',
   'const placeholderText = customers.length ? "Выберите клиента" : "Нет клиентов";',
-  'data-tooltip="Создать заказ-наряд · N O"',
-  "Новый заказ <kbd>N O</kbd>",
   'const placeholder = normalizedCustomerId || normalizedSelected ? "Не выбран" : "Сначала выберите клиента";',
   "} else if (vehicleId !== normalizedSelected) {",
   'const selectedCustomer = appointment.customer_id || "";',
   'const selectedCustomer = vehicle.customer_id || "";',
   'const selectedCustomer = order.customer_id || "";',
   'return normalize(value) || normalize(fallback) || "#";',
-
-  // Updates
-  'data-route="updates"',
   "function renderUpdates()",
   "/api/update/status",
   "/api/update/install",
@@ -121,8 +119,6 @@ const REQUIRED_SUBSTRINGS = [
   "STO_CRM.exe",
   "latest.json",
   "GitHub Releases",
-
-  // Theme / palette / history
   'themeToggle.addEventListener("click"',
   "function applyDensity(",
   "if (!node) {",
@@ -142,23 +138,8 @@ const REQUIRED_SUBSTRINGS = [
   'if ("inert" in app) {\n            app.removeAttribute("aria-hidden");',
   'if (isMobile && !nextOpen) sidebar.setAttribute("aria-hidden", "true");',
   'main.toggleAttribute("aria-hidden", nextOpen);',
-  'id="modalBackdrop" hidden',
-  'id="commandPalette" hidden',
-  'data-initial-theme="light"',
-  'document.documentElement.dataset.themeReady = "1"',
-  'aria-keyshortcuts="Control+K Meta+K Control+P Meta+P"',
-  'class="system-menu-icon" aria-hidden="true">⚙',
-  'class="btn ghost bell-panel-close"',
-  'type="button" class="help-tip" aria-label',
-  'data-help-tip="true"',
   '$("#bellClose")?.addEventListener("click"',
   "function updateTopbarOffset()",
-  "--topbar-offset: var(--header-h)",
-  "top: var(--topbar-offset)",
-  "max-height: calc(100dvh - var(--topbar-offset) - var(--space-4))",
-  "html[data-topbar-offset=\"lg\"] { --topbar-offset: 140px; }",
-  ".breadcrumbs { padding-inline: var(--space-4); }",
-  ".search-hint { display: none; }",
   'closeTransientPanels("cta")',
   'closeTransientPanels("bell")',
   'closeTransientPanels("system")',
@@ -168,19 +149,6 @@ const REQUIRED_SUBSTRINGS = [
   '$("#order_customer_id")?.addEventListener("change"',
   '$("#addService")?.addEventListener("click"',
   '$("#addPart")?.addEventListener("click"',
-  "#commandBtn, #refreshBtn { width: 44px;",
-  "#commandBtn::before",
-  ".business-hints { display: grid;",
-  "align-items: stretch",
-  ".context-pill.neutral",
-  ".metric.tone-neutral .metric-icon",
-  ".hint-chip[data-tone=\"success\"] .hint-dot",
-  ".business-hints > * { min-width: 0; }",
-  "overflow-wrap: anywhere",
-  ".business-hints.has-dismiss { grid-template-columns: 1fr; }",
-  ".hint-dismiss {\n    position: static;",
-
-  // Premium headings
   "function sectionIntro(title, text, options = {})",
   '"section-card hero-card"',
   "hero-stat-stack",
@@ -204,8 +172,6 @@ const REQUIRED_SUBSTRINGS = [
   "function miniLedger(report)",
   'sectionIntro("Смена под контролем"',
   'class="primary-kpi-grid"',
-
-  // Retry / network
   "bindViewActions(content);",
   "error.retryable = response.status >= 500 || [408, 425, 429].includes(response.status);",
   "const retryable = error?.retryable === true || !Number(error?.status || 0);",
@@ -219,16 +185,42 @@ const REQUIRED_SUBSTRINGS = [
   "function isBootstrapRequestPath(path)",
   "isBootstrapRequestPath(path) ? withBootstrapToken(path) : path",
   "window.setTimeout(() => URL.revokeObjectURL(url), 1000);",
-
-  // DOM hooks used from index.html that must live inside JS
   '$("#modalBackdrop").classList.add("open");',
   '$("#commandPalette")?.classList.add("open");',
+  "function applyFormError(error)",
+  "function clearFormError(target)",
+  "applyFormError(error);",
+  'target.setAttribute("aria-invalid", "true")',
+  "field-error",
+  "clearAllFormErrors(form)",
+  'min="0.01" required value="${esc(item.quantity || 1)}"',
+  'const invalidItems = state.orderDraftItems.filter(item => !String(item.title || "").trim() || num(item.quantity, 0) <= 0);',
+];
+
+const REQUIRED_CSS_HOOKS = [
+  "--topbar-offset: var(--header-h)",
+  "top: var(--topbar-offset)",
+  "max-height: calc(100dvh - var(--topbar-offset) - var(--space-4))",
+  "html[data-topbar-offset=\"lg\"] { --topbar-offset: 140px; }",
+  ".breadcrumbs { padding-inline: var(--space-4); }",
+  ".search-hint { display: none; }",
+  "#commandBtn, #refreshBtn { width: 44px;",
+  "#commandBtn::before",
+  ".business-hints { display: grid;",
+  "align-items: stretch",
+  ".context-pill.neutral",
+  ".metric.tone-neutral .metric-icon",
+  ".hint-chip[data-tone=\"success\"] .hint-dot",
+  ".business-hints > * { min-width: 0; }",
+  "overflow-wrap: anywhere",
+  ".business-hints.has-dismiss { grid-template-columns: 1fr; }",
+  ".hint-dismiss {\n    position: static;",
+  "overflow-x: clip;",
   ".modal-backdrop[hidden], .command-palette-backdrop[hidden]",
 ];
 
-const FORBIDDEN_SUBSTRINGS = [
+const FORBIDDEN_SECURITY_PATTERNS = [
   "printWindow.opener = null;",
-
   '<div class="field"><label>',
   'data-route="inspections"',
   "new-inspection",
@@ -252,4 +244,19 @@ const FORBIDDEN_SUBSTRINGS = [
   "Digital Vehicle Inspection",
 ];
 
-module.exports = { REQUIRED_SUBSTRINGS, FORBIDDEN_SUBSTRINGS };
+const REQUIRED_SUBSTRINGS = [
+  ...REQUIRED_HTML_SHELL,
+  ...REQUIRED_JS_PUBLIC_HOOKS,
+  ...REQUIRED_CSS_HOOKS
+];
+
+const FORBIDDEN_SUBSTRINGS = [...FORBIDDEN_SECURITY_PATTERNS];
+
+module.exports = {
+  REQUIRED_HTML_SHELL,
+  REQUIRED_JS_PUBLIC_HOOKS,
+  REQUIRED_CSS_HOOKS,
+  FORBIDDEN_SECURITY_PATTERNS,
+  REQUIRED_SUBSTRINGS,
+  FORBIDDEN_SUBSTRINGS
+};

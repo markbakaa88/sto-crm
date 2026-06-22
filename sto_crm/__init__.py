@@ -74,6 +74,8 @@ class _StoCrmFacade(types.ModuleType):
     def __getattribute__(self, name: str) -> Any:
         if name == "RUNTIME":
             return runtime.RUNTIME
+        if name == "INDEX_HTML":
+            return web.load_test_index_html()
         return super().__getattribute__(name)
 
     def __setattr__(self, name: str, value: Any) -> None:

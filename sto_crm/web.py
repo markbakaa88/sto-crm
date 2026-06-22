@@ -28,7 +28,12 @@ def _read_asset(name: str) -> str:
 read_asset = _read_asset
 
 
-def load_index_html() -> str:
+# В web.py больше нет константы INDEX_HTML, так как она приводила к drift контрактов.
+# Вместо нее для тестов можно собирать тестовую страницу (bundled HTML с инлайненными CSS/JS)
+# с помощью функции load_test_index_html().
+
+
+def load_test_index_html() -> str:
     template = _read_asset("index.html")
     css = _read_asset("app.css")
     js = _read_asset("app.js")
@@ -41,9 +46,6 @@ def load_index_html() -> str:
         f'<script nonce="__STO_CRM_CSP_NONCE__">{js}</script>',
         1,
     )
-
-
-INDEX_HTML = load_index_html()
 
 
 def index_html() -> str:
