@@ -30,8 +30,8 @@ from . import reports as reports
 from . import runtime as runtime
 from . import seed as seed
 from . import services as services
-from . import updates as updates
 from . import updater as updater
+from . import updates as updates
 from . import validation as validation
 from . import web as web
 
