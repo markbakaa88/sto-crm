@@ -290,3 +290,38 @@ class TestServicesExtra(unittest.TestCase):
         with closing(connect()) as conn:
             with self.assertRaises(KeyError):
                 get_vehicle(conn, 9999)
+
+    def test_services_facade_monkeypatch_isolation_and_cleanup(self):
+        from unittest.mock import Mock
+
+        import sto_crm.database as database
+        import sto_crm.services as services
+        from sto_crm.services import customers, orders
+
+        orig_database_write_db = database.write_db
+        orig_services_write_db = services.write_db
+        orig_customers_write_db = customers.write_db
+
+        mock_write_db = Mock(name="mock_write_db")
+
+        # 1. Patch a legacy symbol on services facade
+        services.write_db = mock_write_db
+
+        # services own property should be updated
+        self.assertIs(services.write_db, mock_write_db)
+        # implementation submodules should receive the patched symbol (since they are service modules)
+        self.assertIs(customers.write_db, mock_write_db)
+        self.assertIs(orders.write_db, mock_write_db)
+        # the original source module SHOULD NOT be mutated (isolation constraint)
+        self.assertIs(database.write_db, orig_database_write_db)
+
+        # 2. Cleanup (delattr)
+        del services.write_db
+
+        # services must restore the original facade value
+        self.assertIs(services.write_db, orig_services_write_db)
+        # submodules must restore original submodules values
+        self.assertIs(customers.write_db, orig_customers_write_db)
+        # the source module must remain untouched
+        self.assertIs(database.write_db, orig_database_write_db)
+

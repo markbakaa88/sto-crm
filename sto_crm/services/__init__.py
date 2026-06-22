@@ -7,11 +7,6 @@ import sys
 import types
 from typing import Any
 
-from sto_crm import config as _config
-from sto_crm import database as _database
-from sto_crm import runtime as _runtime
-from sto_crm import validation as _validation
-
 # Legacy helper imports for backwards compatibility with tests and outer layers
 from sto_crm.config import (
     APPOINTMENT_ACTIVE_STATUSES as APPOINTMENT_ACTIVE_STATUSES,
@@ -198,6 +193,7 @@ from .vehicles import (
     vehicle_order_mileage_source as vehicle_order_mileage_source,
 )
 
+_SENTINEL = object()
 logger = logging.getLogger("sto_crm")
 
 
@@ -206,16 +202,18 @@ class _ServicesFacade(types.ModuleType):
 
     def __setattr__(self, name: str, value: Any) -> None:
         if name != "_originals" and name not in self.__dict__.setdefault("_originals", {}):
-            orig = None
-            # Find the original value to preserve it for cleanup
-            for module in (_appointments, _customers, _inventory, _orders, _vehicles, _validation, _database, _runtime, _config):
+            facade_orig = getattr(self, name, _SENTINEL)
+            modules_orig = {}
+            for module in (_appointments, _customers, _inventory, _orders, _vehicles):
                 if hasattr(module, name):
-                    orig = getattr(module, name)
-                    break
-            self.__dict__["_originals"][name] = orig
+                    modules_orig[module] = getattr(module, name)
+            self.__dict__["_originals"][name] = {
+                "facade": facade_orig,
+                "modules": modules_orig
+            }
 
-        # Route assignments to submodules to sync mock overrides
-        for module in (_appointments, _customers, _inventory, _orders, _vehicles, _validation, _database, _runtime, _config):
+        # Route assignments only to service submodules to sync mock overrides
+        for module in (_appointments, _customers, _inventory, _orders, _vehicles):
             if hasattr(module, name):
                 setattr(module, name, value)
         super().__setattr__(name, value)
@@ -223,21 +221,24 @@ class _ServicesFacade(types.ModuleType):
     def __delattr__(self, name: str) -> None:
         originals = self.__dict__.setdefault("_originals", {})
         if name in originals:
-            orig_val = originals[name]
-            for module in (_appointments, _appointments, _customers, _inventory, _orders, _vehicles, _validation, _database, _runtime, _config):
-                if hasattr(module, name):
-                    if orig_val is None:
-                        try:
-                            delattr(module, name)
-                        except AttributeError:
-                            pass
-                    else:
-                        setattr(module, name, orig_val)
+            orig_data = originals[name]
+            for module, orig_val in orig_data["modules"].items():
+                setattr(module, name, orig_val)
+
+            facade_orig = orig_data["facade"]
             del originals[name]
-        try:
-            super().__delattr__(name)
-        except AttributeError:
-            pass
+            if facade_orig is _SENTINEL:
+                try:
+                    super().__delattr__(name)
+                except AttributeError:
+                    pass
+            else:
+                super().__setattr__(name, facade_orig)
+        else:
+            try:
+                super().__delattr__(name)
+            except AttributeError:
+                pass
 
 
 sys.modules[__name__].__class__ = _ServicesFacade
