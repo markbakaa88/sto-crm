@@ -18,8 +18,6 @@ from sto_crm import updater as _updater
 
 # Explicitly expose functions and variables for static analysis and clean exports
 from sto_crm.backup import (
-    MAX_BACKUP_FILES,
-    MAX_BACKUP_TOTAL_BYTES,
     create_backup,
     ensure_real_backup_dir,
     ensure_real_dir,
@@ -30,6 +28,8 @@ from sto_crm.backup import (
 )
 from sto_crm.config import (
     APP_VERSION,
+    MAX_BACKUP_FILES,
+    MAX_BACKUP_TOTAL_BYTES,
 )
 from sto_crm.database import connect
 from sto_crm.runtime import (

@@ -302,7 +302,7 @@ def csv_export(entity: str) -> tuple[str, Generator[str]]:
                 # Post-process if order
                 if entity == "orders":
                     dict_rows = [_mask_deleted_order_vehicle(r) for r in dict_rows]
-                    attach_items_and_totals(conn, dict_rows)  # type: ignore[arg-type]
+                    attach_items_and_totals(conn, dict_rows)
 
                 for row in dict_rows:
                     writer.writerow(

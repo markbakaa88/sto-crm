@@ -72,6 +72,13 @@ class StoCrmTests(unittest.TestCase):
                 pass
         sto_crm.safe_log = self.old_safe_log
         self.tempdir.cleanup()
+        import sys
+        if "sto_crm.updater" in sys.modules:
+            sys.modules["sto_crm.updater"]._UPDATE_INSTALL_IN_PROGRESS = False
+            sys.modules["sto_crm.updater"]._UPDATE_INSTALL_SCHEDULED = False
+        if "sto_crm.updates" in sys.modules:
+            sys.modules["sto_crm.updates"]._UPDATE_INSTALL_IN_PROGRESS = False
+            sys.modules["sto_crm.updates"]._UPDATE_INSTALL_SCHEDULED = False
 
     def create_customer(self, name):
         return sto_crm.create_customer(

@@ -5,7 +5,7 @@ from __future__ import annotations
 import concurrent.futures
 
 from ..runtime import safe_log
-from . import PartSearchResult
+from . import PartSearchResult, PartsSupplierAdapter
 from .mxgroup import MXGroupAdapter
 from .rossko import RosskoAdapter
 from .tmparts import TMPartsAdapter
@@ -26,9 +26,11 @@ class PartsAggregator:
         """
         results: list[PartSearchResult] = []
 
-        def query_one(adapter) -> list[PartSearchResult]:
+        def query_one(adapter: PartsSupplierAdapter) -> list[PartSearchResult]:
             try:
-                return adapter.search_parts(oem, brand)
+                res = adapter.search_parts(oem, brand)
+                # Cast or slice to satisfy mypy that we are returning list[PartSearchResult]
+                return res
             except Exception as e:
                 safe_log(
                     f"Ошибка при запросе к поставщику {adapter.supplier_name}: {e}"

@@ -6,7 +6,8 @@ from typing import Any
 
 from .config import PARTS_CACHE_TTL_SECONDS
 from .database import db, write_db
-from .parts_api.aggregator import PartsAggregator, PartSearchResult
+from .parts_api import PartSearchResult
+from .parts_api.aggregator import PartsAggregator
 from .runtime import now_iso
 
 
