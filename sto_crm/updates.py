@@ -138,6 +138,9 @@ __all__ = [
 ]
 
 
+_SENTINEL = object()
+
+
 class _UpdatesFacade(types.ModuleType):
     """Facade module proxy that propagates monkeypatching/mocking to submodules."""
 
@@ -155,12 +158,15 @@ class _UpdatesFacade(types.ModuleType):
 
     def __setattr__(self, name: str, value: Any) -> None:
         if name != "_originals" and name not in self.__dict__.setdefault("_originals", {}):
-            orig = None
+            facade_orig = getattr(self, name, _SENTINEL)
+            modules_orig = {}
             for module in (_backup, _updater, _checker, _installer, _runtime, _database):
                 if hasattr(module, name):
-                    orig = getattr(module, name)
-                    break
-            self.__dict__["_originals"][name] = orig
+                    modules_orig[module] = getattr(module, name)
+            self.__dict__["_originals"][name] = {
+                "facade": facade_orig,
+                "modules": modules_orig,
+            }
 
         # Route assignments to submodules to sync mock overrides
         for module in (_backup, _updater, _checker, _installer, _runtime, _database):
@@ -171,21 +177,24 @@ class _UpdatesFacade(types.ModuleType):
     def __delattr__(self, name: str) -> None:
         originals = self.__dict__.setdefault("_originals", {})
         if name in originals:
-            orig_val = originals[name]
-            for module in (_backup, _updater, _checker, _installer, _runtime, _database):
-                if hasattr(module, name):
-                    if orig_val is None:
-                        try:
-                            delattr(module, name)
-                        except AttributeError:
-                            pass
-                    else:
-                        setattr(module, name, orig_val)
+            orig_data = originals[name]
+            for module, orig_val in orig_data["modules"].items():
+                setattr(module, name, orig_val)
+
+            facade_orig = orig_data["facade"]
             del originals[name]
-        try:
-            super().__delattr__(name)
-        except AttributeError:
-            pass
+            if facade_orig is _SENTINEL:
+                try:
+                    super().__delattr__(name)
+                except AttributeError:
+                    pass
+            else:
+                super().__setattr__(name, facade_orig)
+        else:
+            try:
+                super().__delattr__(name)
+            except AttributeError:
+                pass
 
 
 sys.modules[__name__].__class__ = _UpdatesFacade

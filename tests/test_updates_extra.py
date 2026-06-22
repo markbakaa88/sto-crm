@@ -477,3 +477,64 @@ class TestUpdatesWindowsMock(unittest.TestCase):
 
         mock_windll.kernel32.FindFirstFileW.side_effect = find_first_cloud_side_effect
         self.assertFalse(is_unsafe_link_or_reparse(path_mock))
+
+
+class TestUpdatesFacadeRegression(unittest.TestCase):
+    def test_facade_monkeypatch_restoration(self):
+        import sto_crm.updates
+        from sto_crm import backup, updater
+        from sto_crm.updater import installer
+
+        # 1. ensure_real_dir
+        orig_backup_dir = backup.ensure_real_dir
+        orig_installer_dir = installer.ensure_real_dir
+        self.assertIsNot(orig_backup_dir, orig_installer_dir)
+
+        # 2. is_unsafe_link_or_reparse
+        orig_backup_reparse = backup.is_unsafe_link_or_reparse
+        orig_installer_reparse = installer.is_unsafe_link_or_reparse
+        self.assertIsNot(orig_backup_reparse, orig_installer_reparse)
+
+        # 3. _safe_unlink
+        orig_updater_unlink = updater._safe_unlink
+        orig_installer_unlink = installer._safe_unlink
+        self.assertIsNot(orig_updater_unlink, orig_installer_unlink)
+
+        # Apply monkeypatches via facade
+        def dummy_ensure_real_dir(d: Path, n: str) -> None:
+            return None
+
+        def dummy_is_unsafe(p: Path) -> bool:
+            return False
+
+        def dummy_unlink(p: Path) -> None:
+            return None
+
+        sto_crm.updates.ensure_real_dir = dummy_ensure_real_dir
+        sto_crm.updates.is_unsafe_link_or_reparse = dummy_is_unsafe
+        sto_crm.updates._safe_unlink = dummy_unlink
+
+        # Verify they got patched globally on all associated submodules
+        self.assertIs(backup.ensure_real_dir, dummy_ensure_real_dir)
+        self.assertIs(installer.ensure_real_dir, dummy_ensure_real_dir)
+
+        self.assertIs(backup.is_unsafe_link_or_reparse, dummy_is_unsafe)
+        self.assertIs(installer.is_unsafe_link_or_reparse, dummy_is_unsafe)
+
+        self.assertIs(updater._safe_unlink, dummy_unlink)
+        self.assertIs(installer._safe_unlink, dummy_unlink)
+
+        # Delete them from facade
+        del sto_crm.updates.ensure_real_dir
+        del sto_crm.updates.is_unsafe_link_or_reparse
+        del sto_crm.updates._safe_unlink
+
+        # Verify they are restored to their OWN original implementations
+        self.assertIs(backup.ensure_real_dir, orig_backup_dir)
+        self.assertIs(installer.ensure_real_dir, orig_installer_dir)
+
+        self.assertIs(backup.is_unsafe_link_or_reparse, orig_backup_reparse)
+        self.assertIs(installer.is_unsafe_link_or_reparse, orig_installer_reparse)
+
+        self.assertIs(updater._safe_unlink, orig_updater_unlink)
+        self.assertIs(installer._safe_unlink, orig_installer_unlink)
