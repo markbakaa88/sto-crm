@@ -28,6 +28,9 @@ from sto_crm.backup import (
     prune_backups,
     public_backup_payload,
 )
+from sto_crm.config import (
+    APP_VERSION,
+)
 from sto_crm.database import connect
 from sto_crm.runtime import (
     app_executable_path,
@@ -36,6 +39,7 @@ from sto_crm.runtime import (
     user_data_dir,
 )
 from sto_crm.updater import (
+    _finish_update_install,
     append_updater_log,
     install_update_from_github,
     update_status,
@@ -44,6 +48,7 @@ from sto_crm.updater import checker as _checker
 from sto_crm.updater import installer as _installer
 from sto_crm.updater.checker import (
     _content_length,
+    _parse_trusted_update_url,
     fetch_asset_json,
     fetch_json,
     github_headers,
@@ -77,6 +82,7 @@ _UPDATE_INSTALL_IN_PROGRESS = False
 _UPDATE_INSTALL_SCHEDULED = False
 
 __all__ = [
+    "APP_VERSION",
     "MAX_BACKUP_FILES",
     "MAX_BACKUP_TOTAL_BYTES",
     "_UPDATE_INSTALL_IN_PROGRESS",
@@ -84,6 +90,8 @@ __all__ = [
     "Path",
     "_content_length",
     "_database",
+    "_finish_update_install",
+    "_parse_trusted_update_url",
     "_runtime",
     "app_executable_path",
     "append_updater_log",
