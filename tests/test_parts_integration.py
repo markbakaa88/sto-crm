@@ -214,9 +214,7 @@ class TestSupplierPartsIntegration(unittest.TestCase):
             sto_crm.config.ROSSKO_KEY2 = "key2"
 
             mock_response = MagicMock()
-            mock_response.read.return_value = (
-                b'{"success": true, "parts": [{"price": 1000.0}]}'
-            )
+            mock_response.read.return_value = b'{"success": true, "parts": [{"price": 1000.0, "stock": 0}]}'
             mock_urlopen.return_value.__enter__.return_value = mock_response
 
             adapter = RosskoAdapter()
