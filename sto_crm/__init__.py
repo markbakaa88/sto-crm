@@ -16,6 +16,7 @@ import sys
 import types
 from typing import Any
 
+from . import backup as backup
 from . import catalog as catalog
 from . import cli as cli
 from . import config as config
@@ -30,6 +31,7 @@ from . import runtime as runtime
 from . import seed as seed
 from . import services as services
 from . import updates as updates
+from . import updater as updater
 from . import validation as validation
 from . import web as web
 
@@ -43,7 +45,9 @@ _IMPLEMENTATION_MODULES = (
     queries,
     reports,
     export,
+    backup,
     updates,
+    updater,
     printing,
     web,
     http_server,
