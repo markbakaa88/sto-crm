@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import sys
+import threading
 import time
 import urllib.parse
 from dataclasses import dataclass
@@ -500,6 +501,72 @@ def safe_log(message: str) -> None:
         pass
 
 
+class BootstrapTokenRegistry:
+    def __init__(self, default_ttl: float = 300.0) -> None:
+        self.default_ttl = default_ttl
+        self.tokens: dict[str, float] = {}
+        self.consumed_tokens: dict[str, float] = {}
+        self.lock = threading.Lock()
+
+    def generate(self, ttl: float | None = None) -> str:
+        token = secrets.token_urlsafe(32)
+        ttl_val = self.default_ttl if ttl is None else ttl
+        expiry = time.time() + ttl_val
+        with self.lock:
+            self._cleanup_expired_unlocked()
+            self.tokens[token] = expiry
+        return token
+
+    def register(self, token: str, ttl: float | None = None) -> None:
+        ttl_val = self.default_ttl if ttl is None else ttl
+        expiry = time.time() + ttl_val
+        with self.lock:
+            self._cleanup_expired_unlocked()
+            self.tokens[token] = expiry
+
+    def consume(self, token: str) -> bool:
+        now = time.time()
+        with self.lock:
+            self._cleanup_expired_unlocked()
+            if token in self.consumed_tokens:
+                return False
+
+            if token == RUNTIME.bootstrap_token and token not in self.tokens:
+                self.tokens[token] = now + self.default_ttl
+
+            if token not in self.tokens:
+                return False
+
+            expiry = self.tokens[token]
+            if expiry < now:
+                self.tokens.pop(token, None)
+                return False
+
+            self.tokens.pop(token, None)
+            self.consumed_tokens[token] = expiry
+            return True
+
+    def _cleanup_expired_unlocked(self) -> None:
+        now = time.time()
+        expired_t = [t for t, exp in self.tokens.items() if exp < now]
+        for t in expired_t:
+            self.tokens.pop(t, None)
+        expired_c = [t for t, exp in self.consumed_tokens.items() if exp < now]
+        for t in expired_c:
+            self.consumed_tokens.pop(t, None)
+
+
+BOOTSTRAP_REGISTRY = BootstrapTokenRegistry()
+
+
+def generate_bootstrap_token(ttl: float | None = None) -> str:
+    return BOOTSTRAP_REGISTRY.generate(ttl)
+
+
+def consume_bootstrap_token(token: str) -> bool:
+    return BOOTSTRAP_REGISTRY.consume(token)
+
+
 @dataclass(frozen=True)
 class Runtime:
     db_path: Path
@@ -507,6 +574,10 @@ class Runtime:
     csrf_token: str = ""
     access_token: str = ""
     bootstrap_token: str = ""
+
+    def __post_init__(self) -> None:
+        if self.bootstrap_token:
+            BOOTSTRAP_REGISTRY.register(self.bootstrap_token)
 
 
 RUNTIME = Runtime(

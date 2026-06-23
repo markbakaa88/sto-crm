@@ -534,6 +534,84 @@ class TestCoverageEdge(unittest.TestCase):
                 with urllib.request.urlopen(bootstrap_req, timeout=5) as response:
                     self.assertEqual(response.status, 200)
 
+                # 10.5a. POST valid order to /api/orders (MAX_ORDER_ITEMS = 200)
+                import json
+                valid_post_items = [
+                    {"kind": "service", "title": f"Labor {i}", "quantity": 1, "unit_price": 100}
+                    for i in range(200)
+                ]
+                valid_post_data = json.dumps({
+                    "customer_id": 1,
+                    "status": "new",
+                    "priority": "normal",
+                    "items": valid_post_items,
+                }).encode("utf-8")
+                valid_post_req = urllib.request.Request(
+                    f"{base}/api/orders",
+                    method="POST",
+                    headers={
+                        "X-CRM-Access-Token": "test_access",
+                        "X-CSRF-Token": "test_csrf",
+                        "Content-Type": "application/json",
+                    },
+                    data=valid_post_data,
+                )
+                with urllib.request.urlopen(valid_post_req, timeout=5) as response:
+                    self.assertEqual(response.status, 201)
+                    res_body = json.loads(response.read().decode("utf-8"))
+                    self.assertTrue(res_body["id"] > 0)
+                    created_order_id = res_body["id"]
+
+                # 10.5b. POST invalid order to /api/orders (201 items)
+                invalid_post_items = [
+                    {"kind": "service", "title": f"Labor {i}", "quantity": 1, "unit_price": 100}
+                    for i in range(201)
+                ]
+                invalid_post_data = json.dumps({
+                    "customer_id": 1,
+                    "status": "new",
+                    "priority": "normal",
+                    "items": invalid_post_items,
+                }).encode("utf-8")
+                invalid_post_req = urllib.request.Request(
+                    f"{base}/api/orders",
+                    method="POST",
+                    headers={
+                        "X-CRM-Access-Token": "test_access",
+                        "X-CSRF-Token": "test_csrf",
+                        "Content-Type": "application/json",
+                    },
+                    data=invalid_post_data,
+                )
+                with self.assertRaises(urllib.error.HTTPError) as err:
+                    urllib.request.urlopen(invalid_post_req, timeout=5)
+                self.assertEqual(err.exception.code, 400)
+                err_body = json.loads(err.exception.read().decode("utf-8"))
+                self.assertIn("В заказ-наряде не может быть больше 200 позиций.", err_body["error"])
+
+                # 10.5c. PUT invalid order to /api/orders (201 items)
+                invalid_put_data = json.dumps({
+                    "customer_id": 1,
+                    "status": "new",
+                    "priority": "normal",
+                    "items": invalid_post_items,
+                }).encode("utf-8")
+                invalid_put_req = urllib.request.Request(
+                    f"{base}/api/orders/{created_order_id}",
+                    method="PUT",
+                    headers={
+                        "X-CRM-Access-Token": "test_access",
+                        "X-CSRF-Token": "test_csrf",
+                        "Content-Type": "application/json",
+                    },
+                    data=invalid_put_data,
+                )
+                with self.assertRaises(urllib.error.HTTPError) as err:
+                    urllib.request.urlopen(invalid_put_req, timeout=5)
+                self.assertEqual(err.exception.code, 400)
+                err_body = json.loads(err.exception.read().decode("utf-8"))
+                self.assertIn("В заказ-наряде не может быть больше 200 позиций.", err_body["error"])
+
                 # 11. POST /api/shutdown -> 200 и сервер выключается
                 shutdown_req = urllib.request.Request(
                     f"{base}/api/shutdown",

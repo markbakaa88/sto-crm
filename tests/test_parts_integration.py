@@ -617,6 +617,12 @@ class TestSupplierPartsIntegration(unittest.TestCase):
             mock_mx.assert_not_called()
             mock_tm.assert_not_called()
 
+            # Set cache stamp in the past to satisfy the > 5.0 seconds check
+            from datetime import datetime, timedelta
+            past_time = (datetime.now() - timedelta(seconds=10)).isoformat()
+            with write_db() as conn:
+                conn.execute("UPDATE supplier_parts_cache SET cached_at = ?", (past_time,))
+
             # 3. Search with force_refresh=True: it should force adapter query (MISS logic)
             res3 = search_supplier_parts("555", "CTR", force_refresh=True)
             self.assertEqual(len(res3), 1)

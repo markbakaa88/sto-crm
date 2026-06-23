@@ -50,4 +50,5 @@ def load_test_index_html() -> str:
 
 def index_html() -> str:
     html = _read_asset("index.html")
-    return html.replace("__STO_CRM_BOOTSTRAP_TOKEN__", _runtime.RUNTIME.bootstrap_token)
+    token = _runtime.generate_bootstrap_token()
+    return html.replace("__STO_CRM_BOOTSTRAP_TOKEN__", token)

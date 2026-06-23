@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from .config import PARTS_CACHE_TTL_SECONDS
@@ -9,6 +10,13 @@ from .database import db, write_db
 from .parts_api import PartSearchResult
 from .parts_api.aggregator import PartsAggregator
 from .runtime import now_iso
+
+_LOCKS = [threading.Lock() for _ in range(1024)]
+
+
+def get_lock_for_query(oem: str, brand: str | None) -> threading.Lock:
+    h = hash((oem, brand))
+    return _LOCKS[h % 1024]
 
 
 def search_supplier_parts(
@@ -22,41 +30,43 @@ def search_supplier_parts(
     oem_clean = oem.strip().upper()
     brand_clean = brand.strip().upper() if brand else None
 
-    # Check database cache first
-    cached_results = _get_cached_parts(oem_clean, brand_clean)
-    if cached_results and not force_refresh:
-        # Check if the cache is expired (TTL 2 hours)
-        # All items for this oem+brand must have the same cached_at tag, we check the first one.
-        from datetime import datetime
+    lock = get_lock_for_query(oem_clean, brand_clean)
+    with lock:
+        # Check database cache first
+        cached_results = _get_cached_parts(oem_clean, brand_clean)
+        if cached_results:
+            from datetime import datetime
 
-        try:
-            cached_at_str = cached_results[0]["cached_at"]
-            cached_at = datetime.fromisoformat(cached_at_str)
-            age = (datetime.now() - cached_at).total_seconds()
-            if age < PARTS_CACHE_TTL_SECONDS:
-                return [
-                    {
-                        "oem": r["oem"],
-                        "brand": r["brand"],
-                        "name": r["name"],
-                        "price": r["price"],
-                        "stock": r["stock"],
-                        "delivery_days": r["delivery_days"],
-                        "supplier": r["supplier"],
-                    }
-                    for r in cached_results
-                ]
-        except Exception:
-            pass  # fallback to refresh
+            try:
+                cached_at_str = cached_results[0]["cached_at"]
+                cached_at = datetime.fromisoformat(cached_at_str)
+                age = (datetime.now() - cached_at).total_seconds()
+                # Coalesce concurrent requests: if cache was updated < 5 seconds ago,
+                # reuse it even if force_refresh is True.
+                if age < PARTS_CACHE_TTL_SECONDS and (not force_refresh or age < 5.0):
+                    return [
+                        {
+                            "oem": r["oem"],
+                            "brand": r["brand"],
+                            "name": r["name"],
+                            "price": r["price"],
+                            "stock": r["stock"],
+                            "delivery_days": r["delivery_days"],
+                            "supplier": r["supplier"],
+                        }
+                        for r in cached_results
+                    ]
+            except Exception:
+                pass  # fallback to refresh
 
-    # Query API providers
-    aggregator = PartsAggregator()
-    api_items = aggregator.query_all(oem_clean, brand_clean)
+        # Query API providers
+        aggregator = PartsAggregator()
+        api_items = aggregator.query_all(oem_clean, brand_clean)
 
-    # Store them in cache database
-    _update_parts_cache(oem_clean, brand_clean, api_items)
+        # Store them in cache database
+        _update_parts_cache(oem_clean, brand_clean, api_items)
 
-    return api_items
+        return api_items
 
 
 def place_supplier_order(

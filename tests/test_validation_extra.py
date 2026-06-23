@@ -959,3 +959,47 @@ class TestValidationExtra(unittest.TestCase):
             self.assertEqual(active_appointment_count_for_vehicle(conn, 10), 2)
         finally:
             conn.close()
+
+    def test_validate_order_items_limit(self):
+        from sto_crm.config import MAX_ORDER_ITEMS
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            "CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT, deleted_at TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO customers (id, name, deleted_at) VALUES (1, 'Customer', NULL)"
+        )
+        try:
+            # order at the limit should pass (e.g. 200 items)
+            valid_items = [
+                {"kind": "service", "title": f"Labor {i}", "quantity": 1, "unit_price": 100}
+                for i in range(MAX_ORDER_ITEMS)
+            ]
+            valid_payload = {
+                "customer_id": 1,
+                "status": "new",
+                "priority": "normal",
+                "items": valid_items,
+            }
+            # validate_order should succeed and return items list
+            res = validate_order(conn, valid_payload)
+            self.assertEqual(len(res["items"]), MAX_ORDER_ITEMS)
+
+            # order with MAX_ORDER_ITEMS + 1 should fail
+            invalid_items = [
+                {"kind": "service", "title": f"Labor {i}", "quantity": 1, "unit_price": 100}
+                for i in range(MAX_ORDER_ITEMS + 1)
+            ]
+            invalid_payload = {
+                "customer_id": 1,
+                "status": "new",
+                "priority": "normal",
+                "items": invalid_items,
+            }
+            with self.assertRaisesRegex(
+                ValueError, f"В заказ-наряде не может быть больше {MAX_ORDER_ITEMS} позиций"
+            ):
+                validate_order(conn, invalid_payload)
+        finally:
+            conn.close()

@@ -14,6 +14,7 @@ from .config import (
     EMAIL_RE,
     ITEM_APPROVAL_STATUSES,
     MAX_FINANCIAL_TOTAL,
+    MAX_ORDER_ITEMS,
     MIN_QUANTITY_STEP,
     ORDER_PRIORITIES,
     ORDER_STATUSES,
@@ -255,6 +256,8 @@ def validate_order(
     raw_items = payload.get("items") or []
     if not isinstance(raw_items, list):
         raise ValueError("Позиции заказ-наряда должны быть списком.")
+    if len(raw_items) > MAX_ORDER_ITEMS:
+        raise ValueError(f"В заказ-наряде не может быть больше {MAX_ORDER_ITEMS} позиций.")
 
     # Pre-fetch inventory records to avoid N+1 query loop in validate_order_item
     parts_map = {}

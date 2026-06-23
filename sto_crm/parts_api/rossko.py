@@ -37,9 +37,10 @@ class RosskoAdapter(PartsSupplierAdapter):
         req_data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(url, data=req_data, headers=headers, method="POST")
         try:
+            from ..runtime import strict_json_loads
             with urllib.request.urlopen(req, timeout=config.PARTS_API_TIMEOUT) as resp:
                 resp_payload = resp.read()
-                return json.loads(resp_payload.decode("utf-8"))
+                return strict_json_loads(resp_payload.decode("utf-8"))
         except Exception as e:
             # Propagate or log
             raise RuntimeError(f"Rossko API Error: {e}") from e
@@ -63,18 +64,13 @@ class RosskoAdapter(PartsSupplierAdapter):
 
             parts = result.get("parts", [])
             results: list[PartSearchResult] = []
+            from . import sanitize_part_search_result
             for p in parts:
-                results.append(
-                    {
-                        "oem": str(p.get("oem", oem)),
-                        "brand": str(p.get("brand", brand or "")),
-                        "name": str(p.get("name", "Запчасть Rossko")),
-                        "price": float(p.get("price", 0.0)),
-                        "stock": int(p.get("stock", 0)),
-                        "delivery_days": int(p.get("delivery_days", 1)),
-                        "supplier": self.supplier_name,
-                    }
+                sanitized = sanitize_part_search_result(
+                    p, self.supplier_name, oem, brand or ""
                 )
+                if sanitized is not None:
+                    results.append(sanitized)
             return results
         except Exception:
             return []

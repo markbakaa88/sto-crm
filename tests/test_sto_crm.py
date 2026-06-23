@@ -5,6 +5,7 @@ import io
 import json
 import math
 import os
+import re
 import socket
 import sqlite3
 import tempfile
@@ -1707,9 +1708,11 @@ class StoCrmTests(unittest.TestCase):
                 self.assertIn("style-src 'self' 'nonce-", csp)
                 self.assertIn("'unsafe-inline'", csp)
                 self.assertIn('<link rel="stylesheet" href="/assets/app.css">', body)
-                self.assertIn(
-                    f'data-bootstrap-token="{sto_crm.RUNTIME.bootstrap_token}"', body
-                )
+                match = re.search(r'data-bootstrap-token="([^"]+)"', body)
+                self.assertIsNotNone(match)
+                tok = match.group(1)
+                self.assertTrue(tok)
+                self.assertTrue(sto_crm.consume_bootstrap_token(tok))
                 self.assertNotIn("?bootstrap_token=", body)
                 self.assertEqual(response.headers["X-Frame-Options"], "DENY")
                 self.assertNotIn("Python", response.headers["Server"])
@@ -4600,6 +4603,65 @@ class StoCrmTests(unittest.TestCase):
         self.assertIn(
             "tr { page-break-inside: avoid; break-inside: avoid; }", print_html
         )
+
+    def test_bootstrap_token_one_time_and_ttl_bound(self):
+        server = sto_crm.CRMServer(("127.0.0.1", 0), sto_crm.CRMHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        try:
+            with urllib.request.urlopen(f"{base}/", timeout=5) as response:
+                body = response.read().decode("utf-8")
+
+            match = re.search(r'data-bootstrap-token="([^"]+)"', body)
+            self.assertIsNotNone(match)
+            token = match.group(1)
+            self.assertTrue(token)
+
+            # Первый обмен -> 200
+            with urllib.request.urlopen(f"{base}/api/bootstrap?bootstrap_token={token}", timeout=5) as response:
+                self.assertEqual(response.status, 200)
+                json.loads(response.read().decode("utf-8"))
+
+            # Повтор тем же token -> 403
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                urllib.request.urlopen(f"{base}/api/bootstrap?bootstrap_token={token}", timeout=5)
+            self.assertEqual(error.exception.code, 403)
+            error.exception.close()
+
+            # Новый shell после replay-fail выдаёт другой token, он обменивается -> 200
+            with urllib.request.urlopen(f"{base}/", timeout=5) as response:
+                body_2 = response.read().decode("utf-8")
+            match_2 = re.search(r'data-bootstrap-token="([^"]+)"', body_2)
+            self.assertIsNotNone(match_2)
+            token_2 = match_2.group(1)
+            self.assertTrue(token_2)
+            self.assertNotEqual(token, token_2)
+
+            with urllib.request.urlopen(f"{base}/api/bootstrap?bootstrap_token={token_2}", timeout=5) as response:
+                self.assertEqual(response.status, 200)
+
+            # Expired token -> 403
+            with urllib.request.urlopen(f"{base}/", timeout=5) as response:
+                body_3 = response.read().decode("utf-8")
+            match_3 = re.search(r'data-bootstrap-token="([^"]+)"', body_3)
+            token_3 = match_3.group(1)
+
+            with sto_crm.runtime.BOOTSTRAP_REGISTRY.lock:
+                sto_crm.runtime.BOOTSTRAP_REGISTRY.tokens[token_3] = time.time() - 10
+
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                urllib.request.urlopen(f"{base}/api/bootstrap?bootstrap_token={token_3}", timeout=5)
+            self.assertEqual(error.exception.code, 403)
+            error.exception.close()
+
+            # shell body не содержит ?bootstrap_token=
+            self.assertNotIn("?bootstrap_token=", body)
+            self.assertNotIn("?bootstrap_token=", body_2)
+            self.assertNotIn("?bootstrap_token=", body_3)
+        finally:
+            server.shutdown()
+            server.server_close()
 
 
 if __name__ == "__main__":

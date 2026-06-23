@@ -6198,13 +6198,17 @@ function openOrderModal(order = {}) {
     });
     $("#addService")?.addEventListener("click", event => {
         if (state.orderDraftReadOnly || state.saving) return;
+        if (state.orderDraftItems.length >= 200) {
+            toast("В заказ-наряде не может быть больше 200 позиций.", "error");
+            return;
+        }
         const btn = event.currentTarget;
         if (btn.disabled || btn.dataset.debounced === "true") return;
         btn.dataset.debounced = "true";
         btn.disabled = true;
         btn.setAttribute("aria-busy", "true");
         setTimeout(() => {
-            if (!state.orderDraftReadOnly) {
+            if (!state.orderDraftReadOnly && state.orderDraftItems.length < 200) {
                 btn.disabled = false;
                 btn.setAttribute("aria-busy", "false");
             }
@@ -6216,13 +6220,17 @@ function openOrderModal(order = {}) {
     });
     $("#addPart")?.addEventListener("click", event => {
         if (state.orderDraftReadOnly || state.saving) return;
+        if (state.orderDraftItems.length >= 200) {
+            toast("В заказ-наряде не может быть больше 200 позиций.", "error");
+            return;
+        }
         const btn = event.currentTarget;
         if (btn.disabled || btn.dataset.debounced === "true") return;
         btn.dataset.debounced = "true";
         btn.disabled = true;
         btn.setAttribute("aria-busy", "true");
         setTimeout(() => {
-            if (!state.orderDraftReadOnly) {
+            if (!state.orderDraftReadOnly && state.orderDraftItems.length < 200) {
                 btn.disabled = false;
                 btn.setAttribute("aria-busy", "false");
             }
@@ -6295,6 +6303,21 @@ function renderOrderItems() {
         });
     });
     updateScrollHints(host);
+    const atLimit = (state.orderDraftItems || []).length >= 200;
+    const isReadOnly = state.orderDraftReadOnly;
+    ["#addService", "#addPart", "#addSupplierPart"].forEach(sel => {
+        const btn = $(sel);
+        if (btn) {
+            btn.disabled = isReadOnly || atLimit;
+            if (atLimit && !isReadOnly) {
+                btn.setAttribute("aria-disabled", "true");
+                btn.setAttribute("title", "В заказ-наряде не может быть больше 200 позиций.");
+            } else {
+                btn.removeAttribute("aria-disabled");
+                btn.removeAttribute("title");
+            }
+        }
+    });
 }
 
 function handleTableKeydown(event) {
@@ -6726,6 +6749,10 @@ function renderPartsLookupResults(parts) {
 
 function selectSupplierPart(event) {
     if (state.orderDraftReadOnly) return;
+    if (state.orderDraftItems.length >= 200) {
+        toast("В заказ-наряде не может быть больше 200 позиций.", "error");
+        return;
+    }
     const btn = event.currentTarget;
     const oem = btn.dataset.partOem;
     const brand = btn.dataset.partBrand;

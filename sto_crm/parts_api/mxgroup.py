@@ -31,9 +31,10 @@ class MXGroupAdapter(PartsSupplierAdapter):
             method="POST" if data is not None else "GET",
         )
         try:
+            from ..runtime import strict_json_loads
             with urllib.request.urlopen(req, timeout=config.PARTS_API_TIMEOUT) as resp:
                 resp_payload = resp.read()
-                return json.loads(resp_payload.decode("utf-8"))
+                return strict_json_loads(resp_payload.decode("utf-8"))
         except Exception as e:
             raise RuntimeError(f"MX Group API Error: {e}") from e
 
@@ -55,18 +56,13 @@ class MXGroupAdapter(PartsSupplierAdapter):
 
             items = result.get("items", [])
             results: list[PartSearchResult] = []
+            from . import sanitize_part_search_result
             for item in items:
-                results.append(
-                    {
-                        "oem": str(item.get("oem", oem)),
-                        "brand": str(item.get("brand", brand or "")),
-                        "name": str(item.get("name", "Запчасть MX Group")),
-                        "price": float(item.get("price", 0.0)),
-                        "stock": int(item.get("quantity", 0)),
-                        "delivery_days": int(item.get("days", 1)),
-                        "supplier": self.supplier_name,
-                    }
+                sanitized = sanitize_part_search_result(
+                    item, self.supplier_name, oem, brand or ""
                 )
+                if sanitized is not None:
+                    results.append(sanitized)
             return results
         except Exception:
             return []
