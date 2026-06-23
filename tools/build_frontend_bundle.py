@@ -33,13 +33,18 @@ def get_ordered_modules() -> list[Path]:
         sys.exit(1)
 
     if not isinstance(files, list):
-        print(f"ERROR: Манифест {MANIFEST_FILE} должен содержать массив строк.", file=sys.stderr)
+        print(
+            f"ERROR: Манифест {MANIFEST_FILE} должен содержать массив строк.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     paths = []
     for item in files:
         if not isinstance(item, str):
-            print(f"ERROR: Элемент манифеста {item} не является строкой.", file=sys.stderr)
+            print(
+                f"ERROR: Элемент манифеста {item} не является строкой.", file=sys.stderr
+            )
             sys.exit(1)
         mod_path = JS_DIR / item
         if not mod_path.is_file():
@@ -79,7 +84,10 @@ def main() -> int:
             return 1
         current = APP_JS.read_text(encoding="utf-8")
         if current.strip() != generated.strip():
-            print("ERROR: app.js не совпадает с генерируемым бандлом! Выполните сборку без флага --check.", file=sys.stderr)
+            print(
+                "ERROR: app.js не совпадает с генерируемым бандлом! Выполните сборку без флага --check.",
+                file=sys.stderr,
+            )
             return 1
         print("OK: app.js полностью соответствует исходным модулям.")
         return 0

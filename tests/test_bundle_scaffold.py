@@ -29,7 +29,9 @@ class TestBundleScaffold(unittest.TestCase):
 
         try:
             # 2. Модифицируем runtime app.js
-            APP_JS.write_text(app_js_original + "\n// drift probe comment\n", encoding="utf-8")
+            APP_JS.write_text(
+                app_js_original + "\n// drift probe comment\n", encoding="utf-8"
+            )
             res_drift_app = subprocess.run(
                 [sys.executable, str(BUNDLE_SCRIPT), "--check"],
                 capture_output=True,
@@ -45,7 +47,9 @@ class TestBundleScaffold(unittest.TestCase):
             APP_JS.write_text(app_js_original, encoding="utf-8")
 
             # 3. Модифицируем исходный модуль source js
-            SOURCE_JS.write_text(src_js_original + "\n// drift source comment\n", encoding="utf-8")
+            SOURCE_JS.write_text(
+                src_js_original + "\n// drift source comment\n", encoding="utf-8"
+            )
             res_drift_src = subprocess.run(
                 [sys.executable, str(BUNDLE_SCRIPT), "--check"],
                 capture_output=True,
@@ -90,5 +94,9 @@ sys.exit(mod.main())
             text=True,
             cwd=str(ROOT),
         )
-        self.assertEqual(res.returncode, 1, "check_frontend_contracts.py should fail when load_test_index_html is empty")
+        self.assertEqual(
+            res.returncode,
+            1,
+            "check_frontend_contracts.py should fail when load_test_index_html is empty",
+        )
         self.assertIn("[MISSING LEGACY BUNDLE]", res.stdout)

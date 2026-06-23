@@ -122,7 +122,7 @@ def main() -> int:
     # Также проверим legacy/test bundle для уверенности сохранности обратной совместимости
     legacy_bundle = load_test_index_html()
     missing_legacy = []
-    for s in (required_html + required_js + required_css):
+    for s in required_html + required_js + required_css:
         if s not in legacy_bundle:
             missing_legacy.append(s)
 

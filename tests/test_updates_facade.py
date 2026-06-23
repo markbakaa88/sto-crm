@@ -58,3 +58,54 @@ class TestUpdatesFacadeMonkeypatch(unittest.TestCase):
         self.assertIs(_updater.app_executable_path, orig_updater_func)
         self.assertIs(_installer.app_executable_path, orig_installer_func)
         self.assertIs(_runtime.app_executable_path, orig_runtime_func)
+
+    def test_regression_ensure_real_dir_restoration(self):
+        # ensure_real_dir exists in both sto_crm.backup and sto_crm.updater.installer
+        orig_backup_dir = _backup.ensure_real_dir
+        orig_installer_dir = _installer.ensure_real_dir
+        self.assertIsNot(orig_backup_dir, orig_installer_dir)
+
+        mock_func = MagicMock()
+        updates.ensure_real_dir = mock_func
+
+        self.assertIs(_backup.ensure_real_dir, mock_func)
+        self.assertIs(_installer.ensure_real_dir, mock_func)
+
+        del updates.ensure_real_dir
+
+        self.assertIs(_backup.ensure_real_dir, orig_backup_dir)
+        self.assertIs(_installer.ensure_real_dir, orig_installer_dir)
+
+    def test_regression_is_unsafe_link_or_reparse_restoration(self):
+        # is_unsafe_link_or_reparse exists in sto_crm.backup and sto_crm.updater.installer
+        orig_backup_reparse = _backup.is_unsafe_link_or_reparse
+        orig_installer_reparse = _installer.is_unsafe_link_or_reparse
+        self.assertIsNot(orig_backup_reparse, orig_installer_reparse)
+
+        mock_func = MagicMock()
+        updates.is_unsafe_link_or_reparse = mock_func
+
+        self.assertIs(_backup.is_unsafe_link_or_reparse, mock_func)
+        self.assertIs(_installer.is_unsafe_link_or_reparse, mock_func)
+
+        del updates.is_unsafe_link_or_reparse
+
+        self.assertIs(_backup.is_unsafe_link_or_reparse, orig_backup_reparse)
+        self.assertIs(_installer.is_unsafe_link_or_reparse, orig_installer_reparse)
+
+    def test_regression_safe_unlink_restoration(self):
+        # _safe_unlink exists in sto_crm.updater and sto_crm.updater.installer
+        orig_updater_unlink = _updater._safe_unlink
+        orig_installer_unlink = _installer._safe_unlink
+        self.assertIsNot(orig_updater_unlink, orig_installer_unlink)
+
+        mock_func = MagicMock()
+        updates._safe_unlink = mock_func
+
+        self.assertIs(_updater._safe_unlink, mock_func)
+        self.assertIs(_installer._safe_unlink, mock_func)
+
+        delattr(updates, "_safe_unlink")
+
+        self.assertIs(_updater._safe_unlink, orig_updater_unlink)
+        self.assertIs(_installer._safe_unlink, orig_installer_unlink)

@@ -82,7 +82,9 @@ class _StoCrmFacade(types.ModuleType):
     def __setattr__(self, name: str, value: Any) -> None:
         if name == "RUNTIME":
             runtime.RUNTIME = value
-        if name != "_originals" and name not in self.__dict__.setdefault("_originals", {}):
+        if name != "_originals" and name not in self.__dict__.setdefault(
+            "_originals", {}
+        ):
             # Pre-record sub-facades first using their current values before first mutation
             for m in _IMPLEMENTATION_MODULES:
                 if type(m) is not types.ModuleType:
