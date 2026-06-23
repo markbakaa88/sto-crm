@@ -369,4 +369,3 @@ def test_close_all_connections_keeps_tracking_on_failure(patch_db_path):
         pass
     with sto_crm.database.connection._open_connections_lock:
         _open_connections.discard(conn)
-
