@@ -160,7 +160,7 @@ class _UpdatesFacade(types.ModuleType):
         if name != "_originals" and name not in self.__dict__.setdefault("_originals", {}):
             facade_orig = self.__dict__.get(name, _SENTINEL)
             modules_orig = {}
-            for module in (_backup, _updater, _checker, _installer, _runtime, _database):
+            for module in (_backup, _updater, _checker, _installer):
                 if hasattr(module, name):
                     modules_orig[module] = getattr(module, name)
             self.__dict__["_originals"][name] = {
@@ -169,7 +169,7 @@ class _UpdatesFacade(types.ModuleType):
             }
 
         # Route assignments to submodules to sync mock overrides
-        for module in (_backup, _updater, _checker, _installer, _runtime, _database):
+        for module in (_backup, _updater, _checker, _installer):
             if hasattr(module, name):
                 setattr(module, name, value)
         super().__setattr__(name, value)
