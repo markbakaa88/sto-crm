@@ -534,11 +534,13 @@ class TestCoverageEdge(unittest.TestCase):
                 with urllib.request.urlopen(bootstrap_req, timeout=5) as response:
                     self.assertEqual(response.status, 200)
 
-                # 10.5a. POST valid order to /api/orders (MAX_ORDER_ITEMS = 200)
+                # 10.5a. POST valid order to /api/orders (MAX_ORDER_ITEMS limit)
                 import json
+
+                from sto_crm.config import MAX_ORDER_ITEMS
                 valid_post_items = [
                     {"kind": "service", "title": f"Labor {i}", "quantity": 1, "unit_price": 100}
-                    for i in range(200)
+                    for i in range(MAX_ORDER_ITEMS)
                 ]
                 valid_post_data = json.dumps({
                     "customer_id": 1,
@@ -562,10 +564,10 @@ class TestCoverageEdge(unittest.TestCase):
                     self.assertTrue(res_body["id"] > 0)
                     created_order_id = res_body["id"]
 
-                # 10.5b. POST invalid order to /api/orders (201 items)
+                # 10.5b. POST invalid order to /api/orders (MAX_ORDER_ITEMS + 1 items)
                 invalid_post_items = [
                     {"kind": "service", "title": f"Labor {i}", "quantity": 1, "unit_price": 100}
-                    for i in range(201)
+                    for i in range(MAX_ORDER_ITEMS + 1)
                 ]
                 invalid_post_data = json.dumps({
                     "customer_id": 1,
@@ -587,9 +589,9 @@ class TestCoverageEdge(unittest.TestCase):
                     urllib.request.urlopen(invalid_post_req, timeout=5)
                 self.assertEqual(err.exception.code, 400)
                 err_body = json.loads(err.exception.read().decode("utf-8"))
-                self.assertIn("В заказ-наряде не может быть больше 200 позиций.", err_body["error"])
+                self.assertIn(f"В заказ-наряде не может быть больше {MAX_ORDER_ITEMS} позиций.", err_body["error"])
 
-                # 10.5c. PUT invalid order to /api/orders (201 items)
+                # 10.5c. PUT invalid order to /api/orders (MAX_ORDER_ITEMS + 1 items)
                 invalid_put_data = json.dumps({
                     "customer_id": 1,
                     "status": "new",
@@ -610,7 +612,7 @@ class TestCoverageEdge(unittest.TestCase):
                     urllib.request.urlopen(invalid_put_req, timeout=5)
                 self.assertEqual(err.exception.code, 400)
                 err_body = json.loads(err.exception.read().decode("utf-8"))
-                self.assertIn("В заказ-наряде не может быть больше 200 позиций.", err_body["error"])
+                self.assertIn(f"В заказ-наряде не может быть больше {MAX_ORDER_ITEMS} позиций.", err_body["error"])
 
                 # 11. POST /api/shutdown -> 200 и сервер выключается
                 shutdown_req = urllib.request.Request(
