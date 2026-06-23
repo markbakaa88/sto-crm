@@ -1,3 +1,5 @@
+// STO CRM Generated Bundle - DO NOT EDIT DIRECTLY
+// === Module: app.js ===
 
 
 "use strict";
@@ -139,6 +141,7 @@ const safeLocalStorage = new SafeLocalStorage();
 const BOOTSTRAP_CACHE_KEY = "sto-crm-bootstrap";
 const BOOTSTRAP_CACHE_SCHEMA_VERSION = 2;
 const BOOTSTRAP_CACHE_TTL_MS = 30 * 60 * 1000;
+const MAX_ORDER_ITEMS = 200;
 const EXPORT_ENTITIES = new Set(["appointments", "orders", "customers", "vehicles", "inventory", "catalog"]);
 const ENTITY_COLLECTION_PATHS = Object.freeze({
     appointments: "/api/appointments",
@@ -6198,8 +6201,8 @@ function openOrderModal(order = {}) {
     });
     $("#addService")?.addEventListener("click", event => {
         if (state.orderDraftReadOnly || state.saving) return;
-        if (state.orderDraftItems.length >= 200) {
-            toast("В заказ-наряде не может быть больше 200 позиций.", "error");
+        if (state.orderDraftItems.length >= MAX_ORDER_ITEMS) {
+            toast("В заказ-наряде не может быть больше " + MAX_ORDER_ITEMS + " позиций.", "error");
             return;
         }
         const btn = event.currentTarget;
@@ -6208,7 +6211,7 @@ function openOrderModal(order = {}) {
         btn.disabled = true;
         btn.setAttribute("aria-busy", "true");
         setTimeout(() => {
-            if (!state.orderDraftReadOnly && state.orderDraftItems.length < 200) {
+            if (!state.orderDraftReadOnly && state.orderDraftItems.length < MAX_ORDER_ITEMS) {
                 btn.disabled = false;
                 btn.setAttribute("aria-busy", "false");
             }
@@ -6220,8 +6223,8 @@ function openOrderModal(order = {}) {
     });
     $("#addPart")?.addEventListener("click", event => {
         if (state.orderDraftReadOnly || state.saving) return;
-        if (state.orderDraftItems.length >= 200) {
-            toast("В заказ-наряде не может быть больше 200 позиций.", "error");
+        if (state.orderDraftItems.length >= MAX_ORDER_ITEMS) {
+            toast("В заказ-наряде не может быть больше " + MAX_ORDER_ITEMS + " позиций.", "error");
             return;
         }
         const btn = event.currentTarget;
@@ -6230,7 +6233,7 @@ function openOrderModal(order = {}) {
         btn.disabled = true;
         btn.setAttribute("aria-busy", "true");
         setTimeout(() => {
-            if (!state.orderDraftReadOnly && state.orderDraftItems.length < 200) {
+            if (!state.orderDraftReadOnly && state.orderDraftItems.length < MAX_ORDER_ITEMS) {
                 btn.disabled = false;
                 btn.setAttribute("aria-busy", "false");
             }
@@ -6303,7 +6306,7 @@ function renderOrderItems() {
         });
     });
     updateScrollHints(host);
-    const atLimit = (state.orderDraftItems || []).length >= 200;
+    const atLimit = (state.orderDraftItems || []).length >= MAX_ORDER_ITEMS;
     const isReadOnly = state.orderDraftReadOnly;
     ["#addService", "#addPart", "#addSupplierPart"].forEach(sel => {
         const btn = $(sel);
@@ -6311,7 +6314,7 @@ function renderOrderItems() {
             btn.disabled = isReadOnly || atLimit;
             if (atLimit && !isReadOnly) {
                 btn.setAttribute("aria-disabled", "true");
-                btn.setAttribute("title", "В заказ-наряде не может быть больше 200 позиций.");
+                btn.setAttribute("title", "В заказ-наряде не может быть больше " + MAX_ORDER_ITEMS + " позиций.");
             } else {
                 btn.removeAttribute("aria-disabled");
                 btn.removeAttribute("title");
@@ -6749,8 +6752,8 @@ function renderPartsLookupResults(parts) {
 
 function selectSupplierPart(event) {
     if (state.orderDraftReadOnly) return;
-    if (state.orderDraftItems.length >= 200) {
-        toast("В заказ-наряде не может быть больше 200 позиций.", "error");
+    if (state.orderDraftItems.length >= MAX_ORDER_ITEMS) {
+        toast("В заказ-наряде не может быть больше " + MAX_ORDER_ITEMS + " позиций.", "error");
         return;
     }
     const btn = event.currentTarget;
