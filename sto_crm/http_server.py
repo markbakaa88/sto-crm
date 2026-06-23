@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import sqlite3
 import sys
 import threading
 import time
@@ -64,7 +65,6 @@ class CRMHandler(BaseAPIHandler):
             self.discard_untrusted_request_body()
 
     def handle_request(self, method: str) -> None:
-        import sqlite3
         graceful = getattr(self.server, "graceful_shutdown_flag", False)
         if graceful and not isinstance(graceful, bool):
             graceful = False
