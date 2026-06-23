@@ -1,3 +1,5 @@
+// STO CRM Generated Bundle - DO NOT EDIT DIRECTLY
+// === Module: app.js ===
 
 
 "use strict";
