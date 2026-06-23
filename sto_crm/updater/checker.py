@@ -263,9 +263,31 @@ def normalize_release_asset(
     name = clean_text(
         asset.get("name") or (manifest_asset or {}).get("name") or "STO_CRM.exe", 180
     )
-    size = parse_int(asset.get("size") or (manifest_asset or {}).get("size"))
-    if size < 0:
-        raise RuntimeError("Manifest обновления содержит некорректный размер файла.")
+
+    size_raw = asset.get("size") or (manifest_asset or {}).get("size")
+    size = None
+    if size_raw is not None and size_raw != "":
+        try:
+            if isinstance(size_raw, (int, float)):
+                size = int(size_raw)
+            else:
+                cleaned_size = str(size_raw).replace(" ", "").replace("\xa0", "").strip()
+                if re.fullmatch(r"[+-]?\d+", cleaned_size):
+                    size = int(cleaned_size)
+                else:
+                    raise ValueError()
+        except (ValueError, TypeError, OverflowError) as exc:
+            raise RuntimeError("Manifest обновления содержит некорректный размер файла.") from exc
+        if size < 0:
+            raise RuntimeError("Manifest обновления содержит некорректный размер файла.")
+        if size == 0:
+            if repository and tag:
+                raise RuntimeError("Manifest обновления содержит некорректный размер файла.")
+    else:
+        if repository and tag:
+            raise RuntimeError("Manifest обновления содержит некорректный размер файла.")
+        size = None
+
     sha256 = validate_sha256(
         asset.get("sha256") or asset.get("hash") or "", required=require_sha256
     )

@@ -141,7 +141,7 @@ def install_update_from_github() -> dict[str, Any]:
                 "release": release,
             }
         asset = release.get("asset")
-        if not isinstance(asset, dict):
+        if not is_installable_update_asset(asset) or not isinstance(asset, dict):
             raise RuntimeError(
                 "В последнем GitHub Release нет файла STO_CRM.exe для обновления."
             )

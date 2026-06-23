@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import (
+    EXE_ASSET_RE,
     GITHUB_UPDATE_MAX_ASSET_BYTES,
     GITHUB_UPDATE_TIMEOUT,
 )
@@ -102,6 +103,22 @@ def is_installable_update_asset(asset: dict[str, Any] | None) -> bool:
     if not isinstance(asset, dict):
         return False
     try:
+        name = asset.get("name")
+        if not name or not isinstance(name, str):
+            return False
+        if not EXE_ASSET_RE.search(name) and not name.lower().endswith(".exe"):
+            return False
+
+        size_raw = asset.get("size")
+        if size_raw is None:
+            return False
+        try:
+            size = int(size_raw)
+        except (ValueError, TypeError):
+            return False
+        if size <= 0 or size > GITHUB_UPDATE_MAX_ASSET_BYTES:
+            return False
+
         validate_update_download_url(str(asset.get("download_url") or ""))
         validate_sha256(asset.get("sha256"), required=True)
     except RuntimeError:
