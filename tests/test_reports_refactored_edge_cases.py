@@ -199,3 +199,116 @@ class TestReportsRefactoredEdgeCases(unittest.TestCase):
         )
         self.assertEqual(len(reports["service_reminders"]), 1)
         self.assertEqual(reports["service_reminders"][0]["id"], 1)
+
+    def test_strict_datetime_parsing_regression(self):
+        # 1. Direct parser verification
+        from sto_crm.reports.data import strict_parse_iso
+        self.assertIsNone(strict_parse_iso("2000-01-01XYZ"))
+        self.assertIsNone(strict_parse_iso("YYYY-MM-02T10:30:evil"))
+        self.assertIsNone(strict_parse_iso("2026-06-02T10:30:evil"))
+
+        # 2. Integration verification via build_reports
+        now = datetime.now()
+        month_prefix = now.strftime("%Y-%m")
+
+        # Order closed with timezone-parsed but trailing garbage string closed_at
+        orders = [
+            {
+                "id": 1,
+                "status": "closed",
+                "closed_at": f"{month_prefix}-02T10:30:evil",
+                "total": "1000.0",
+                "subtotal": "1000.0",
+                "discount": "0.0",
+                "margin": "200.0",
+                "follow_up_at": "2000-01-01XYZ",
+            },
+            {
+                "id": 2,
+                "status": "in_progress",
+                "promised_at": "2000-01-01XYZ",
+                "due": "500.0",
+                "total": "500.0",
+                "priority": "high",
+            }
+        ]
+        vehicles = [
+            {
+                "id": 1,
+                "make": "Audi",
+                "customer_reminder_consent": 1,
+                "customer_preferred_channel": "sms",
+                "next_service_at": "2000-01-01XYZ",
+                "next_service_mileage": 0,
+                "mileage": 0,
+            }
+        ]
+        appointments = [
+            {
+                "id": 1,
+                "status": "scheduled",
+                "scheduled_at": "2000-01-01XYZ",
+                "customer_name": "Test Client",
+            }
+        ]
+
+        reports = build_reports(
+            orders=orders, inventory=[], vehicles=vehicles, appointments=appointments
+        )
+
+        # Revenue and action plan items should ignore corrupted inputs
+        self.assertEqual(reports["revenue_month"], 0.0)
+        self.assertEqual(reports["overdue_orders_count"], 0)
+        self.assertEqual(len(reports["overdue_orders"]), 0)
+        self.assertEqual(len(reports["service_reminders"]), 0)
+        self.assertEqual(len(reports["followups_due"]), 0)
+        self.assertEqual(reports["appointments_today_count"], 0)
+        self.assertEqual(reports["appointments_upcoming_count"], 0)
+
+        # Verify no follow_up, service_reminder, or overdue_order exists in action_plan
+        action_types = {item["type"] for item in reports["action_plan"]}
+        self.assertNotIn("follow_up", action_types)
+        self.assertNotIn("service_reminder", action_types)
+        self.assertNotIn("overdue_order", action_types)
+
+    def test_sparkline_xss_prevention(self):
+        from html.parser import HTMLParser
+
+        from sto_crm.reports.charts import render_sparkline
+
+        class SVGAttrChecker(HTMLParser):
+            def __init__(self) -> None:
+                super().__init__()
+                self.attrs_found: list[tuple[str, str, str]] = []
+                self.stroke_value: str | None = None
+
+            def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+                for name, value in attrs:
+                    val_str = value or ""
+                    self.attrs_found.append((tag, name, val_str))
+                    if name == "stroke":
+                        self.stroke_value = val_str
+
+        # Generate sparkline with hostile inputs trying to break out of attributes
+        svg_str = render_sparkline(
+            [1, 2, 3],
+            aria_label='x" onload="alert(1)',
+            color='red" onmouseover="alert(2)'
+        )
+
+        # Parse generated SVG string via HTMLParser
+        parser = SVGAttrChecker()
+        parser.feed(svg_str)
+
+        # Asserts:
+        # 1. No tag should have any event handler attribute starting with "on"
+        for tag, attr_name, _attr_val in parser.attrs_found:
+            self.assertFalse(
+                attr_name.lower().startswith("on"),
+                f"Malicious attribute {attr_name} detected in tag <{tag}>"
+            )
+            # Ensure no double quote injection could split the attributes
+            self.assertNotIn('"', attr_name)
+
+        # 2. Color argument must fall back to safe default
+        self.assertEqual(parser.stroke_value, "var(--brand)")
