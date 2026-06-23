@@ -157,7 +157,9 @@ class _UpdatesFacade(types.ModuleType):
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name != "_originals" and name not in self.__dict__.setdefault("_originals", {}):
+        if name != "_originals" and name not in self.__dict__.setdefault(
+            "_originals", {}
+        ):
             facade_orig = self.__dict__.get(name, _SENTINEL)
             modules_orig = {}
             for module in (_backup, _updater, _checker, _installer):
