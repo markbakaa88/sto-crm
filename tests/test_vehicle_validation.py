@@ -62,9 +62,8 @@ def test_vehicle_vin_validation(crm_server):
         page.wait_for_selector(".app")
 
         # Wait for data bootstrap to complete
-        page.evaluate(
-            "() => new Promise(resolve => { if (state.data) return resolve(); const check = setInterval(() => { if (state.data) { clearInterval(check); resolve(); } }, 50); })"
-        )
+        # Wait for data bootstrap to complete
+        page.wait_for_function("() => typeof state !== 'undefined' && state.data")
 
         # Open vehicle modal
         page.evaluate("openVehicleModal()")
@@ -160,9 +159,8 @@ def test_vehicle_plate_validation(crm_server):
         page.wait_for_selector(".app")
 
         # Wait for data bootstrap to complete
-        page.evaluate(
-            "() => new Promise(resolve => { if (state.data) return resolve(); const check = setInterval(() => { if (state.data) { clearInterval(check); resolve(); } }, 50); })"
-        )
+        # Wait for data bootstrap to complete
+        page.wait_for_function("() => typeof state !== 'undefined' && state.data")
 
         # Open vehicle modal
         page.evaluate("openVehicleModal()")

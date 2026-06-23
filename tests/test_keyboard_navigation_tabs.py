@@ -62,9 +62,7 @@ def test_keyboard_navigation_tabs(crm_server):
         page.wait_for_selector(".app")
 
         # Wait for data bootstrap to complete
-        page.evaluate(
-            "() => new Promise(resolve => { if (state.data) return resolve(); const check = setInterval(() => { if (state.data) { clearInterval(check); resolve(); } }, 50); })"
-        )
+        page.wait_for_function("() => typeof state !== 'undefined' && state.data")
 
         # 1. Check early state
         assert page.evaluate("state.route") == "dashboard"

@@ -3,7 +3,15 @@ import globals from "globals";
 
 export default [
     {
-        ignores: [".venv/**", "node_modules/**", "tests/**", "dist/**", "build/**"]
+        ignores: [
+            ".venv/**",
+            "node_modules/**",
+            "tests/**",
+            "dist/**",
+            "build/**",
+            "sto_crm/assets/js/core/*.js",
+            "sto_crm/assets/js/app_main.js"
+        ]
     },
     js.configs.recommended,
     {

@@ -1,6 +1,7 @@
 // STO CRM Generated Bundle - DO NOT EDIT DIRECTLY
-// === Module: app.js ===
-
+// === Module: core/state.js ===
+// === Module: core/state.js ===
+// Holds the core UI state, enum translations, and state transitions.
 
 "use strict";
 
@@ -51,107 +52,6 @@ const state = {
     }
 };
 
-class SafeLocalStorage {
-    constructor() {
-        this.fallbackStore = new Map();
-        this.isAvailable = this._checkAvailability();
-    }
-
-    _checkAvailability() {
-        try {
-            if (typeof window === "undefined" || !window.localStorage) return false;
-            const testKey = "__sto_crm_storage_test__";
-            window.localStorage.setItem(testKey, testKey);
-            window.localStorage.removeItem(testKey);
-            return true;
-        } catch {
-            return false;
-        }
-    }
-
-    getItem(key) {
-        if (!this.isAvailable) {
-            return this.fallbackStore.has(key) ? this.fallbackStore.get(key) : null;
-        }
-        try {
-            const val = window.localStorage.getItem(key);
-            if (val !== null) return val;
-            return this.fallbackStore.has(key) ? this.fallbackStore.get(key) : null;
-        } catch (e) {
-            console.error(`SafeLocalStorage: failed to get item for key "${key}"`, e);
-            return this.fallbackStore.has(key) ? this.fallbackStore.get(key) : null;
-        }
-    }
-
-    setItem(key, value) {
-        const strValue = String(value);
-        if (!this.isAvailable) {
-            this.fallbackStore.set(key, strValue);
-            return false;
-        }
-        try {
-            window.localStorage.setItem(key, strValue);
-            return true;
-        } catch (e) {
-            console.error(`SafeLocalStorage: failed to set item for key "${key}"`, e);
-            const isQuotaError = e.name === "QuotaExceededError" ||
-                                  e.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
-                                  e.code === 22 ||
-                                  e.code === 1014;
-            if (isQuotaError) {
-                console.warn("SafeLocalStorage: LocalStorage quota exceeded. Freeing up space by removing bootstrap cache...");
-                try {
-                    window.localStorage.removeItem("sto-crm-bootstrap");
-                    window.localStorage.setItem(key, strValue);
-                    return true;
-                } catch (retryError) {
-                    console.error("SafeLocalStorage: Failed to set item even after clearing bootstrap cache", retryError);
-                }
-                if (typeof toast === "function") {
-                    toast("Ошибка сохранения: недостаточно места в localStorage", "danger");
-                }
-            }
-            this.fallbackStore.set(key, strValue);
-            return false;
-        }
-    }
-
-    removeItem(key) {
-        this.fallbackStore.delete(key);
-        if (!this.isAvailable) return;
-        try {
-            window.localStorage.removeItem(key);
-        } catch (e) {
-            console.error(`SafeLocalStorage: failed to remove item for key "${key}"`, e);
-        }
-    }
-
-    clear() {
-        this.fallbackStore.clear();
-        if (!this.isAvailable) return;
-        try {
-            window.localStorage.clear();
-        } catch (e) {
-            console.error("SafeLocalStorage: failed to clear localStorage", e);
-        }
-    }
-}
-const safeLocalStorage = new SafeLocalStorage();
-
-const BOOTSTRAP_CACHE_KEY = "sto-crm-bootstrap";
-const BOOTSTRAP_CACHE_SCHEMA_VERSION = 2;
-const BOOTSTRAP_CACHE_TTL_MS = 30 * 60 * 1000;
-const MAX_ORDER_ITEMS = 200;
-const EXPORT_ENTITIES = new Set(["appointments", "orders", "customers", "vehicles", "inventory", "catalog"]);
-const ENTITY_COLLECTION_PATHS = Object.freeze({
-    appointments: "/api/appointments",
-    customers: "/api/customers",
-    vehicles: "/api/vehicles",
-    inventory: "/api/inventory",
-    orders: "/api/orders"
-});
-const BUTTON_STYLE_CLASSES = new Set(["primary", "ghost", "danger"]);
-
 const routes = {
     dashboard: "Панель",
     appointments: "Запись",
@@ -176,11 +76,6 @@ const routeSubtitles = {
     updates: "Релизы и установка"
 };
 
-const requestedRoute = new URLSearchParams(location.search).get("route") || location.hash.replace("#", "");
-if (requestedRoute && routes[requestedRoute]) {
-    state.route = requestedRoute;
-}
-
 function initialBootstrapToken() {
     try {
         const token = document.body?.dataset?.bootstrapToken || "";
@@ -196,6 +91,7 @@ function initialBootstrapToken() {
 state.bootstrapToken = initialBootstrapToken();
 
 const priorityLabels = { low: "Низкий", normal: "Обычный", high: "Высокий", urgent: "Срочно" };
+
 const orderStatusTransitions = {
     new: ["diagnostics", "estimate", "approved", "in_progress", "done", "closed", "cancelled"],
     diagnostics: ["estimate", "approved", "in_progress", "done", "closed", "cancelled"],
@@ -206,12 +102,37 @@ const orderStatusTransitions = {
     closed: ["cancelled"],
     cancelled: []
 };
+
 const channelLabels = { phone: "Телефон", sms: "SMS", email: "Email", messenger: "Мессенджер", none: "Не писать" };
+
 function channelLabel(key) {
     return (state.data?.preferred_channels || channelLabels)[key] || channelLabels[key] || key;
 }
+
 const appointmentStatusFallback = { scheduled: "Запланирована", confirmed: "Подтверждена", arrived: "Клиент приехал", done: "Завершена", no_show: "Не приехал", cancelled: "Отменена" };
 const itemApprovalFallback = { approved: "Согласовано", deferred: "Отложено", declined: "Отказ" };
+
+// Global system constants
+const BOOTSTRAP_CACHE_KEY = "sto-crm-bootstrap";
+const BOOTSTRAP_CACHE_SCHEMA_VERSION = 2;
+const BOOTSTRAP_CACHE_TTL_MS = 30 * 60 * 1000;
+const MAX_ORDER_ITEMS = 200;
+const EXPORT_ENTITIES = new Set(["appointments", "orders", "customers", "vehicles", "inventory", "catalog"]);
+const ENTITY_COLLECTION_PATHS = Object.freeze({
+    appointments: "/api/appointments",
+    customers: "/api/customers",
+    vehicles: "/api/vehicles",
+    inventory: "/api/inventory",
+    orders: "/api/orders"
+});
+const BUTTON_STYLE_CLASSES = new Set(["primary", "ghost", "danger"]);
+// === Module: core/dom.js ===
+// === Module: core/dom.js ===
+// DOM querying and manipulation helpers, safe render helpers, escaping, and structured modals.
+
+/* eslint-disable no-unused-vars */
+
+"use strict";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -345,6 +266,25 @@ function moneyCompact(value) {
     return RUB_FORMAT_COMPACT.format(Number(value || 0));
 }
 
+function qty(value) {
+    const number = num(value);
+    return Number.isInteger(number) ? String(number) : number.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function num(value, fallback = 0) {
+    if (value === null || value === undefined || value === "") return fallback;
+    const parsed = Number(String(value).replace(/\s+/g, "").replace(/,/g, "."));
+    return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseNumericInput(value, fallback = 0) {
+    if (value === null || value === undefined || value === "") return { valid: true, value: fallback };
+    const parsed = Number(String(value).replace(/\s+/g, "").replace(/,/g, "."));
+    return Number.isFinite(parsed)
+        ? { valid: true, value: parsed }
+        : { valid: false, value: fallback };
+}
+
 const PLURAL_MAP = {
     "задача": ["задача", "задачи", "задач"],
     "заказ": ["заказ", "заказа", "заказов"],
@@ -392,6 +332,352 @@ function bytesText(value) {
     }
     return `${size >= 10 || index === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[index]}`;
 }
+
+function helpTip(text, label = "?") {
+    return `<button type="button" class="help-tip" aria-label="${esc(text)}" title="${esc(text)}" data-help-tip="true"><span aria-hidden="true">${esc(label)}</span></button>`;
+}
+
+function textOrDash(value, fallback = "—") {
+    const text = String(value ?? "").trim();
+    return text ? esc(text) : `<span class="muted">${esc(fallback)}</span>`;
+}
+
+function dateOrDash(value, fallback = "Без срока") {
+    return value ? dateShort(value) : `<span class="muted">${esc(fallback)}</span>`;
+}
+
+function statusBadge(status) {
+    const label = state.data?.statuses?.[status] || status;
+    return `<span class="status s-${classToken(status)}">${esc(label)}</span>`;
+}
+
+function appointmentStatusBadge(status) {
+    const label = state.data?.appointment_statuses?.[status] || appointmentStatusFallback[status] || status;
+    return `<span class="status a-${classToken(status)}">${esc(label)}</span>`;
+}
+
+function classToken(value) {
+    return String(value ?? "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-") || "unknown";
+}
+
+function toneToken(value, fallback = "info") {
+    const token = classToken(value || fallback);
+    const aliases = { ok: "success", warn: "warning", bad: "danger", error: "danger", attention: "warning" };
+    const normalized = aliases[token] || token;
+    return ["success", "warning", "danger", "info", "neutral"].includes(normalized) ? normalized : fallback;
+}
+
+function semanticToneClass(value, fallback = "") {
+    return value ? toneToken(value, fallback || "neutral") : fallback;
+}
+
+// -------------------------------------------------------------
+// Core UI Safe Render Sink primitives (Documented allowlist for raw DOM sinks)
+// Primary mechanism to prevent unsafe dynamically evaluated raw markup sinks.
+// All dynamically generated HTML strings must pass through these wrappers.
+// -------------------------------------------------------------
+function setHTMLSafe(element, markup) {
+    if (!element) return;
+    // Perform standard sanitization review
+    assertSafeModalMarkup(markup);
+    element.innerHTML = markup;
+}
+// === Module: core/storage.js ===
+// === Module: core/storage.js ===
+// Safe wrapper around LocalStorage and IndexedDB offline cache helpers.
+
+"use strict";
+
+class SafeLocalStorage {
+    constructor() {
+        this.fallbackStore = new Map();
+        this.isAvailable = this._checkAvailability();
+    }
+
+    _checkAvailability() {
+        try {
+            if (typeof window === "undefined" || !window.localStorage) return false;
+            const testKey = "__sto_crm_storage_test__";
+            window.localStorage.setItem(testKey, testKey);
+            window.localStorage.removeItem(testKey);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    getItem(key) {
+        if (!this.isAvailable) {
+            return this.fallbackStore.has(key) ? this.fallbackStore.get(key) : null;
+        }
+        try {
+            const val = window.localStorage.getItem(key);
+            if (val !== null) return val;
+            return this.fallbackStore.has(key) ? this.fallbackStore.get(key) : null;
+        } catch (e) {
+            console.error(`SafeLocalStorage: failed to get item for key "${key}"`, e);
+            return this.fallbackStore.has(key) ? this.fallbackStore.get(key) : null;
+        }
+    }
+
+    setItem(key, value) {
+        const strValue = String(value);
+        if (!this.isAvailable) {
+            this.fallbackStore.set(key, strValue);
+            return false;
+        }
+        try {
+            window.localStorage.setItem(key, strValue);
+            return true;
+        } catch (e) {
+            console.error(`SafeLocalStorage: failed to set item for key "${key}"`, e);
+            const isQuotaError = e.name === "QuotaExceededError" ||
+                                  e.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+                                  e.code === 22 ||
+                                  e.code === 1014;
+            if (isQuotaError) {
+                console.warn("SafeLocalStorage: LocalStorage quota exceeded. Freeing up space by removing bootstrap cache...");
+                try {
+                    window.localStorage.removeItem("sto-crm-bootstrap");
+                    window.localStorage.setItem(key, strValue);
+                    return true;
+                } catch (retryError) {
+                    console.error("SafeLocalStorage: Failed to set item even after clearing bootstrap cache", retryError);
+                }
+                if (typeof toast === "function") {
+                    toast("Ошибка сохранения: недостаточно места в localStorage", "danger");
+                }
+            }
+            this.fallbackStore.set(key, strValue);
+            return false;
+        }
+    }
+
+    removeItem(key) {
+        this.fallbackStore.delete(key);
+        if (!this.isAvailable) return;
+        try {
+            window.localStorage.removeItem(key);
+        } catch (e) {
+            console.error(`SafeLocalStorage: failed to remove item for key "${key}"`, e);
+        }
+    }
+
+    clear() {
+        this.fallbackStore.clear();
+        if (!this.isAvailable) return;
+        try {
+            window.localStorage.clear();
+        } catch (e) {
+            console.error("SafeLocalStorage: failed to clear localStorage", e);
+        }
+    }
+}
+const safeLocalStorage = new SafeLocalStorage();
+
+// Simple shortcuts maintaining contract
+function safeStorageGet(key) {
+    return safeLocalStorage.getItem(key);
+}
+function safeStorageSet(key, value) {
+    return safeLocalStorage.setItem(key, value);
+}
+
+const DB_NAME = "sto-crm-db";
+const STORE_NAME = "cache";
+
+function getIndexedDB() {
+    return new Promise((resolve) => {
+        if (!window.indexedDB) {
+            resolve(null);
+            return;
+        }
+        try {
+            const request = indexedDB.open(DB_NAME, 1);
+            request.onupgradeneeded = event => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(STORE_NAME)) {
+                    db.createObjectStore(STORE_NAME);
+                }
+            };
+            request.onsuccess = event => {
+                resolve(event.target.result);
+            };
+            request.onerror = () => {
+                resolve(null);
+            };
+        } catch {
+            resolve(null);
+        }
+    });
+}
+
+function idbGet(key) {
+    return new Promise(resolve => {
+        getIndexedDB().then(db => {
+            if (!db) {
+                resolve(null);
+                return;
+            }
+            try {
+                const transaction = db.transaction(STORE_NAME, "readonly");
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.get(key);
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => resolve(null);
+            } catch {
+                resolve(null);
+            }
+        }).catch(() => resolve(null));
+    });
+}
+
+function idbSet(key, value) {
+    return new Promise(resolve => {
+        getIndexedDB().then(db => {
+            if (!db) {
+                resolve(false);
+                return;
+            }
+            try {
+                const transaction = db.transaction(STORE_NAME, "readwrite");
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.put(value, key);
+                request.onsuccess = () => resolve(true);
+                request.onerror = () => resolve(false);
+            } catch {
+                resolve(false);
+            }
+        }).catch(() => resolve(false));
+    });
+}
+
+function idbDel(key) {
+    return new Promise(resolve => {
+        getIndexedDB().then(db => {
+            if (!db) {
+                resolve(false);
+                return;
+            }
+            try {
+                const transaction = db.transaction(STORE_NAME, "readwrite");
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.delete(key);
+                request.onsuccess = () => resolve(true);
+                request.onerror = () => resolve(false);
+            } catch {
+                resolve(false);
+            }
+        }).catch(() => resolve(false));
+    });
+}
+
+async function dbGet(key) {
+    let raw = await idbGet(key);
+    if (!raw) {
+        try {
+            raw = safeLocalStorage.getItem(key);
+            if (raw) return JSON.parse(raw);
+        } catch {
+            return null;
+        }
+    }
+    return raw;
+}
+
+async function dbSet(key, value) {
+    let ok = await idbSet(key, value);
+    if (!ok) {
+        try {
+            safeLocalStorage.setItem(key, JSON.stringify(value));
+        } catch {
+            // storage disabled
+        }
+    }
+}
+
+async function dbDel(key) {
+    await idbDel(key);
+    try {
+        safeLocalStorage.removeItem(key);
+    } catch {
+        // storage disabled
+    }
+}
+
+async function cacheBootstrap(data, loadedAt = new Date().toISOString(), query = {}) {
+    try {
+        const q = String(query.q || "");
+        const status = String(query.status || "all");
+        const route = String(query.route || state.route || "dashboard");
+        if (q || status !== "all") {
+            await clearCachedBootstrap();
+            return;
+        }
+        const cached = JSON.parse(JSON.stringify(data || {}));
+        if (cached.app) {
+            delete cached.app.csrf_token;
+            delete cached.app.access_token;
+        }
+        const payload = {
+            schemaVersion: BOOTSTRAP_CACHE_SCHEMA_VERSION,
+            cachedAt: Date.now(),
+            loadedAt,
+            appVersion: cached.app?.version || "",
+            dbPath: cached.app?.db_path || "",
+            query: { q, status, route },
+            data: cached
+        };
+        await dbSet(BOOTSTRAP_CACHE_KEY, payload);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function clearCachedBootstrap() {
+    try {
+        await dbDel(BOOTSTRAP_CACHE_KEY);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function readCachedBootstrap() {
+    try {
+        const parsed = await dbGet(BOOTSTRAP_CACHE_KEY);
+        if (!parsed) return null;
+        if (parsed?.data && typeof parsed.data === "object") {
+            if (parsed.schemaVersion !== BOOTSTRAP_CACHE_SCHEMA_VERSION) {
+                await clearCachedBootstrap();
+                return null;
+            }
+            const query = parsed.query || {};
+            if (String(query.q || "") || String(query.status || "all") !== "all") {
+                await clearCachedBootstrap();
+                return null;
+            }
+            const cachedAt = Number(parsed.cachedAt || 0);
+            if (!Number.isFinite(cachedAt) || Date.now() - cachedAt > BOOTSTRAP_CACHE_TTL_MS) {
+                await clearCachedBootstrap();
+                return null;
+            }
+            return parsed;
+        }
+        if (parsed?.app) {
+            await clearCachedBootstrap();
+            return null;
+        }
+    } catch (e) {
+        console.error(e);
+        await clearCachedBootstrap();
+    }
+    return null;
+}
+// === Module: core/api.js ===
+// === Module: core/api.js ===
+// Core fetch and REST API interactions with retry hooks, token propagation, and csrf verification.
+
+"use strict";
 
 function exportUrl(entity) {
     const safeEntity = String(entity || "").trim();
@@ -477,24 +763,376 @@ async function downloadCsv(entity) {
     }
 }
 
-function qty(value) {
-    const number = num(value);
-    return Number.isInteger(number) ? String(number) : number.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+function isBootstrapRequestPath(path) {
+    const value = String(path || "");
+    return value === "/api/bootstrap" || value.startsWith("/api/bootstrap?");
 }
 
-function num(value, fallback = 0) {
-    if (value === null || value === undefined || value === "") return fallback;
-    const parsed = Number(String(value).replace(/\s+/g, "").replace(/,/g, "."));
-    return Number.isFinite(parsed) ? parsed : fallback;
+function withBootstrapToken(path) {
+    if (!state.bootstrapToken) return path;
+    const separator = path.includes("?") ? "&" : "?";
+    return `${path}${separator}bootstrap_token=${encodeURIComponent(state.bootstrapToken)}`;
 }
 
-function parseNumericInput(value, fallback = 0) {
-    if (value === null || value === undefined || value === "") return { valid: true, value: fallback };
-    const parsed = Number(String(value).replace(/\s+/g, "").replace(/,/g, "."));
-    return Number.isFinite(parsed)
-        ? { valid: true, value: parsed }
-        : { valid: false, value: fallback };
+async function parseResponsePayload(response) {
+    const contentType = response.headers.get("Content-Type") || "";
+    if (response.status === 204 || response.status === 205) return null;
+    if (contentType.includes("application/json")) return response.json();
+    return response.text();
 }
+
+async function api(path, options = {}, retries = null) {
+    const method = String(options.method || "GET").toUpperCase();
+    if (method !== "GET" && !state.data?.app?.csrf_token) {
+        const error = new Error("Сессия безопасности устарела. Обновите данные CRM и повторите действие.");
+        error.status = 403;
+        error.retryable = false;
+        throw error;
+    }
+    const maxRetries = retries ?? (method === "GET" ? 2 : 0);
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            const headers = { ...(options.headers || {}) };
+            const accessToken = state.data?.app?.access_token || state.accessToken;
+            if (accessToken) headers["X-CRM-Access-Token"] = accessToken;
+            if (method !== "GET") {
+                headers["Content-Type"] = headers["Content-Type"] || "application/json";
+                if (state.data?.app?.csrf_token) headers["X-CSRF-Token"] = state.data.app.csrf_token;
+            }
+            const requestPath = isBootstrapRequestPath(path) ? withBootstrapToken(path) : path;
+            const response = await fetch(requestPath, {
+                ...options,
+                headers
+            });
+            let data;
+            try {
+                data = await parseResponsePayload(response);
+            } catch (parseError) {
+                const error = new Error("Сервер вернул некорректный ответ. Обновите данные и повторите действие.");
+                error.status = response.status;
+                error.retryable = response.status >= 500;
+                error.cause = parseError;
+                throw error;
+            }
+            if (!response.ok) {
+                const message = (data && typeof data === "object" ? data.error : data) || `Ошибка запроса (HTTP ${response.status})`;
+                const error = new Error(message);
+                error.status = response.status;
+                error.retryable = response.status >= 500 || [408, 425, 429].includes(response.status);
+                throw error;
+            }
+            return data;
+        } catch (error) {
+            if (error?.name === "AbortError") throw error;
+            if (options?.signal?.aborted) throw error;
+            if (!Number(error?.status || 0) && error instanceof TypeError) error.networkError = true;
+            const retryable = error?.retryable === true || !Number(error?.status || 0);
+            if (attempt === maxRetries || !retryable) throw error;
+            await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
+        }
+    }
+}
+
+function requiresFreshCsrf(actionName = "это действие") {
+    if (state.data?.app?.csrf_token) return true;
+    toast(`Нет активной сессии безопасности: обновите данные, чтобы выполнить ${actionName}.`, "error");
+    loadData().catch(showError);
+    return false;
+}
+// === Module: core/routing.js ===
+// === Module: core/routing.js ===
+// Handles layout state transitions, loading animation triggers, routing logic, and DOM render coordination.
+
+"use strict";
+
+const requestedRoute = new URLSearchParams(location.search).get("route") || location.hash.replace("#", "");
+if (requestedRoute && routes[requestedRoute]) {
+    state.route = requestedRoute;
+}
+
+function routeFromLocation() {
+    const params = new URLSearchParams(location.search);
+    const requested = params.get("route") || location.hash.replace("#", "");
+    return routes[requested] ? requested : "dashboard";
+}
+const currentRouteFromLocation = routeFromLocation;
+
+function prefersReducedMotion() {
+    return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function setLoadingState(isLoading) {
+    state.loading = isLoading;
+    const content = $("#content");
+    if (content) content.setAttribute("aria-busy", String(isLoading));
+    $("#refreshBtn")?.toggleAttribute("disabled", isLoading);
+    const progress = $("#appProgress");
+    if (progress) {
+        progress.classList.toggle("is-active", Boolean(isLoading));
+        progress.setAttribute("aria-hidden", "true");
+    }
+    const syncChip = $("#syncChip");
+    if (syncChip && isLoading) syncChip.dataset.state = "syncing";
+    renderShell();
+    if (isLoading) {
+        const routeName = routes[state.route] || "раздела";
+        announce(`Загрузка раздела ${routeName}...`, false);
+    }
+    render();
+}
+
+function setRoute(route, updateUrl = true) {
+    if (!routes[route]) return;
+    closeTransientPanels();
+    const previousRoute = state.route;
+    const sameRoute = previousRoute === route;
+    if (previousRoute && !sameRoute) {
+        state.routeScrollPositions[previousRoute] = window.scrollY;
+    }
+    const hasOrderFilter = state.status !== "all" && !state.offlineMode;
+    const leavingFilteredOrders = hasOrderFilter && route !== "orders" && previousRoute === "orders";
+    const enteringFilteredOrders = hasOrderFilter && route === "orders" && previousRoute !== "orders";
+    const needsRouteFilterReload = enteringFilteredOrders || leavingFilteredOrders;
+    if (leavingFilteredOrders) state.status = "all";
+    state.route = route;
+    if (route === "catalog") {
+        state.catalogLimit = 60;
+        state.expandedMakes = {};
+    }
+    if (route === "orders") {
+        state.orderPage = 1;
+    }
+    if (route === "inventory") {
+        state.inventoryPage = 1;
+    }
+    if (route === "updates" && !state.updateStatus && !state.updateLoading && !state.updateCheckScheduled) {
+        state.updateCheckScheduled = true;
+        window.setTimeout(() => checkForUpdates(false).catch(showError), 0);
+    }
+    if (updateUrl && !sameRoute) {
+        const url = new URL(location.href);
+        url.searchParams.set("route", route);
+        url.hash = "";
+        history.pushState({ route }, "", url);
+    }
+    $("#viewTitle").textContent = routes[route];
+    $("#viewSubtitle").textContent = routeSubtitles[route] || "";
+    $$("#nav button").forEach(button => {
+        const active = button.dataset.route === route;
+        button.classList.toggle("active", active);
+        if (active) button.setAttribute("aria-current", "page");
+        else button.removeAttribute("aria-current");
+    });
+    renderShell();
+    render();
+    if (needsRouteFilterReload) {
+        loadData().catch(showError);
+    }
+    if (previousRoute !== route) {
+        setMobileNavOpen(false);
+        const savedScroll = state.routeScrollPositions[route];
+        if (savedScroll !== undefined) {
+            window.scrollTo(0, savedScroll);
+        } else {
+            const content = $("#content");
+            content?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+        }
+        const content = $("#content");
+        content?.focus({ preventScroll: true });
+        announce(`Открыт раздел ${routes[route]}.`);
+    }
+}
+
+async function loadData() {
+    const seq = ++state.loadSeq;
+    if (state.bootstrapAbortController) state.bootstrapAbortController.abort();
+    const controller = new AbortController();
+    state.bootstrapAbortController = controller;
+
+    let localData = null;
+    try {
+        const cached = await readCachedBootstrap();
+        if (cached?.data) {
+            localData = cached.data;
+        }
+    } catch (e) {
+        console.error("Failed to read cached data for reconciliation:", e);
+    }
+
+    setLoadingState(true);
+    const params = new URLSearchParams({ q: state.q });
+    const requestStatus = state.route === "orders" ? state.status : "all";
+    if (requestStatus !== "all") {
+        params.set("status", requestStatus);
+    }
+    try {
+        const data = await api(`/api/bootstrap?${params}`, { signal: controller.signal });
+        if (seq !== state.loadSeq) return;
+        const loadedAt = new Date().toISOString();
+
+        if (state.offlineMode && localData) {
+            try {
+                await reconcileDataVersions(localData, data);
+            } catch (reconError) {
+                console.error("Reconciliation error:", reconError);
+            }
+        }
+
+        state.data = data;
+        if (data.app?.access_token) state.accessToken = data.app.access_token;
+        state.bootstrapToken = "";
+        state.lastLoadedAt = loadedAt;
+        state.offlineMode = false;
+        await cacheBootstrap(data, loadedAt, { q: state.q, status: requestStatus, route: state.route });
+        state.lastError = "";
+        setOnlineState(true);
+        const dbPath = $("#dbPath");
+        if (dbPath) {
+            dbPath.textContent = `База: ${state.data.app.db_path}`;
+            dbPath.title = state.data.app.db_directory ? `Папка базы: ${state.data.app.db_directory}` : "";
+        }
+        if (seq === state.loadSeq) setLoadingState(false);
+        updateSearchClear();
+        announce(`Данные обновлены. Раздел: ${routes[state.route]}.`);
+    } catch (error) {
+        if (error?.name === "AbortError") return;
+        throw error;
+    } finally {
+        if (state.bootstrapAbortController === controller) state.bootstrapAbortController = null;
+        if (seq === state.loadSeq && state.loading) setLoadingState(false);
+    }
+}
+
+function render() {
+    const mainEl = document.querySelector('main');
+    // Restart animation on route change by class swap (CSP compliant)
+    if (mainEl) {
+        mainEl.classList.remove('rendered');
+        mainEl.offsetHeight; /* trigger reflow */
+        mainEl.classList.add('rendered');
+    }
+    if (!state.data && !state.loading) return;
+    const content = $("#content");
+    if (!content) return;
+
+    let bannersWrapper = content.querySelector(".banners-wrapper");
+    let viewsWrapper = content.querySelector(".views-wrapper");
+    if (!bannersWrapper || !viewsWrapper) {
+        content.innerHTML = `<div class="banners-wrapper"></div><div class="views-wrapper"></div>`;
+        bannersWrapper = content.querySelector(".banners-wrapper");
+        viewsWrapper = content.querySelector(".views-wrapper");
+    }
+
+    bannersWrapper.innerHTML = `${offlineBannerHtml()}${errorBannerHtml()}${contextStripHtml()}`;
+
+    resetWorkspaceToolbarObserver();
+    const renderers = {
+        dashboard: renderDashboard,
+        appointments: renderAppointments,
+        orders: renderOrders,
+        customers: renderCustomers,
+        vehicles: renderVehicles,
+        catalog: renderCatalog,
+        inventory: renderInventory,
+        reports: renderReports,
+        updates: renderUpdates
+    };
+
+    let currentViewEl = viewsWrapper.querySelector(`[data-view="${state.route}"]`);
+    if (!currentViewEl) {
+        currentViewEl = document.createElement("div");
+        currentViewEl.setAttribute("data-view", state.route);
+        currentViewEl.className = "route-view";
+        viewsWrapper.appendChild(currentViewEl);
+    }
+
+    viewsWrapper.querySelectorAll(".route-view").forEach(el => {
+        if (el.getAttribute("data-view") !== state.route) {
+            el.style.display = "none";
+            el.setAttribute("aria-hidden", "true");
+        } else {
+            el.style.display = "";
+            el.removeAttribute("aria-hidden");
+        }
+    });
+
+    const busy = content.getAttribute("aria-busy") || "false";
+    let viewHtml;
+    try {
+        viewHtml = renderers[state.route]();
+    } catch (error) {
+        console.error(error);
+        state.lastError = error?.message || String(error);
+        viewHtml = noticeHtml("error", "Не удалось отрисовать раздел.", state.lastError, `<button class="btn primary" type="button" data-action="retry-load">Обновить данные</button>`);
+    }
+
+    currentViewEl.innerHTML = viewHtml;
+    content.setAttribute("aria-busy", busy);
+    bindViewActions(currentViewEl);
+    if (state.route === "dashboard") {
+         initKanbanDragAndDrop();
+    }
+    bindCatalogFilter(currentViewEl);
+    bindWorkspaceToolbar(currentViewEl);
+    updateScrollHints(currentViewEl);
+    applyCellTitles(currentViewEl);
+    updateNavigationBadges();
+    requestAnimationFrame(() => {
+        if (!document.contains(currentViewEl)) return;
+        updateScrollHints(currentViewEl);
+        applyCellTitles(currentViewEl);
+    });
+}
+// === Module: app_main.js ===
+
+
+"use strict";
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 function ensureBootstrapReady(actionName = "действие") {
     if (state.data) return true;
@@ -541,33 +1179,17 @@ function linkVehicleHtml(vehicleId, vehicleText) {
     return `<button class="action-link" type="button" data-action="edit-vehicle" data-id="${safeRecordId(vehicleId)}">${esc(vehicleText)}</button>`;
 }
 
-function classToken(value) {
-    return String(value ?? "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-") || "unknown";
-}
 
-function toneToken(value, fallback = "info") {
-    const token = classToken(value || fallback);
-    const aliases = { ok: "success", warn: "warning", bad: "danger", error: "danger", attention: "warning" };
-    const normalized = aliases[token] || token;
-    return ["success", "warning", "danger", "info", "neutral"].includes(normalized) ? normalized : fallback;
-}
 
-function semanticToneClass(value, fallback = "") {
-    return value ? toneToken(value, fallback || "neutral") : fallback;
-}
 
-function helpTip(text, label = "?") {
-    return `<button type="button" class="help-tip" aria-label="${esc(text)}" title="${esc(text)}" data-help-tip="true"><span aria-hidden="true">${esc(label)}</span></button>`;
-}
 
-function textOrDash(value, fallback = "—") {
-    const text = String(value ?? "").trim();
-    return text ? esc(text) : `<span class="muted">${esc(fallback)}</span>`;
-}
 
-function dateOrDash(value, fallback = "Без срока") {
-    return value ? dateShort(value) : `<span class="muted">${esc(fallback)}</span>`;
-}
+
+
+
+
+
+
 
 function paginationControls(kind, page, maxPage, total, pageSize, noun = "записей") {
     if (total <= pageSize) return "";
@@ -626,15 +1248,9 @@ function contextStripHtml() {
     </section>`;
 }
 
-function statusBadge(status) {
-    const label = state.data?.statuses?.[status] || status;
-    return `<span class="status s-${classToken(status)}">${esc(label)}</span>`;
-}
 
-function appointmentStatusBadge(status) {
-    const label = state.data?.appointment_statuses?.[status] || appointmentStatusFallback[status] || status;
-    return `<span class="status a-${classToken(status)}">${esc(label)}</span>`;
-}
+
+
 
 
 
@@ -942,266 +1558,36 @@ function clearFormError(target) {
     delete target.dataset.errorDescribedby;
 }
 
-function isBootstrapRequestPath(path) {
-    const value = String(path || "");
-    return value === "/api/bootstrap" || value.startsWith("/api/bootstrap?");
-}
 
-function withBootstrapToken(path) {
-    if (!state.bootstrapToken) return path;
-    const separator = path.includes("?") ? "&" : "?";
-    return `${path}${separator}bootstrap_token=${encodeURIComponent(state.bootstrapToken)}`;
-}
 
-async function parseResponsePayload(response) {
-    const contentType = response.headers.get("Content-Type") || "";
-    if (response.status === 204 || response.status === 205) return null;
-    if (contentType.includes("application/json")) return response.json();
-    return response.text();
-}
 
-async function api(path, options = {}, retries = null) {
-    const method = String(options.method || "GET").toUpperCase();
-    if (method !== "GET" && !state.data?.app?.csrf_token) {
-        const error = new Error("Сессия безопасности устарела. Обновите данные CRM и повторите действие.");
-        error.status = 403;
-        error.retryable = false;
-        throw error;
-    }
-    const maxRetries = retries ?? (method === "GET" ? 2 : 0);
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        try {
-            const headers = { ...(options.headers || {}) };
-            const accessToken = state.data?.app?.access_token || state.accessToken;
-            if (accessToken) headers["X-CRM-Access-Token"] = accessToken;
-            if (method !== "GET") {
-                headers["Content-Type"] = headers["Content-Type"] || "application/json";
-                if (state.data?.app?.csrf_token) headers["X-CSRF-Token"] = state.data.app.csrf_token;
-            }
-            const requestPath = isBootstrapRequestPath(path) ? withBootstrapToken(path) : path;
-            const response = await fetch(requestPath, {
-                ...options,
-                headers
-            });
-            let data;
-            try {
-                data = await parseResponsePayload(response);
-            } catch (parseError) {
-                const error = new Error("Сервер вернул некорректный ответ. Обновите данные и повторите действие.");
-                error.status = response.status;
-                error.retryable = response.status >= 500;
-                error.cause = parseError;
-                throw error;
-            }
-            if (!response.ok) {
-                const message = (data && typeof data === "object" ? data.error : data) || `Ошибка запроса (HTTP ${response.status})`;
-                const error = new Error(message);
-                error.status = response.status;
-                error.retryable = response.status >= 500 || [408, 425, 429].includes(response.status);
-                throw error;
-            }
-            return data;
-        } catch (error) {
-            if (error?.name === "AbortError") throw error;
-            if (options?.signal?.aborted) throw error;
-            if (!Number(error?.status || 0) && error instanceof TypeError) error.networkError = true;
-            const retryable = error?.retryable === true || !Number(error?.status || 0);
-            if (attempt === maxRetries || !retryable) throw error;
-            await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
-        }
-    }
-}
 
-const DB_NAME = "sto-crm-db";
-const STORE_NAME = "cache";
 
-function getIndexedDB() {
-    return new Promise((resolve) => {
-        if (!window.indexedDB) {
-            resolve(null);
-            return;
-        }
-        try {
-            const request = indexedDB.open(DB_NAME, 1);
-            request.onupgradeneeded = event => {
-                const db = event.target.result;
-                if (!db.objectStoreNames.contains(STORE_NAME)) {
-                    db.createObjectStore(STORE_NAME);
-                }
-            };
-            request.onsuccess = event => {
-                resolve(event.target.result);
-            };
-            request.onerror = () => {
-                resolve(null);
-            };
-        } catch {
-            resolve(null);
-        }
-    });
-}
 
-function idbGet(key) {
-    return new Promise(resolve => {
-        getIndexedDB().then(db => {
-            if (!db) {
-                resolve(null);
-                return;
-            }
-            try {
-                const transaction = db.transaction(STORE_NAME, "readonly");
-                const store = transaction.objectStore(STORE_NAME);
-                const request = store.get(key);
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => resolve(null);
-            } catch {
-                resolve(null);
-            }
-        }).catch(() => resolve(null));
-    });
-}
 
-function idbSet(key, value) {
-    return new Promise(resolve => {
-        getIndexedDB().then(db => {
-            if (!db) {
-                resolve(false);
-                return;
-            }
-            try {
-                const transaction = db.transaction(STORE_NAME, "readwrite");
-                const store = transaction.objectStore(STORE_NAME);
-                const request = store.put(value, key);
-                request.onsuccess = () => resolve(true);
-                request.onerror = () => resolve(false);
-            } catch {
-                resolve(false);
-            }
-        }).catch(() => resolve(false));
-    });
-}
 
-function idbDel(key) {
-    return new Promise(resolve => {
-        getIndexedDB().then(db => {
-            if (!db) {
-                resolve(false);
-                return;
-            }
-            try {
-                const transaction = db.transaction(STORE_NAME, "readwrite");
-                const store = transaction.objectStore(STORE_NAME);
-                const request = store.delete(key);
-                request.onsuccess = () => resolve(true);
-                request.onerror = () => resolve(false);
-            } catch {
-                resolve(false);
-            }
-        }).catch(() => resolve(false));
-    });
-}
 
-async function dbGet(key) {
-    let raw = await idbGet(key);
-    if (!raw) {
-        try {
-            raw = safeLocalStorage.getItem(key);
-            if (raw) return JSON.parse(raw);
-        } catch {
-            return null;
-        }
-    }
-    return raw;
-}
 
-async function dbSet(key, value) {
-    let ok = await idbSet(key, value);
-    if (!ok) {
-        try {
-            safeLocalStorage.setItem(key, JSON.stringify(value));
-        } catch {
-            // storage disabled
-        }
-    }
-}
 
-async function dbDel(key) {
-    await idbDel(key);
-    try {
-        safeLocalStorage.removeItem(key);
-    } catch {
-        // storage disabled
-    }
-}
 
-async function cacheBootstrap(data, loadedAt = new Date().toISOString(), query = {}) {
-    try {
-        const q = String(query.q || "");
-        const status = String(query.status || "all");
-        const route = String(query.route || state.route || "dashboard");
-        if (q || status !== "all") {
-            await clearCachedBootstrap();
-            return;
-        }
-        const cached = JSON.parse(JSON.stringify(data || {}));
-        if (cached.app) {
-            delete cached.app.csrf_token;
-            delete cached.app.access_token;
-        }
-        const payload = {
-            schemaVersion: BOOTSTRAP_CACHE_SCHEMA_VERSION,
-            cachedAt: Date.now(),
-            loadedAt,
-            appVersion: cached.app?.version || "",
-            dbPath: cached.app?.db_path || "",
-            query: { q, status, route },
-            data: cached
-        };
-        await dbSet(BOOTSTRAP_CACHE_KEY, payload);
-    } catch (e) {
-        console.error(e);
-    }
-}
 
-async function clearCachedBootstrap() {
-    try {
-        await dbDel(BOOTSTRAP_CACHE_KEY);
-    } catch (e) {
-        console.error(e);
-    }
-}
 
-async function readCachedBootstrap() {
-    try {
-        const parsed = await dbGet(BOOTSTRAP_CACHE_KEY);
-        if (!parsed) return null;
-        if (parsed?.data && typeof parsed.data === "object") {
-            if (parsed.schemaVersion !== BOOTSTRAP_CACHE_SCHEMA_VERSION) {
-                await clearCachedBootstrap();
-                return null;
-            }
-            const query = parsed.query || {};
-            if (String(query.q || "") || String(query.status || "all") !== "all") {
-                await clearCachedBootstrap();
-                return null;
-            }
-            const cachedAt = Number(parsed.cachedAt || 0);
-            if (!Number.isFinite(cachedAt) || Date.now() - cachedAt > BOOTSTRAP_CACHE_TTL_MS) {
-                await clearCachedBootstrap();
-                return null;
-            }
-            return parsed;
-        }
-        if (parsed?.app) {
-            await clearCachedBootstrap();
-            return null;
-        }
-    } catch (e) {
-        console.error(e);
-        await clearCachedBootstrap();
-    }
-    return null;
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 async function reconcileDataVersions(localData, serverData) {
     if (!localData || !serverData) return;
@@ -1323,25 +1709,7 @@ async function restoreCachedBootstrap() {
     }
 }
 
-function setLoadingState(isLoading) {
-    state.loading = isLoading;
-    const content = $("#content");
-    if (content) content.setAttribute("aria-busy", String(isLoading));
-    $("#refreshBtn")?.toggleAttribute("disabled", isLoading);
-    const progress = $("#appProgress");
-    if (progress) {
-        progress.classList.toggle("is-active", Boolean(isLoading));
-        progress.setAttribute("aria-hidden", "true");
-    }
-    const syncChip = $("#syncChip");
-    if (syncChip && isLoading) syncChip.dataset.state = "syncing";
-    renderShell();
-    if (isLoading) {
-        const routeName = routes[state.route] || "раздела";
-        announce(`Загрузка раздела ${routeName}...`, false);
-    }
-    render();
-}
+
 
 function updateTopbarOffset() {
     const topbar = $(".topbar");
@@ -1368,131 +1736,11 @@ function closeTransientPanels(except = "", { restoreFocus = false } = {}) {
     if (restoreFocus) restoreTarget?.focus({ preventScroll: true });
 }
 
-async function loadData() {
-    const seq = ++state.loadSeq;
-    if (state.bootstrapAbortController) state.bootstrapAbortController.abort();
-    const controller = new AbortController();
-    state.bootstrapAbortController = controller;
 
-    let localData = null;
-    try {
-        const cached = await readCachedBootstrap();
-        if (cached?.data) {
-            localData = cached.data;
-        }
-    } catch (e) {
-        console.error("Failed to read cached data for reconciliation:", e);
-    }
 
-    setLoadingState(true);
-    const params = new URLSearchParams({ q: state.q });
-    const requestStatus = state.route === "orders" ? state.status : "all";
-    if (requestStatus !== "all") {
-        params.set("status", requestStatus);
-    }
-    try {
-        const data = await api(`/api/bootstrap?${params}`, { signal: controller.signal });
-        if (seq !== state.loadSeq) return;
-        const loadedAt = new Date().toISOString();
 
-        if (state.offlineMode && localData) {
-            try {
-                await reconcileDataVersions(localData, data);
-            } catch (reconError) {
-                console.error("Reconciliation error:", reconError);
-            }
-        }
 
-        state.data = data;
-        if (data.app?.access_token) state.accessToken = data.app.access_token;
-        state.bootstrapToken = "";
-        state.lastLoadedAt = loadedAt;
-        state.offlineMode = false;
-        await cacheBootstrap(data, loadedAt, { q: state.q, status: requestStatus, route: state.route });
-        state.lastError = "";
-        setOnlineState(true);
-        const dbPath = $("#dbPath");
-        if (dbPath) {
-            dbPath.textContent = `База: ${state.data.app.db_path}`;
-            dbPath.title = state.data.app.db_directory ? `Папка базы: ${state.data.app.db_directory}` : "";
-        }
-        if (seq === state.loadSeq) setLoadingState(false);
-        updateSearchClear();
-        announce(`Данные обновлены. Раздел: ${routes[state.route]}.`);
-    } catch (error) {
-        if (error?.name === "AbortError") return;
-        throw error;
-    } finally {
-        if (state.bootstrapAbortController === controller) state.bootstrapAbortController = null;
-        if (seq === state.loadSeq && state.loading) setLoadingState(false);
-    }
-}
 
-function prefersReducedMotion() {
-    return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
-function setRoute(route, updateUrl = true) {
-    if (!routes[route]) return;
-    closeTransientPanels();
-    const previousRoute = state.route;
-    const sameRoute = previousRoute === route;
-    if (previousRoute && !sameRoute) {
-        state.routeScrollPositions[previousRoute] = window.scrollY;
-    }
-    const hasOrderFilter = state.status !== "all" && !state.offlineMode;
-    const leavingFilteredOrders = hasOrderFilter && route !== "orders" && previousRoute === "orders";
-    const enteringFilteredOrders = hasOrderFilter && route === "orders" && previousRoute !== "orders";
-    const needsRouteFilterReload = enteringFilteredOrders || leavingFilteredOrders;
-    if (leavingFilteredOrders) state.status = "all";
-    state.route = route;
-    if (route === "catalog") {
-        state.catalogLimit = 60;
-        state.expandedMakes = {};
-    }
-    if (route === "orders") {
-        state.orderPage = 1;
-    }
-    if (route === "inventory") {
-        state.inventoryPage = 1;
-    }
-    if (route === "updates" && !state.updateStatus && !state.updateLoading && !state.updateCheckScheduled) {
-        state.updateCheckScheduled = true;
-        window.setTimeout(() => checkForUpdates(false).catch(showError), 0);
-    }
-    if (updateUrl && !sameRoute) {
-        const url = new URL(location.href);
-        url.searchParams.set("route", route);
-        url.hash = "";
-        history.pushState({ route }, "", url);
-    }
-    $("#viewTitle").textContent = routes[route];
-    $("#viewSubtitle").textContent = routeSubtitles[route] || "";
-    $$("#nav button").forEach(button => {
-        const active = button.dataset.route === route;
-        button.classList.toggle("active", active);
-        if (active) button.setAttribute("aria-current", "page");
-        else button.removeAttribute("aria-current");
-    });
-    renderShell();
-    render();
-    if (needsRouteFilterReload) {
-        loadData().catch(showError);
-    }
-    if (previousRoute !== route) {
-        setMobileNavOpen(false);
-        const savedScroll = state.routeScrollPositions[route];
-        if (savedScroll !== undefined) {
-            window.scrollTo(0, savedScroll);
-        } else {
-            const content = $("#content");
-            content?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
-        }
-        const content = $("#content");
-        content?.focus({ preventScroll: true });
-        announce(`Открыт раздел ${routes[route]}.`);
-    }
-}
 
 function initKanbanDragAndDrop() {
     const board = document.querySelector('.pipeline-board');
@@ -1579,92 +1827,9 @@ function initKanbanDragAndDrop() {
     });
 }
 
-function routeFromLocation() {
-    const params = new URLSearchParams(location.search);
-    const requested = params.get("route") || location.hash.replace("#", "");
-    return routes[requested] ? requested : "dashboard";
-}
 
-function render() {
-    const mainEl = document.querySelector('main');
-    // Restart animation on route change by class swap (CSP compliant)
-    if (mainEl) {
-        mainEl.classList.remove('rendered');
-        mainEl.offsetHeight; /* trigger reflow */
-        mainEl.classList.add('rendered');
-    }
-    if (!state.data && !state.loading) return;
-    const content = $("#content");
-    if (!content) return;
 
-    let bannersWrapper = content.querySelector(".banners-wrapper");
-    let viewsWrapper = content.querySelector(".views-wrapper");
-    if (!bannersWrapper || !viewsWrapper) {
-        content.innerHTML = `<div class="banners-wrapper"></div><div class="views-wrapper"></div>`;
-        bannersWrapper = content.querySelector(".banners-wrapper");
-        viewsWrapper = content.querySelector(".views-wrapper");
-    }
 
-    bannersWrapper.innerHTML = `${offlineBannerHtml()}${errorBannerHtml()}${contextStripHtml()}`;
-
-    resetWorkspaceToolbarObserver();
-    const renderers = {
-        dashboard: renderDashboard,
-        appointments: renderAppointments,
-        orders: renderOrders,
-        customers: renderCustomers,
-        vehicles: renderVehicles,
-        catalog: renderCatalog,
-        inventory: renderInventory,
-        reports: renderReports,
-        updates: renderUpdates
-    };
-
-    let currentViewEl = viewsWrapper.querySelector(`[data-view="${state.route}"]`);
-    if (!currentViewEl) {
-        currentViewEl = document.createElement("div");
-        currentViewEl.setAttribute("data-view", state.route);
-        currentViewEl.className = "route-view";
-        viewsWrapper.appendChild(currentViewEl);
-    }
-
-    viewsWrapper.querySelectorAll(".route-view").forEach(el => {
-        if (el.getAttribute("data-view") !== state.route) {
-            el.style.display = "none";
-            el.setAttribute("aria-hidden", "true");
-        } else {
-            el.style.display = "";
-            el.removeAttribute("aria-hidden");
-        }
-    });
-
-    const busy = content.getAttribute("aria-busy") || "false";
-    let viewHtml;
-    try {
-        viewHtml = renderers[state.route]();
-    } catch (error) {
-        console.error(error);
-        state.lastError = error?.message || String(error);
-        viewHtml = noticeHtml("error", "Не удалось отрисовать раздел.", state.lastError, `<button class="btn primary" type="button" data-action="retry-load">Обновить данные</button>`);
-    }
-
-    currentViewEl.innerHTML = viewHtml;
-    content.setAttribute("aria-busy", busy);
-    bindViewActions(currentViewEl);
-    if (state.route === "dashboard") {
-         initKanbanDragAndDrop();
-    }
-    bindCatalogFilter(currentViewEl);
-    bindWorkspaceToolbar(currentViewEl);
-    updateScrollHints(currentViewEl);
-    applyCellTitles(currentViewEl);
-    updateNavigationBadges();
-    requestAnimationFrame(() => {
-        if (!document.contains(currentViewEl)) return;
-        updateScrollHints(currentViewEl);
-        applyCellTitles(currentViewEl);
-    });
-}
 
 function applyCellTitles(root) {
     $$(".cell-title strong, .cell-title .muted", root).forEach(node => {
@@ -2751,12 +2916,7 @@ function runCommand(index = 0) {
     item.run();
 }
 
-function requiresFreshCsrf(actionName = "это действие") {
-    if (state.data?.app?.csrf_token) return true;
-    toast(`Нет активной сессии безопасности: обновите данные, чтобы выполнить ${actionName}.`, "error");
-    loadData().catch(showError);
-    return false;
-}
+
 
 function requireRecord(record, label = "Запись") {
     if (record) return true;
@@ -7368,18 +7528,9 @@ function toggleAudioFeedback() {
     toast(state.audioFeedback ? "Звуковые оповещения включены" : "Звуковые оповещения выключены", "success");
 }
 
-function safeStorageGet(key) {
-    try { return safeLocalStorage.getItem(key); }
-    catch { return null; }
-}
 
-function safeStorageSet(key, value) {
-    try {
-        if (value === null || value === "") safeLocalStorage.removeItem(key);
-        else safeLocalStorage.setItem(key, value);
-    }
-    catch { /* storage can be disabled in private or locked-down modes */ }
-}
+
+
 
 function nextThemePreference(current) {
     const normalized = current === "dark" || current === "light" ? current : "auto";

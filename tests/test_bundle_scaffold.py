@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_SCRIPT = ROOT / "tools" / "build_frontend_bundle.py"
 APP_JS = ROOT / "sto_crm" / "assets" / "app.js"
-SOURCE_JS = ROOT / "sto_crm" / "assets" / "js" / "app.js"
+SOURCE_JS = ROOT / "sto_crm" / "assets" / "js" / "app_main.js"
 
 
 class TestBundleScaffold(unittest.TestCase):

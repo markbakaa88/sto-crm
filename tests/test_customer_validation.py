@@ -62,9 +62,7 @@ def test_customer_phone_masking(crm_server):
         page.wait_for_selector(".app")
 
         # Wait for data bootstrap to complete
-        page.evaluate(
-            "() => new Promise(resolve => { if (state.data) return resolve(); const check = setInterval(() => { if (state.data) { clearInterval(check); resolve(); } }, 50); })"
-        )
+        page.wait_for_function("() => typeof state !== 'undefined' && state.data")
 
         # Open customer modal
         page.evaluate("openCustomerModal()")
@@ -161,9 +159,7 @@ def test_customer_email_validation(crm_server):
         page.wait_for_selector(".app")
 
         # Wait for data bootstrap to complete
-        page.evaluate(
-            "() => new Promise(resolve => { if (state.data) return resolve(); const check = setInterval(() => { if (state.data) { clearInterval(check); resolve(); } }, 50); })"
-        )
+        page.wait_for_function("() => typeof state !== 'undefined' && state.data")
 
         # Open customer modal
         page.evaluate("openCustomerModal()")

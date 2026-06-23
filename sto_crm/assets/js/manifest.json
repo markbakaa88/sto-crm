@@ -1,3 +1,8 @@
 [
-  "app.js"
+  "core/state.js",
+  "core/dom.js",
+  "core/storage.js",
+  "core/api.js",
+  "core/routing.js",
+  "app_main.js"
 ]
