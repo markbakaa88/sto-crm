@@ -56,6 +56,8 @@ def sanitize_part_search_result(
         price_val = p.get("price")
         if price_val is None:
             price = 0.0
+        elif isinstance(price_val, bool):
+            return None
         else:
             price = float(price_val)
             if not math.isfinite(price) or price < 0.0 or price > MAX_FINANCIAL_TOTAL:
@@ -67,6 +69,8 @@ def sanitize_part_search_result(
             stock_val = p.get("quantity")
         if stock_val is None:
             stock = 0
+        elif isinstance(stock_val, bool):
+            return None
         else:
             stock = int(stock_val)
             if stock < 0 or stock > SQLITE_INTEGER_MAX:
@@ -78,6 +82,8 @@ def sanitize_part_search_result(
             days_val = p.get("days")
         if days_val is None:
             delivery_days = 1
+        elif isinstance(days_val, bool):
+            return None
         else:
             delivery_days = int(days_val)
             if delivery_days < 0 or delivery_days > SQLITE_INTEGER_MAX:

@@ -214,7 +214,9 @@ class TestSupplierPartsIntegration(unittest.TestCase):
             sto_crm.config.ROSSKO_KEY2 = "key2"
 
             mock_response = MagicMock()
-            mock_response.read.return_value = b'{"success": true, "parts": [{"price": 1000.0, "stock": 0}]}'
+            mock_response.read.return_value = (
+                b'{"success": true, "parts": [{"price": 1000.0, "stock": 0}]}'
+            )
             mock_urlopen.return_value.__enter__.return_value = mock_response
 
             adapter = RosskoAdapter()
@@ -617,13 +619,24 @@ class TestSupplierPartsIntegration(unittest.TestCase):
             mock_mx.assert_not_called()
             mock_tm.assert_not_called()
 
+            # 3. Search with force_refresh=True but age < 5 seconds:
+            # it should coalesce/debounce and NOT force adapter query!
+            res_coalesced = search_supplier_parts("555", "CTR", force_refresh=True)
+            self.assertEqual(len(res_coalesced), 1)
+            mock_rossko.assert_not_called()
+            mock_mx.assert_not_called()
+            mock_tm.assert_not_called()
+
             # Set cache stamp in the past to satisfy the > 5.0 seconds check
             from datetime import datetime, timedelta
+
             past_time = (datetime.now() - timedelta(seconds=10)).isoformat()
             with write_db() as conn:
-                conn.execute("UPDATE supplier_parts_cache SET cached_at = ?", (past_time,))
+                conn.execute(
+                    "UPDATE supplier_parts_cache SET cached_at = ?", (past_time,)
+                )
 
-            # 3. Search with force_refresh=True: it should force adapter query (MISS logic)
+            # 4. Search with force_refresh=True and age >= 5 seconds: it should force adapter query (MISS logic)
             res3 = search_supplier_parts("555", "CTR", force_refresh=True)
             self.assertEqual(len(res3), 1)
             mock_rossko.assert_called_once_with("555", "CTR")
@@ -876,7 +889,7 @@ class TestSupplierPartsIntegration(unittest.TestCase):
                 b'  {"price": 99999999999999999.0, "stock": 2},'
                 b'  {"price": 100.0, "stock": -5},'
                 b'  {"price": 100.0, "stock": 2, "delivery_days": -1}'
-                b']}'
+                b"]}"
             )
             self.assertEqual(rossko.search_parts("555", None), [])
 
@@ -886,18 +899,14 @@ class TestSupplierPartsIntegration(unittest.TestCase):
                 b'  {"price": NaN},'
                 b'  {"price": "nan"},'
                 b'  {"price": 100.0, "quantity": -1}'
-                b']}'
+                b"]}"
             )
             mx = MXGroupAdapter()
             self.assertEqual(mx.search_parts("555", None), [])
 
             # 3. TM Parts search with bad input
             mock_resp.read.return_value = (
-                b'['
-                b'  {"price": NaN},'
-                b'  {"price": "nan"},'
-                b'  {"price": 100.0, "stock": -1}'
-                b']'
+                b'[  {"price": NaN},  {"price": "nan"},  {"price": 100.0, "stock": -1}]'
             )
             tm = TMPartsAdapter()
             self.assertEqual(tm.search_parts("555", None), [])
@@ -1175,6 +1184,50 @@ class TestSupplierPartsIntegration(unittest.TestCase):
             adapter = RosskoAdapter()
             res = adapter._request("/test_no_data", None)
             self.assertEqual(res, {"ok": True})
+
+    def test_sanitize_part_search_result_invalid_inputs(self):
+        from sto_crm.config import MAX_FINANCIAL_TOTAL, SQLITE_INTEGER_MAX
+        from sto_crm.parts_api import sanitize_part_search_result
+
+        # Valid baseline
+        baseline = {
+            "oem": "555",
+            "brand": "CTR",
+            "name": "Part A",
+            "price": 100.0,
+            "stock": 10,
+            "delivery_days": 2,
+        }
+        res = sanitize_part_search_result(baseline, "rossko")
+        self.assertIsNotNone(res)
+        assert res is not None
+        self.assertEqual(res["price"], 100.0)
+
+        # Invalid prices
+        for bad_price in [
+            "nan",
+            "inf",
+            "-inf",
+            -10.0,
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+            MAX_FINANCIAL_TOTAL + 1,
+            True,
+            False,
+        ]:
+            item = dict(baseline, price=bad_price)
+            self.assertIsNone(sanitize_part_search_result(item, "rossko"))
+
+        # Invalid stocks
+        for bad_stock in [-1, SQLITE_INTEGER_MAX + 1, "not-an-int", True, False]:
+            item = dict(baseline, stock=bad_stock)
+            self.assertIsNone(sanitize_part_search_result(item, "rossko"))
+
+        # Invalid delivery days
+        for bad_days in [-1, SQLITE_INTEGER_MAX + 1, "not-an-int", True, False]:
+            item = dict(baseline, delivery_days=bad_days)
+            self.assertIsNone(sanitize_part_search_result(item, "rossko"))
 
 
 def get_free_port():
