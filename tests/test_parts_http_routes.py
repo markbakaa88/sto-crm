@@ -167,3 +167,71 @@ class TestHttpPartsRoutes(unittest.TestCase):
         response_bytes = handler.request.bytes_written
         self.assertIn(b"HTTP/1.1 200 OK", response_bytes)
         self.assertIn(b"TRACK-XYZ", response_bytes)
+
+    def test_post_parts_order_route_invalid_fields(self):
+        # We test that bad values return 400
+        headers = {
+            "Host": "localhost:8080",
+            "X-CRM-Access-Token": "test_access_token",
+            "X-CSRF-Token": "test_csrf_token",
+            "Content-Type": "application/json",
+        }
+
+        bad_payloads = [
+            # nan price
+            b'{"oem": "123", "brand": "CTR", "supplier": "rossko", "quantity": 2, "price": "nan"}',
+            b'{"oem": "123", "brand": "CTR", "supplier": "rossko", "quantity": 2, "price": NaN}',
+            # inf price
+            b'{"oem": "123", "brand": "CTR", "supplier": "rossko", "quantity": 2, "price": "inf"}',
+            # too big price
+            b'{"oem": "123", "brand": "CTR", "supplier": "rossko", "quantity": 2, "price": 999999999999}',
+            # negative quantity
+            b'{"oem": "123", "brand": "CTR", "supplier": "rossko", "quantity": -5, "price": 100.0}',
+            # zero quantity
+            b'{"oem": "123", "brand": "CTR", "supplier": "rossko", "quantity": 0, "price": 100.0}',
+            # float quantity
+            b'{"oem": "123", "brand": "CTR", "supplier": "rossko", "quantity": 2.5, "price": 100.0}',
+            # overflow quantity
+            b'{"oem": "123", "brand": "CTR", "supplier": "rossko", "quantity": 99999999999999999999999999, "price": 100.0}',
+        ]
+
+        for body in bad_payloads:
+            hdrs = dict(headers)
+            hdrs["Content-Length"] = str(len(body))
+            handler = self._make_handler(
+                "POST", "/api/parts/order", body=body, headers=hdrs
+            )
+            handler.handle_request("POST")
+            response_bytes = handler.request.bytes_written
+            self.assertIn(b"HTTP/1.1 400 Bad Request", response_bytes)
+
+    @patch("sto_crm.parts_service.search_supplier_parts")
+    def test_get_parts_search_route_force_no_csrf(self, mock_search):
+        headers = {
+            "Host": "localhost:8080",
+            "X-CRM-Access-Token": "test_access_token",
+            # No CSRF header or empty
+        }
+        handler = self._make_handler(
+            "GET", "/api/parts/search?q=123&brand=CTR&force=true", headers=headers
+        )
+        handler.handle_request("GET")
+        response_bytes = handler.request.bytes_written
+        self.assertIn(b"HTTP/1.1 403 Forbidden", response_bytes)
+        mock_search.assert_not_called()
+
+    @patch("sto_crm.parts_service.search_supplier_parts")
+    def test_get_parts_search_route_force_with_csrf(self, mock_search):
+        mock_search.return_value = []
+        headers = {
+            "Host": "localhost:8080",
+            "X-CRM-Access-Token": "test_access_token",
+            "X-CSRF-Token": "test_csrf_token",
+        }
+        handler = self._make_handler(
+            "GET", "/api/parts/search?q=123&brand=CTR&force=true", headers=headers
+        )
+        handler.handle_request("GET")
+        response_bytes = handler.request.bytes_written
+        self.assertIn(b"HTTP/1.1 200 OK", response_bytes)
+        mock_search.assert_called_once_with("123", "CTR", True)

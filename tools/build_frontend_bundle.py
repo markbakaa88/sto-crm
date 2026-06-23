@@ -26,7 +26,7 @@ def get_ordered_modules() -> list[Path]:
         sys.exit(1)
 
     try:
-        with open(MANIFEST_FILE, "r", encoding="utf-8") as f:
+        with open(MANIFEST_FILE, encoding="utf-8") as f:
             files = json.load(f)
     except Exception as e:
         print(f"ERROR: Ошибка чтения {MANIFEST_FILE}: {e}", file=sys.stderr)

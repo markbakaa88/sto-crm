@@ -132,7 +132,7 @@ class TestCoverageEdgeCases(unittest.TestCase):
         )
         self.assertEqual(result_risky["business_health_label"], "Риски")
 
-    @patch("sto_crm.reports.datetime", MockDatetime)
+    @patch("sto_crm.reports.data.datetime", MockDatetime)
     def test_reports_month_closed_no_closed_at(self):
         # reports.py line 664->662
         orders = [

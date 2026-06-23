@@ -31,10 +31,14 @@ class MXGroupAdapter(PartsSupplierAdapter):
             method="POST" if data is not None else "GET",
         )
         try:
+            from ..config import MAX_BODY_BYTES
             from ..runtime import strict_json_loads
+            from ..updater.checker import read_limited_response
             with urllib.request.urlopen(req, timeout=config.PARTS_API_TIMEOUT) as resp:
-                resp_payload = resp.read()
-                return strict_json_loads(resp_payload.decode("utf-8"))
+                charset_val = resp.headers.get_content_charset()
+                charset = charset_val if isinstance(charset_val, str) else "utf-8"
+                resp_payload = read_limited_response(resp, MAX_BODY_BYTES, "MX Group API")
+                return strict_json_loads(resp_payload.decode(charset))
         except Exception as e:
             raise RuntimeError(f"MX Group API Error: {e}") from e
 

@@ -130,6 +130,12 @@ def main() -> int:
 
     failed = False
 
+    if missing_legacy:
+        print(f"[MISSING LEGACY BUNDLE] {len(missing_legacy)} подстрок:")
+        for s in missing_legacy:
+            print("  -", repr(s))
+        failed = True
+
     if missing_html:
         print(f"[MISSING HTML SHELL] {len(missing_html)} подстрок:")
         for s in missing_html:

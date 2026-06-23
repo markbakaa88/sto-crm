@@ -839,6 +839,69 @@ class TestSupplierPartsIntegration(unittest.TestCase):
             mock_resp.read.return_value = b"{}"
             self.assertIsNone(tm.order_part("555", "CTR", 1))
 
+    @patch("urllib.request.urlopen")
+    def test_adapters_strict_json_numeric_normalization(self, mock_urlopen):
+        import sto_crm.config
+
+        with patch.dict(
+            os.environ,
+            {
+                "ROSSKO_KEY1": "k1",
+                "ROSSKO_KEY2": "k2",
+                "MX_GROUP_TOKEN": "tok",
+                "TM_PARTS_KEY": "tmk",
+            },
+        ):
+            sto_crm.config.ROSSKO_KEY1 = "k1"
+            sto_crm.config.ROSSKO_KEY2 = "k2"
+            sto_crm.config.MX_GROUP_TOKEN = "tok"
+            sto_crm.config.TM_PARTS_KEY = "tmk"
+
+            mock_resp = MagicMock()
+            mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+            # 1. Rossko search with bad float JSON constants like NaN/Infinity or illegal strings
+            # NaN as constant
+            mock_resp.read.return_value = (
+                b'{"success": true, "parts": [{"price": NaN}]}'
+            )
+            rossko = RosskoAdapter()
+            self.assertEqual(rossko.search_parts("555", None), [])
+
+            # nan/inf/too big as strings
+            mock_resp.read.return_value = (
+                b'{"success": true, "parts": ['
+                b'  {"price": "nan", "stock": 2},'
+                b'  {"price": "inf", "stock": 2},'
+                b'  {"price": 99999999999999999.0, "stock": 2},'
+                b'  {"price": 100.0, "stock": -5},'
+                b'  {"price": 100.0, "stock": 2, "delivery_days": -1}'
+                b']}'
+            )
+            self.assertEqual(rossko.search_parts("555", None), [])
+
+            # 2. MX Group search with bad input
+            mock_resp.read.return_value = (
+                b'{"items": ['
+                b'  {"price": NaN},'
+                b'  {"price": "nan"},'
+                b'  {"price": 100.0, "quantity": -1}'
+                b']}'
+            )
+            mx = MXGroupAdapter()
+            self.assertEqual(mx.search_parts("555", None), [])
+
+            # 3. TM Parts search with bad input
+            mock_resp.read.return_value = (
+                b'['
+                b'  {"price": NaN},'
+                b'  {"price": "nan"},'
+                b'  {"price": 100.0, "stock": -1}'
+                b']'
+            )
+            tm = TMPartsAdapter()
+            self.assertEqual(tm.search_parts("555", None), [])
+
     def test_aggregator_error_handling_and_timeout(self):
         from sto_crm.parts_api.aggregator import PartsAggregator
 
@@ -884,6 +947,52 @@ class TestSupplierPartsIntegration(unittest.TestCase):
             ):
                 results = agg.query_all("555", "CTR")
                 self.assertEqual(results, [])
+
+    def test_aggregator_timeout_blocks_prevented(self):
+        import sto_crm.config
+        from sto_crm.parts_api.aggregator import PartsAggregator
+
+        orig_timeout = sto_crm.config.PARTS_API_TIMEOUT
+        sto_crm.config.PARTS_API_TIMEOUT = 0.1  # very short timeout
+
+        agg = PartsAggregator()
+        slow_adapter = agg.adapters[0]
+
+        def slow_search(oem, brand=None):
+            time.sleep(3.0)
+            return []
+
+        t0 = time.time()
+        with (
+            patch.object(slow_adapter, "search_parts", side_effect=slow_search),
+            patch.object(agg.adapters[1], "search_parts", return_value=[]),
+            patch.object(agg.adapters[2], "search_parts", return_value=[]),
+            patch.dict(
+                os.environ,
+                {
+                    "ROSSKO_KEY1": "k1",
+                    "ROSSKO_KEY2": "k2",
+                    "MX_GROUP_TOKEN": "tok",
+                    "TM_PARTS_KEY": "tmk",
+                },
+            ),
+        ):
+            # Also patch config variables directly to bypass is-configured checks
+            with (
+                patch.object(sto_crm.config, "ROSSKO_KEY1", "k1"),
+                patch.object(sto_crm.config, "ROSSKO_KEY2", "k2"),
+                patch.object(sto_crm.config, "MX_GROUP_TOKEN", "tok"),
+                patch.object(sto_crm.config, "TM_PARTS_KEY", "tmk"),
+            ):
+                _results = agg.query_all("555", "CTR")
+                elapsed = time.time() - t0
+                # Since timeout is 0.1, aggregator wait budget is 0.1 + 2 = 2.1s
+                # The slow adapter sleeps for 3.0s.
+                # If it blocked, elapsed would be >= 3.0s.
+                # Since it doesn't block, elapsed should be close to 2.1s (between 2.1 and 2.5).
+                self.assertLess(elapsed, 2.8)
+
+        sto_crm.config.PARTS_API_TIMEOUT = orig_timeout
 
     def test_abstract_adapter_interface(self):
         from sto_crm.parts_api import PartSearchResult, PartsSupplierAdapter

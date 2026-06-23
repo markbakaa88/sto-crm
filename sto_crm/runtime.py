@@ -531,9 +531,6 @@ class BootstrapTokenRegistry:
             if token in self.consumed_tokens:
                 return False
 
-            if token == RUNTIME.bootstrap_token and token not in self.tokens:
-                self.tokens[token] = now + self.default_ttl
-
             if token not in self.tokens:
                 return False
 
