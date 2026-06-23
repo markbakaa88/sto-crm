@@ -62,6 +62,18 @@ def test_toast_notification_types(crm_server):
         page.goto(crm_server)
         page.wait_for_selector(".app")
 
+        # Reset toast state to avoid queue blocks
+        page.evaluate("""() => {
+            isToastActive = false;
+            isToastFadingOut = false;
+            toastQueue.length = 0;
+            const node = document.getElementById('toast');
+            if (node) {
+                node.className = 'toast';
+                node.innerHTML = '';
+            }
+        }""")
+
         # 1. Test success / ok type
         page.evaluate("toast('Success message', 'success')")
         toast_classes = page.evaluate(

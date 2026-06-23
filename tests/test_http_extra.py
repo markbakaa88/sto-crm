@@ -186,7 +186,7 @@ class TestHttpServerExtra(unittest.TestCase):
         # validation.py или django-подобное вызовет ValueError на дубликат VIN
         # но мы можем спровоцировать IntegrityError напрямую в API с помощью mock на create_vehicle
         with patch(
-            "sto_crm.http_server.create_vehicle",
+            "sto_crm.api.vehicles.create_vehicle",
             side_effect=sqlite3.IntegrityError("Conflict"),
         ):
             req_integrity = urllib.request.Request(
@@ -215,7 +215,7 @@ class TestHttpServerExtra(unittest.TestCase):
 
         # 3. RuntimeError
         with patch(
-            "sto_crm.http_server.create_vehicle",
+            "sto_crm.api.vehicles.create_vehicle",
             side_effect=RuntimeError("Runtime Err"),
         ):
             with self.assertRaises(urllib.error.HTTPError) as err:
@@ -417,7 +417,7 @@ class TestHttpServerExtra(unittest.TestCase):
 
         with patch("sto_crm.http_server.CRMServer", mock_server_class):
             with patch(
-                "sto_crm.http_server.install_update_from_github",
+                "sto_crm.updates.install_update_from_github",
                 return_value={
                     "backup": {"filename": "foo.db", "display_path": "foo/display"},
                     "updated": True,
@@ -439,7 +439,7 @@ class TestHttpServerExtra(unittest.TestCase):
         # Test update install else path (isinstance not CRMServer)
         mock_server.graceful_shutdown_flag = False
         with patch(
-            "sto_crm.http_server.install_update_from_github",
+            "sto_crm.updates.install_update_from_github",
             return_value={"updated": True},
         ):
             with patch("threading.Timer") as mock_timer:
@@ -667,7 +667,8 @@ class TestHttpServerExtra(unittest.TestCase):
         mock_server = MagicMock()
         mock_server.server_port = 8080
         mock_request = MagicMock()
-        from sto_crm.http_server import INTERNAL_ERROR_MESSAGE, CRMHandler
+        from sto_crm.config import INTERNAL_ERROR_MESSAGE
+        from sto_crm.http_server import CRMHandler
 
         handler = CRMHandler(mock_request, ("127.0.0.1", 12345), mock_server)
         handler.request_version = "HTTP/1.1"
@@ -764,7 +765,7 @@ class TestHttpServerExtra(unittest.TestCase):
                 yield payload
 
         fake_cache = DoubleCheckCache()
-        with patch("sto_crm.http_server._UPDATE_STATUS_CACHE", fake_cache):
+        with patch("sto_crm.api.updates._UPDATE_STATUS_CACHE", fake_cache):
             res = handler.cached_update_status()
             self.assertEqual(res, {"some": "status"})
 

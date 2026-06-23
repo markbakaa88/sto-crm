@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import sqlite3
 import sys
 import threading
 import time
@@ -64,6 +65,7 @@ class CRMHandler(BaseAPIHandler):
             self.discard_untrusted_request_body()
 
     def handle_request(self, method: str) -> None:
+        import sqlite3
         graceful = getattr(self.server, "graceful_shutdown_flag", False)
         if graceful and not isinstance(graceful, bool):
             graceful = False
@@ -229,6 +231,8 @@ class CRMHandler(BaseAPIHandler):
             self.send_error_json(400, str(exc))
         except PermissionError as exc:
             self.send_error_json(403, str(exc))
+        except sqlite3.IntegrityError:
+            self.send_error_json(409, "Конфликт уникальности или внешнего ключа.")
         except KeyError as exc:
             self.send_error_json(404, str(exc).strip("'"))
         except TimeoutError:
