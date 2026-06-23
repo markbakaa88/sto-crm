@@ -286,3 +286,87 @@ def test_readonly_escaped_uri_handling(tmp_path):
 
         # Чистим для следующего круга
         db_file.unlink()
+
+
+def test_cross_thread_close_all_connections(patch_db_path):
+    """Test that close_all_connections closes worker-thread connections and handles failures cleanly."""
+    import queue
+    import threading
+
+    from sto_crm.database import close_all_connections, connect
+    from sto_crm.database.connection import _open_connections
+
+    init_db()
+
+    events = queue.Queue()
+    release = threading.Event()
+    worker_started = threading.Event()
+
+    def worker():
+        try:
+            conn = connect()
+            events.put(conn)
+            worker_started.set()
+            release.wait(10)
+        except Exception as e:
+            events.put(e)
+            worker_started.set()
+
+    t = threading.Thread(target=worker)
+    t.start()
+
+    worker_started.wait(5)
+    conn = events.get()
+    assert isinstance(conn, sqlite3.Connection)
+    assert conn in _open_connections
+
+    # Call close_all_connections from the main thread
+    close_all_connections()
+
+    # The connection should be closed/unusable and removed from tracking
+    assert conn not in _open_connections
+    with pytest.raises(sqlite3.ProgrammingError) as excinfo:
+        conn.execute("SELECT 1")
+    assert "closed" in str(excinfo.value).lower()
+
+    # Release the worker thread
+    release.set()
+    t.join(5)
+
+
+def test_close_all_connections_keeps_tracking_on_failure(patch_db_path):
+    """Test that if conn.close() throws an exception, the connection is not silently discarded."""
+    import sto_crm.database.connection
+    from sto_crm.database import close_all_connections, connect
+    from sto_crm.database.connection import _open_connections
+
+    init_db()
+
+    class BadConnection(sqlite3.Connection):
+        def close(self):
+            raise RuntimeError("simulated close failure")
+
+    orig_connect = sqlite3.connect
+
+    def mock_connect(*args, **kwargs):
+        kwargs["factory"] = BadConnection
+        return orig_connect(*args, **kwargs)
+
+    with mock.patch("sqlite3.connect", mock_connect):
+        conn = connect()
+
+    assert conn in _open_connections
+
+    close_all_connections()
+
+    # Since close() failed, the connection should still be in _open_connections
+    assert conn in _open_connections
+
+    # Manual clean up: use sqlite3.Connection.close() to actually close it and remove it
+    try:
+        sqlite3.Connection.close(conn)
+    except Exception:
+        pass
+    with sto_crm.database.connection._open_connections_lock:
+        _open_connections.discard(conn)
+

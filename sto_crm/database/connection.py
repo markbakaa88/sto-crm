@@ -131,23 +131,43 @@ _open_connections_lock = threading.Lock()
 
 
 def close_all_connections() -> None:
+    """Close all tracked SQLite connections.
+
+    If close fails, the connection remains in _open_connections to prevent
+    silent leaks of untracked open database files.
+    """
     with _open_connections_lock:
         for conn in list(_open_connections):
             try:
                 conn.close()
+                _open_connections.discard(conn)
             except Exception:
                 pass
-        _open_connections.clear()
 
 
 def connect(readonly: bool = False) -> sqlite3.Connection:
+    # check_same_thread=False is used because SQLite connections are thread-local
+    # (created, used, and closed within the same request thread via db() context manager).
+    # Setting it to False allows the main/shutdown thread to safely call conn.close()
+    # on active connections from worker threads during server shutdown, ensuring that
+    # SQLite file handles are released. This is crucial on Windows, where open file
+    # handles block deletion, updates, or modifications of SQLite files (DB, WAL, SHM).
     if readonly:
         db_uri = _runtime.RUNTIME.db_path.resolve(strict=False).as_uri() + "?mode=ro"
-        conn = sqlite3.connect(db_uri, uri=True, timeout=30, isolation_level="DEFERRED")
+        conn = sqlite3.connect(
+            db_uri,
+            uri=True,
+            timeout=30,
+            isolation_level="DEFERRED",
+            check_same_thread=False,
+        )
     else:
         ensure_private_file_created(_runtime.RUNTIME.db_path)
         conn = sqlite3.connect(
-            _runtime.RUNTIME.db_path, timeout=30, isolation_level="DEFERRED"
+            _runtime.RUNTIME.db_path,
+            timeout=30,
+            isolation_level="DEFERRED",
+            check_same_thread=False,
         )
     with _open_connections_lock:
         _open_connections.add(conn)
