@@ -106,7 +106,7 @@ def is_installable_update_asset(asset: dict[str, Any] | None) -> bool:
         name = asset.get("name")
         if not name or not isinstance(name, str):
             return False
-        if not EXE_ASSET_RE.search(name) and not name.lower().endswith(".exe"):
+        if not EXE_ASSET_RE.search(name):
             return False
 
         size_raw = asset.get("size")

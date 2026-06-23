@@ -128,48 +128,56 @@ class TestCoverageEdge(unittest.TestCase):
         try:
             updater.can_install_windows_update = lambda: True
 
-            # Non-exe asset validation
+            # Non-exe and wrong name exe asset validation
             bad_asset_1 = {
-                'name': 'release-notes.txt',
-                'size': 1000,
-                'download_url': 'https://github.com/markbakaa88/sto-crm/releases/download/v99.0.0/release-notes.txt',
-                'sha256': 'a' * 64,
+                "name": "release-notes.txt",
+                "size": 1000,
+                "download_url": "https://github.com/markbakaa88/sto-crm/releases/download/v99.0.0/release-notes.txt",
+                "sha256": "a" * 64,
             }
             # Should not be installable
             self.assertFalse(is_installable_update_asset(bad_asset_1))
 
+            wrong_exe_asset = {
+                "name": "wrong-name.exe",
+                "size": 1000,
+                "download_url": "https://github.com/markbakaa88/sto-crm/releases/download/v99.0.0/wrong-name.exe",
+                "sha256": "a" * 64,
+            }
+            self.assertFalse(is_installable_update_asset(wrong_exe_asset))
+
             # 2. .exe asset with missing, zero, negative, non-numeric, or oversized size is not installable
             # Missing size
             bad_asset_empty_size = {
-                'name': 'STO_CRM.exe',
-                'download_url': 'https://github.com/markbakaa88/sto-crm/releases/download/v99.0.0/STO_CRM.exe',
-                'sha256': 'a' * 64,
+                "name": "STO_CRM.exe",
+                "download_url": "https://github.com/markbakaa88/sto-crm/releases/download/v99.0.0/STO_CRM.exe",
+                "sha256": "a" * 64,
             }
             self.assertFalse(is_installable_update_asset(bad_asset_empty_size))
 
             # Zero size
             bad_asset_zero_size = bad_asset_empty_size.copy()
-            bad_asset_zero_size['size'] = 0
+            bad_asset_zero_size["size"] = 0
             self.assertFalse(is_installable_update_asset(bad_asset_zero_size))
 
             # Negative size
             bad_asset_neg_size = bad_asset_empty_size.copy()
-            bad_asset_neg_size['size'] = -100
+            bad_asset_neg_size["size"] = -100
             self.assertFalse(is_installable_update_asset(bad_asset_neg_size))
 
             # Non-numeric size
             bad_asset_non_num_size = bad_asset_empty_size.copy()
-            bad_asset_non_num_size['size'] = 'bad_size'
+            bad_asset_non_num_size["size"] = "bad_size"
             self.assertFalse(is_installable_update_asset(bad_asset_non_num_size))
 
             # Oversized size
             bad_asset_oversized = bad_asset_empty_size.copy()
-            bad_asset_oversized['size'] = 300 * 1024 * 1024 # Limit is 250MB
+            bad_asset_oversized["size"] = 300 * 1024 * 1024  # Limit is 250MB
             self.assertFalse(is_installable_update_asset(bad_asset_oversized))
 
             # 3. valid .exe + SHA + positive size remains installable
             valid_asset = bad_asset_empty_size.copy()
-            valid_asset['size'] = 50 * 1024 * 1024
+            valid_asset["size"] = 50 * 1024 * 1024
             self.assertTrue(is_installable_update_asset(valid_asset))
 
             # 4. install_update_from_github() refuses bad asset metadata before calling download_release_asset()
@@ -179,35 +187,43 @@ class TestCoverageEdge(unittest.TestCase):
 
             # We mock latest_release_info to return release notes (non-exe)
             updater.latest_release_info = lambda: {
-                'version': '99.0.0', 'tag': 'v99.0.0', 'prerelease': False, 'draft': False,
-                'asset': bad_asset_1,
+                "version": "99.0.0",
+                "tag": "v99.0.0",
+                "prerelease": False,
+                "draft": False,
+                "asset": bad_asset_1,
             }
 
-            with patch('sto_crm.updater.download_release_asset') as mock_download:
+            with patch("sto_crm.updater.download_release_asset") as mock_download:
                 with self.assertRaises(RuntimeError) as ctx:
                     install_update_from_github()
-                self.assertIn("нет файла STO_CRM.exe для обновления", str(ctx.exception))
+                self.assertIn(
+                    "нет файла STO_CRM.exe для обновления", str(ctx.exception)
+                )
                 mock_download.assert_not_called()
 
             # Valid case check (with mocked download)
             updater.latest_release_info = lambda: {
-                'version': '99.0.0', 'tag': 'v99.0.0', 'prerelease': False, 'draft': False,
-                'asset': valid_asset,
+                "version": "99.0.0",
+                "tag": "v99.0.0",
+                "prerelease": False,
+                "draft": False,
+                "asset": valid_asset,
             }
             with (
-                patch('sto_crm.updater.download_release_asset') as mock_download,
-                patch('sto_crm.updater.create_backup') as mock_backup,
-                patch('sto_crm.updater.ensure_downloaded_executable'),
-                patch('sto_crm.updater.schedule_windows_update'),
-                patch('sto_crm.updater.user_data_dir') as mock_user_dir,
-                patch('sto_crm.updater.ensure_real_dir')
+                patch("sto_crm.updater.download_release_asset") as mock_download,
+                patch("sto_crm.updater.create_backup") as mock_backup,
+                patch("sto_crm.updater.ensure_downloaded_executable"),
+                patch("sto_crm.updater.schedule_windows_update"),
+                patch("sto_crm.updater.user_data_dir") as mock_user_dir,
+                patch("sto_crm.updater.ensure_real_dir"),
             ):
-                mock_user_dir.return_value = Path('/tmp')
-                mock_backup.return_value = {'display_path': 'mock'}
-                mock_download.return_value = {'size': 5000, 'sha256': 'a'*64}
+                mock_user_dir.return_value = Path("/tmp")
+                mock_backup.return_value = {"display_path": "mock"}
+                mock_download.return_value = {"size": 5000, "sha256": "a" * 64}
                 res = install_update_from_github()
-                self.assertTrue(res.get('ok'))
-                self.assertTrue(res.get('updated'))
+                self.assertTrue(res.get("ok"))
+                self.assertTrue(res.get("updated"))
                 mock_download.assert_called_once()
         finally:
             updater.latest_release_info = orig_latest
@@ -634,16 +650,24 @@ class TestCoverageEdge(unittest.TestCase):
                 import json
 
                 from sto_crm.config import MAX_ORDER_ITEMS
+
                 valid_post_items = [
-                    {"kind": "service", "title": f"Labor {i}", "quantity": 1, "unit_price": 100}
+                    {
+                        "kind": "service",
+                        "title": f"Labor {i}",
+                        "quantity": 1,
+                        "unit_price": 100,
+                    }
                     for i in range(MAX_ORDER_ITEMS)
                 ]
-                valid_post_data = json.dumps({
-                    "customer_id": 1,
-                    "status": "new",
-                    "priority": "normal",
-                    "items": valid_post_items,
-                }).encode("utf-8")
+                valid_post_data = json.dumps(
+                    {
+                        "customer_id": 1,
+                        "status": "new",
+                        "priority": "normal",
+                        "items": valid_post_items,
+                    }
+                ).encode("utf-8")
                 valid_post_req = urllib.request.Request(
                     f"{base}/api/orders",
                     method="POST",
@@ -662,15 +686,22 @@ class TestCoverageEdge(unittest.TestCase):
 
                 # 10.5b. POST invalid order to /api/orders (MAX_ORDER_ITEMS + 1 items)
                 invalid_post_items = [
-                    {"kind": "service", "title": f"Labor {i}", "quantity": 1, "unit_price": 100}
+                    {
+                        "kind": "service",
+                        "title": f"Labor {i}",
+                        "quantity": 1,
+                        "unit_price": 100,
+                    }
                     for i in range(MAX_ORDER_ITEMS + 1)
                 ]
-                invalid_post_data = json.dumps({
-                    "customer_id": 1,
-                    "status": "new",
-                    "priority": "normal",
-                    "items": invalid_post_items,
-                }).encode("utf-8")
+                invalid_post_data = json.dumps(
+                    {
+                        "customer_id": 1,
+                        "status": "new",
+                        "priority": "normal",
+                        "items": invalid_post_items,
+                    }
+                ).encode("utf-8")
                 invalid_post_req = urllib.request.Request(
                     f"{base}/api/orders",
                     method="POST",
@@ -685,15 +716,20 @@ class TestCoverageEdge(unittest.TestCase):
                     urllib.request.urlopen(invalid_post_req, timeout=5)
                 self.assertEqual(err.exception.code, 400)
                 err_body = json.loads(err.exception.read().decode("utf-8"))
-                self.assertIn(f"В заказ-наряде не может быть больше {MAX_ORDER_ITEMS} позиций.", err_body["error"])
+                self.assertIn(
+                    f"В заказ-наряде не может быть больше {MAX_ORDER_ITEMS} позиций.",
+                    err_body["error"],
+                )
 
                 # 10.5c. PUT invalid order to /api/orders (MAX_ORDER_ITEMS + 1 items)
-                invalid_put_data = json.dumps({
-                    "customer_id": 1,
-                    "status": "new",
-                    "priority": "normal",
-                    "items": invalid_post_items,
-                }).encode("utf-8")
+                invalid_put_data = json.dumps(
+                    {
+                        "customer_id": 1,
+                        "status": "new",
+                        "priority": "normal",
+                        "items": invalid_post_items,
+                    }
+                ).encode("utf-8")
                 invalid_put_req = urllib.request.Request(
                     f"{base}/api/orders/{created_order_id}",
                     method="PUT",
@@ -708,7 +744,10 @@ class TestCoverageEdge(unittest.TestCase):
                     urllib.request.urlopen(invalid_put_req, timeout=5)
                 self.assertEqual(err.exception.code, 400)
                 err_body = json.loads(err.exception.read().decode("utf-8"))
-                self.assertIn(f"В заказ-наряде не может быть больше {MAX_ORDER_ITEMS} позиций.", err_body["error"])
+                self.assertIn(
+                    f"В заказ-наряде не может быть больше {MAX_ORDER_ITEMS} позиций.",
+                    err_body["error"],
+                )
 
                 # 11. POST /api/shutdown -> 200 и сервер выключается
                 shutdown_req = urllib.request.Request(

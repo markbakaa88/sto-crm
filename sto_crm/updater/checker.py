@@ -271,21 +271,31 @@ def normalize_release_asset(
             if isinstance(size_raw, (int, float)):
                 size = int(size_raw)
             else:
-                cleaned_size = str(size_raw).replace(" ", "").replace("\xa0", "").strip()
+                cleaned_size = (
+                    str(size_raw).replace(" ", "").replace("\xa0", "").strip()
+                )
                 if re.fullmatch(r"[+-]?\d+", cleaned_size):
                     size = int(cleaned_size)
                 else:
                     raise ValueError()
         except (ValueError, TypeError, OverflowError) as exc:
-            raise RuntimeError("Manifest обновления содержит некорректный размер файла.") from exc
+            raise RuntimeError(
+                "Manifest обновления содержит некорректный размер файла."
+            ) from exc
         if size < 0:
-            raise RuntimeError("Manifest обновления содержит некорректный размер файла.")
+            raise RuntimeError(
+                "Manifest обновления содержит некорректный размер файла."
+            )
         if size == 0:
             if repository and tag:
-                raise RuntimeError("Manifest обновления содержит некорректный размер файла.")
+                raise RuntimeError(
+                    "Manifest обновления содержит некорректный размер файла."
+                )
     else:
         if repository and tag:
-            raise RuntimeError("Manifest обновления содержит некорректный размер файла.")
+            raise RuntimeError(
+                "Manifest обновления содержит некорректный размер файла."
+            )
         size = None
 
     sha256 = validate_sha256(

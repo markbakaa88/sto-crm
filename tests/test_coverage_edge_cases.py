@@ -77,6 +77,7 @@ class TestCoverageEdgeCases(unittest.TestCase):
         self.tmpdir.cleanup()
         import sto_crm.updater
         import sto_crm.updates
+
         sto_crm.updates._UPDATE_INSTALL_IN_PROGRESS = False
         sto_crm.updates._UPDATE_INSTALL_SCHEDULED = False
         sto_crm.updater._UPDATE_INSTALL_IN_PROGRESS = False

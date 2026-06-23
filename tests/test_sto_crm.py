@@ -23,6 +23,7 @@ import sto_crm
 
 def frontend_contract_html() -> str:
     from sto_crm.web import load_test_index_html
+
     return load_test_index_html()
 
 
@@ -79,6 +80,7 @@ class StoCrmTests(unittest.TestCase):
         sto_crm.safe_log = self.old_safe_log
         self.tempdir.cleanup()
         import sys
+
         if "sto_crm.updater" in sys.modules:
             sys.modules["sto_crm.updater"]._UPDATE_INSTALL_IN_PROGRESS = False
             sys.modules["sto_crm.updater"]._UPDATE_INSTALL_SCHEDULED = False
@@ -2632,7 +2634,9 @@ class StoCrmTests(unittest.TestCase):
 
             # Ensure RUNTIME.bootstrap_token is registered and not marked as consumed for this test
             with sto_crm.runtime.BOOTSTRAP_REGISTRY.lock:
-                sto_crm.runtime.BOOTSTRAP_REGISTRY.consumed_tokens.pop(sto_crm.RUNTIME.bootstrap_token, None)
+                sto_crm.runtime.BOOTSTRAP_REGISTRY.consumed_tokens.pop(
+                    sto_crm.RUNTIME.bootstrap_token, None
+                )
             sto_crm.runtime.BOOTSTRAP_REGISTRY.register(sto_crm.RUNTIME.bootstrap_token)
 
             with urllib.request.urlopen(
@@ -4629,13 +4633,17 @@ class StoCrmTests(unittest.TestCase):
             self.assertTrue(token)
 
             # Первый обмен -> 200
-            with urllib.request.urlopen(f"{base}/api/bootstrap?bootstrap_token={token}", timeout=5) as response:
+            with urllib.request.urlopen(
+                f"{base}/api/bootstrap?bootstrap_token={token}", timeout=5
+            ) as response:
                 self.assertEqual(response.status, 200)
                 json.loads(response.read().decode("utf-8"))
 
             # Повтор тем же token -> 403
             with self.assertRaises(urllib.error.HTTPError) as error:
-                urllib.request.urlopen(f"{base}/api/bootstrap?bootstrap_token={token}", timeout=5)
+                urllib.request.urlopen(
+                    f"{base}/api/bootstrap?bootstrap_token={token}", timeout=5
+                )
             self.assertEqual(error.exception.code, 403)
             error.exception.close()
 
@@ -4648,7 +4656,9 @@ class StoCrmTests(unittest.TestCase):
             self.assertTrue(token_2)
             self.assertNotEqual(token, token_2)
 
-            with urllib.request.urlopen(f"{base}/api/bootstrap?bootstrap_token={token_2}", timeout=5) as response:
+            with urllib.request.urlopen(
+                f"{base}/api/bootstrap?bootstrap_token={token_2}", timeout=5
+            ) as response:
                 self.assertEqual(response.status, 200)
 
             # Expired token -> 403
@@ -4661,35 +4671,56 @@ class StoCrmTests(unittest.TestCase):
                 sto_crm.runtime.BOOTSTRAP_REGISTRY.tokens[token_3] = time.time() - 10
 
             with self.assertRaises(urllib.error.HTTPError) as error:
-                urllib.request.urlopen(f"{base}/api/bootstrap?bootstrap_token={token_3}", timeout=5)
+                urllib.request.urlopen(
+                    f"{base}/api/bootstrap?bootstrap_token={token_3}", timeout=5
+                )
             self.assertEqual(error.exception.code, 403)
             error.exception.close()
 
             # Additional regression checks for RUNTIME.bootstrap_token
             # Re-register RUNTIME.bootstrap_token in the registry to make it valid
             with sto_crm.runtime.BOOTSTRAP_REGISTRY.lock:
-                sto_crm.runtime.BOOTSTRAP_REGISTRY.consumed_tokens.pop(sto_crm.runtime.RUNTIME.bootstrap_token, None)
-            sto_crm.runtime.BOOTSTRAP_REGISTRY.register(sto_crm.runtime.RUNTIME.bootstrap_token)
+                sto_crm.runtime.BOOTSTRAP_REGISTRY.consumed_tokens.pop(
+                    sto_crm.runtime.RUNTIME.bootstrap_token, None
+                )
+            sto_crm.runtime.BOOTSTRAP_REGISTRY.register(
+                sto_crm.runtime.RUNTIME.bootstrap_token
+            )
 
             # 1. Первый обмен RUNTIME.bootstrap_token -> 200
-            with urllib.request.urlopen(f"{base}/api/bootstrap?bootstrap_token={sto_crm.runtime.RUNTIME.bootstrap_token}", timeout=5) as response:
+            with urllib.request.urlopen(
+                f"{base}/api/bootstrap?bootstrap_token={sto_crm.runtime.RUNTIME.bootstrap_token}",
+                timeout=5,
+            ) as response:
                 self.assertEqual(response.status, 200)
 
             # 2. Повторный обмен RUNTIME.bootstrap_token -> 403 (no self-renewal!)
             with self.assertRaises(urllib.error.HTTPError) as error:
-                urllib.request.urlopen(f"{base}/api/bootstrap?bootstrap_token={sto_crm.runtime.RUNTIME.bootstrap_token}", timeout=5)
+                urllib.request.urlopen(
+                    f"{base}/api/bootstrap?bootstrap_token={sto_crm.runtime.RUNTIME.bootstrap_token}",
+                    timeout=5,
+                )
             self.assertEqual(error.exception.code, 403)
             error.exception.close()
 
             # 3. Expired RUNTIME.bootstrap_token -> 403
             with sto_crm.runtime.BOOTSTRAP_REGISTRY.lock:
-                sto_crm.runtime.BOOTSTRAP_REGISTRY.consumed_tokens.pop(sto_crm.runtime.RUNTIME.bootstrap_token, None)
-            sto_crm.runtime.BOOTSTRAP_REGISTRY.register(sto_crm.runtime.RUNTIME.bootstrap_token)
+                sto_crm.runtime.BOOTSTRAP_REGISTRY.consumed_tokens.pop(
+                    sto_crm.runtime.RUNTIME.bootstrap_token, None
+                )
+            sto_crm.runtime.BOOTSTRAP_REGISTRY.register(
+                sto_crm.runtime.RUNTIME.bootstrap_token
+            )
             with sto_crm.runtime.BOOTSTRAP_REGISTRY.lock:
-                sto_crm.runtime.BOOTSTRAP_REGISTRY.tokens[sto_crm.runtime.RUNTIME.bootstrap_token] = time.time() - 10
+                sto_crm.runtime.BOOTSTRAP_REGISTRY.tokens[
+                    sto_crm.runtime.RUNTIME.bootstrap_token
+                ] = time.time() - 10
 
             with self.assertRaises(urllib.error.HTTPError) as error:
-                urllib.request.urlopen(f"{base}/api/bootstrap?bootstrap_token={sto_crm.runtime.RUNTIME.bootstrap_token}", timeout=5)
+                urllib.request.urlopen(
+                    f"{base}/api/bootstrap?bootstrap_token={sto_crm.runtime.RUNTIME.bootstrap_token}",
+                    timeout=5,
+                )
             self.assertEqual(error.exception.code, 403)
             error.exception.close()
 
