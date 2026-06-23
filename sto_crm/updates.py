@@ -160,6 +160,16 @@ class _UpdatesFacade(types.ModuleType):
         if name != "_originals" and name not in self.__dict__.setdefault(
             "_originals", {}
         ):
+            # Pre-record sub-facades first using their current values before first mutation
+            for m in (_backup, _updater, _checker, _installer):
+                if type(m) is not types.ModuleType:
+                    try:
+                        if hasattr(m, name):
+                            current_val = getattr(m, name)
+                            setattr(m, name, current_val)
+                    except Exception:
+                        pass
+
             facade_orig = self.__dict__.get(name, _SENTINEL)
             modules_orig = {}
             for module in (_backup, _updater, _checker, _installer):
@@ -181,7 +191,13 @@ class _UpdatesFacade(types.ModuleType):
         if name in originals:
             orig_data = originals[name]
             for module, orig_val in orig_data["modules"].items():
-                setattr(module, name, orig_val)
+                if type(module) is not types.ModuleType:
+                    try:
+                        delattr(module, name)
+                    except AttributeError:
+                        pass
+                else:
+                    setattr(module, name, orig_val)
 
             facade_orig = orig_data["facade"]
             del originals[name]

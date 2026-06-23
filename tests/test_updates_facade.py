@@ -82,6 +82,10 @@ class TestUpdatesFacadeMonkeypatch(unittest.TestCase):
         orig_installer_reparse = _installer.is_unsafe_link_or_reparse
         self.assertIsNot(orig_backup_reparse, orig_installer_reparse)
 
+        # Confirm both are indeed different original objects originally
+        # (they should be different functions, wrapped local delegates)
+        self.assertIsNot(orig_backup_reparse, orig_installer_reparse)
+
         mock_func = MagicMock()
         updates.is_unsafe_link_or_reparse = mock_func
 
