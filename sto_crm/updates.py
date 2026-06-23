@@ -158,7 +158,7 @@ class _UpdatesFacade(types.ModuleType):
 
     def __setattr__(self, name: str, value: Any) -> None:
         if name != "_originals" and name not in self.__dict__.setdefault("_originals", {}):
-            facade_orig = getattr(self, name, _SENTINEL)
+            facade_orig = self.__dict__.get(name, _SENTINEL)
             modules_orig = {}
             for module in (_backup, _updater, _checker, _installer, _runtime, _database):
                 if hasattr(module, name):

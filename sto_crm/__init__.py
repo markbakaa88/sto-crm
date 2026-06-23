@@ -34,6 +34,12 @@ from . import updater as updater
 from . import updates as updates
 from . import validation as validation
 from . import web as web
+from .runtime import (
+    consume_bootstrap_token as consume_bootstrap_token,
+)
+from .runtime import (
+    generate_bootstrap_token as generate_bootstrap_token,
+)
 
 _IMPLEMENTATION_MODULES = (
     config,
@@ -68,6 +74,9 @@ def _publish_module_symbols() -> None:
 _publish_module_symbols()
 
 
+_SENTINEL = object()
+
+
 class _StoCrmFacade(types.ModuleType):
     """Module type that keeps legacy monkeypatching semantics intact."""
 
@@ -82,15 +91,25 @@ class _StoCrmFacade(types.ModuleType):
         if name == "RUNTIME":
             runtime.RUNTIME = value
         if name != "_originals" and name not in self.__dict__.setdefault("_originals", {}):
-            orig = None
-            if name == "RUNTIME":
-                orig = runtime.RUNTIME
-            else:
-                for module in _IMPLEMENTATION_MODULES:
-                    if hasattr(module, name):
-                        orig = getattr(module, name)
-                        break
-            self.__dict__["_originals"][name] = orig
+            # Pre-record sub-facades first using their current values before first mutation
+            for m in _IMPLEMENTATION_MODULES:
+                if type(m) is not types.ModuleType:
+                    try:
+                        if hasattr(m, name):
+                            current_val = getattr(m, name)
+                            setattr(m, name, current_val)
+                    except Exception:
+                        pass
+
+            facade_orig = self.__dict__.get(name, _SENTINEL)
+            modules_orig = {}
+            for module in _IMPLEMENTATION_MODULES:
+                if hasattr(module, name):
+                    modules_orig[module] = getattr(module, name)
+            self.__dict__["_originals"][name] = {
+                "facade": facade_orig,
+                "modules": modules_orig,
+            }
 
         for module in _IMPLEMENTATION_MODULES:
             if hasattr(module, name):
@@ -100,23 +119,32 @@ class _StoCrmFacade(types.ModuleType):
     def __delattr__(self, name: str) -> None:
         originals = self.__dict__.setdefault("_originals", {})
         if name in originals:
-            orig_val = originals[name]
+            orig_data = originals[name]
             if name == "RUNTIME":
-                runtime.RUNTIME = orig_val
-            for module in _IMPLEMENTATION_MODULES:
-                if hasattr(module, name):
-                    if orig_val is None:
-                        try:
-                            delattr(module, name)
-                        except AttributeError:
-                            pass
-                    else:
-                        setattr(module, name, orig_val)
+                runtime.RUNTIME = orig_data["modules"].get(runtime, orig_data["facade"])
+            for module, orig_val in orig_data["modules"].items():
+                if type(module) is not types.ModuleType:
+                    try:
+                        delattr(module, name)
+                    except AttributeError:
+                        pass
+                else:
+                    setattr(module, name, orig_val)
+
+            facade_orig = orig_data["facade"]
             del originals[name]
-        try:
-            super().__delattr__(name)
-        except AttributeError:
-            pass
+            if facade_orig is _SENTINEL:
+                try:
+                    super().__delattr__(name)
+                except AttributeError:
+                    pass
+            else:
+                super().__setattr__(name, facade_orig)
+        else:
+            try:
+                super().__delattr__(name)
+            except AttributeError:
+                pass
 
 
 sys.modules[__name__].__class__ = _StoCrmFacade

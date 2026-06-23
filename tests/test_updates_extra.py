@@ -500,6 +500,9 @@ class TestUpdatesFacadeRegression(unittest.TestCase):
         orig_installer_unlink = installer._safe_unlink
         self.assertIsNot(orig_updater_unlink, orig_installer_unlink)
 
+        # Ensure dynamic-only symbols are not in facade dir initially
+        self.assertNotIn("_safe_unlink", sto_crm.updates.__dict__)
+
         # Apply monkeypatches via facade
         def dummy_ensure_real_dir(d: Path, n: str) -> None:
             return None
@@ -538,3 +541,44 @@ class TestUpdatesFacadeRegression(unittest.TestCase):
 
         self.assertIs(updater._safe_unlink, orig_updater_unlink)
         self.assertIs(installer._safe_unlink, orig_installer_unlink)
+
+        # Verify dynamic-only symbol does not stay as stale direct attribute on facade
+        self.assertNotIn("_safe_unlink", sto_crm.updates.__dict__)
+
+        # Facade must keep routing dynamically to submodules after cleanup
+        def replacement(p: Path) -> None:
+            pass
+        updater._safe_unlink = replacement
+        try:
+            self.assertIs(sto_crm.updates._safe_unlink, replacement)
+        finally:
+            updater._safe_unlink = orig_updater_unlink
+
+    def test_root_facade_monkeypatch_restoration(self):
+        import sto_crm
+        from sto_crm import backup
+        from sto_crm.updater import installer
+
+        orig_backup_dir = backup.ensure_real_dir
+        orig_installer_dir = installer.ensure_real_dir
+        orig_updates_dir = sto_crm.updates.ensure_real_dir
+
+        self.assertIsNot(orig_backup_dir, orig_installer_dir)
+
+        def dummy_ensure_dir(d: Path, n: str) -> None:
+            return None
+
+        sto_crm.ensure_real_dir = dummy_ensure_dir
+
+        # Verify it got patched everywhere
+        self.assertIs(sto_crm.ensure_real_dir, dummy_ensure_dir)
+        self.assertIs(backup.ensure_real_dir, dummy_ensure_dir)
+        self.assertIs(installer.ensure_real_dir, dummy_ensure_dir)
+        self.assertIs(sto_crm.updates.ensure_real_dir, dummy_ensure_dir)
+
+        # Deleting should restore each to their own original implementations
+        del sto_crm.ensure_real_dir
+
+        self.assertIs(backup.ensure_real_dir, orig_backup_dir)
+        self.assertIs(installer.ensure_real_dir, orig_installer_dir)
+        self.assertIs(sto_crm.updates.ensure_real_dir, orig_updates_dir)
