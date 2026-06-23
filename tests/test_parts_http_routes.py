@@ -235,3 +235,28 @@ class TestHttpPartsRoutes(unittest.TestCase):
         response_bytes = handler.request.bytes_written
         self.assertIn(b"HTTP/1.1 200 OK", response_bytes)
         mock_search.assert_called_once_with("123", "CTR", True)
+
+    @patch("sto_crm.parts_service.search_supplier_parts")
+    def test_get_parts_search_route_force_debounce(self, mock_search):
+        from sto_crm.parts_service import get_lock_for_query
+
+        # Acquire lock beforehand to simulate an in-progress request
+        lock = get_lock_for_query("123", "CTR")
+        lock_acquired = lock.acquire(blocking=False)
+        self.assertTrue(lock_acquired)
+
+        try:
+            headers = {
+                "Host": "localhost:8080",
+                "X-CRM-Access-Token": "test_access_token",
+                "X-CSRF-Token": "test_csrf_token",
+            }
+            handler = self._make_handler(
+                "GET", "/api/parts/search?q=123&brand=CTR&force=true", headers=headers
+            )
+            handler.handle_request("GET")
+            response_bytes = handler.request.bytes_written
+            self.assertIn(b"HTTP/1.1 429 Too Many Requests", response_bytes)
+            mock_search.assert_not_called()
+        finally:
+            lock.release()

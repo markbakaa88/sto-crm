@@ -101,6 +101,20 @@ def handle_reports(
                 handler.send_error_json(403, str(exc))
                 return True
 
+            # Implement single-flight / debounce lock check to prevent concurrently firing requests
+            from ..parts_service import get_lock_for_query
+            lock = get_lock_for_query(oem.strip().upper(), brand.strip().upper() if brand else None)
+            if not lock.acquire(blocking=False):
+                handler.send_error_json(429, "Запрос проценки уже выполняется. Пожалуйста, подождите.")
+                return True
+            try:
+                from ..parts_service import search_supplier_parts
+                parts = search_supplier_parts(oem, brand, force_refresh)
+                handler.send_json({"ok": True, "parts": parts})
+            finally:
+                lock.release()
+            return True
+
         from ..parts_service import search_supplier_parts
 
         try:
