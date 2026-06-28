@@ -185,6 +185,10 @@ class TestHttpPartsRoutes(unittest.TestCase):
             b'{"oem": "123", "brand": "CTR", "supplier": "rossko", "quantity": 2, "price": "inf"}',
             # too big price
             b'{"oem": "123", "brand": "CTR", "supplier": "rossko", "quantity": 2, "price": 999999999999}',
+            # zero price
+            b'{"oem": "123", "brand": "CTR", "supplier": "rossko", "quantity": 2, "price": 0.0}',
+            # negative price
+            b'{"oem": "123", "brand": "CTR", "supplier": "rossko", "quantity": 2, "price": -10.0}',
             # negative quantity
             b'{"oem": "123", "brand": "CTR", "supplier": "rossko", "quantity": -5, "price": 100.0}',
             # zero quantity
