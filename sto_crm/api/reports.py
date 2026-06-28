@@ -72,63 +72,104 @@ def handle_reports(
         return True
 
     if path.startswith("/api/parts/search"):
-        if method != "GET":
+        if method == "GET":
+            # Check for force query parameter: unauthorized/unsecured force-refresh attempts are rejected!
+            force_vals = query.get("force", [])
+            force_refresh = force_vals[0] == "true" if force_vals else False
+            if force_refresh:
+                handler.send_error_json(
+                    400,
+                    "Для выполнения принудительного обновления необходимо использовать POST-запрос с защитой CSRF."
+                )
+                return True
+
+            handler.validate_local_request_context()
+            handler.require_access_token()
+
+            # OEM query parameter is required
+            q_vals = query.get("q", [])
+            if not q_vals or not q_vals[0].strip():
+                handler.send_error_json(
+                    400, "Параметр поиска q (OEM номер) является обязательным."
+                )
+                return True
+            oem = q_vals[0]
+
+            brand_vals = query.get("brand", [])
+            brand = brand_vals[0] if brand_vals else None
+
+            from ..parts_service import search_supplier_parts
+            try:
+                parts = search_supplier_parts(oem, brand, force_refresh=False)
+                handler.send_json({"ok": True, "parts": parts})
+            except Exception as exc:
+                import logging
+                logging.getLogger("sto_crm").error(
+                    f"Search parts exception: {redact_sensitive_query(str(exc))}",
+                    exc_info=True,
+                )
+                handler.send_error_json(500, "Ошибка при проценке запчастей.")
+            return True
+
+        elif method == "POST":
+            handler.validate_local_request_context()
+            handler.require_access_token()
+            handler.require_csrf_token()
+            handler.require_json_content_type()
+
+            try:
+                payload = handler.read_json()
+            except Exception as exc:
+                handler.send_error_json(400, f"Некорректный JSON: {exc}")
+                return True
+
+            oem_raw = payload.get("q") or payload.get("oem")
+            oem = str(oem_raw) if oem_raw is not None else ""
+            if not oem.strip():
+                handler.send_error_json(
+                    400, "Параметр поиска q (OEM номер) является обязательным."
+                )
+                return True
+
+            brand_raw = payload.get("brand")
+            brand = str(brand_raw) if brand_raw is not None else None
+
+            force_refresh = payload.get("force", True)
+            if not isinstance(force_refresh, bool):
+                force_refresh = str(force_refresh).lower() == "true"
+
+            # If force_refresh is True, we acquire search lock for the (oem, brand) pair non-blocking:
+            if force_refresh:
+                from ..parts_service import get_lock_for_query
+                lock = get_lock_for_query(oem.strip().upper(), brand.strip().upper() if brand else None)
+                if not lock.acquire(blocking=False):
+                    handler.send_error_json(
+                        429, "Запрос проценки уже выполняется. Пожалуйста, подождите."
+                    )
+                    return True
+                try:
+                    from ..parts_service import search_supplier_parts
+                    parts = search_supplier_parts(oem, brand, force_refresh=True)
+                    handler.send_json({"ok": True, "parts": parts})
+                finally:
+                    lock.release()
+            else:
+                from ..parts_service import search_supplier_parts
+                try:
+                    parts = search_supplier_parts(oem, brand, force_refresh=False)
+                    handler.send_json({"ok": True, "parts": parts})
+                except Exception as exc:
+                    import logging
+                    logging.getLogger("sto_crm").error(
+                        f"Search parts exception: {redact_sensitive_query(str(exc))}",
+                        exc_info=True,
+                    )
+                    handler.send_error_json(500, "Ошибка при проценке запчастей.")
+            return True
+
+        else:
             handler.send_error_json(405, "Метод не поддерживается.")
             return True
-        handler.validate_local_request_context()
-        handler.require_access_token()
-
-        # OEM query parameter is required
-        q_vals = query.get("q", [])
-        if not q_vals or not q_vals[0].strip():
-            handler.send_error_json(
-                400, "Параметр поиска q (OEM номер) является обязательным."
-            )
-            return True
-        oem = q_vals[0]
-
-        brand_vals = query.get("brand", [])
-        brand = brand_vals[0] if brand_vals else None
-
-        # Check for optional force cache refresh query parameter
-        force_vals = query.get("force", [])
-        force_refresh = force_vals[0] == "true" if force_vals else False
-
-        if force_refresh:
-            try:
-                handler.require_csrf_token()
-            except PermissionError as exc:
-                handler.send_error_json(403, str(exc))
-                return True
-
-            # Implement single-flight / debounce lock check to prevent concurrently firing requests
-            from ..parts_service import get_lock_for_query
-            lock = get_lock_for_query(oem.strip().upper(), brand.strip().upper() if brand else None)
-            if not lock.acquire(blocking=False):
-                handler.send_error_json(429, "Запрос проценки уже выполняется. Пожалуйста, подождите.")
-                return True
-            try:
-                from ..parts_service import search_supplier_parts
-                parts = search_supplier_parts(oem, brand, force_refresh)
-                handler.send_json({"ok": True, "parts": parts})
-            finally:
-                lock.release()
-            return True
-
-        from ..parts_service import search_supplier_parts
-
-        try:
-            parts = search_supplier_parts(oem, brand, force_refresh)
-            handler.send_json({"ok": True, "parts": parts})
-        except Exception as exc:
-            import logging
-
-            logging.getLogger("sto_crm").error(
-                f"Search parts exception: {redact_sensitive_query(str(exc))}",
-                exc_info=True,
-            )
-            handler.send_error_json(500, "Ошибка при проценке запчастей.")
-        return True
 
     if path == "/api/parts/order":
         if method != "POST":

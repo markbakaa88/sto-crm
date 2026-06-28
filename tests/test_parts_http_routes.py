@@ -134,7 +134,7 @@ class TestHttpPartsRoutes(unittest.TestCase):
         handler.handle_request("GET")
 
         # Verify call parameters
-        mock_search.assert_called_once_with("123", "CTR", False)
+        mock_search.assert_called_once_with("123", "CTR", force_refresh=False)
 
         # Inspect response headers/body
         response_bytes = handler.request.bytes_written
@@ -211,15 +211,18 @@ class TestHttpPartsRoutes(unittest.TestCase):
 
     @patch("sto_crm.parts_service.search_supplier_parts")
     def test_get_parts_search_route_force_no_csrf(self, mock_search):
+        body = b'{"q": "123", "brand": "CTR", "force": true}'
         headers = {
             "Host": "localhost:8080",
             "X-CRM-Access-Token": "test_access_token",
+            "Content-Type": "application/json",
+            "Content-Length": str(len(body)),
             # No CSRF header or empty
         }
         handler = self._make_handler(
-            "GET", "/api/parts/search?q=123&brand=CTR&force=true", headers=headers
+            "POST", "/api/parts/search", body=body, headers=headers
         )
-        handler.handle_request("GET")
+        handler.handle_request("POST")
         response_bytes = handler.request.bytes_written
         self.assertIn(b"HTTP/1.1 403 Forbidden", response_bytes)
         mock_search.assert_not_called()
@@ -227,18 +230,21 @@ class TestHttpPartsRoutes(unittest.TestCase):
     @patch("sto_crm.parts_service.search_supplier_parts")
     def test_get_parts_search_route_force_with_csrf(self, mock_search):
         mock_search.return_value = []
+        body = b'{"q": "123", "brand": "CTR", "force": true}'
         headers = {
             "Host": "localhost:8080",
             "X-CRM-Access-Token": "test_access_token",
             "X-CSRF-Token": "test_csrf_token",
+            "Content-Type": "application/json",
+            "Content-Length": str(len(body)),
         }
         handler = self._make_handler(
-            "GET", "/api/parts/search?q=123&brand=CTR&force=true", headers=headers
+            "POST", "/api/parts/search", body=body, headers=headers
         )
-        handler.handle_request("GET")
+        handler.handle_request("POST")
         response_bytes = handler.request.bytes_written
         self.assertIn(b"HTTP/1.1 200 OK", response_bytes)
-        mock_search.assert_called_once_with("123", "CTR", True)
+        mock_search.assert_called_once_with("123", "CTR", force_refresh=True)
 
     @patch("sto_crm.parts_service.search_supplier_parts")
     def test_get_parts_search_route_force_debounce(self, mock_search):
@@ -250,15 +256,18 @@ class TestHttpPartsRoutes(unittest.TestCase):
         self.assertTrue(lock_acquired)
 
         try:
+            body = b'{"q": "123", "brand": "CTR", "force": true}'
             headers = {
                 "Host": "localhost:8080",
                 "X-CRM-Access-Token": "test_access_token",
                 "X-CSRF-Token": "test_csrf_token",
+                "Content-Type": "application/json",
+                "Content-Length": str(len(body)),
             }
             handler = self._make_handler(
-                "GET", "/api/parts/search?q=123&brand=CTR&force=true", headers=headers
+                "POST", "/api/parts/search", body=body, headers=headers
             )
-            handler.handle_request("GET")
+            handler.handle_request("POST")
             response_bytes = handler.request.bytes_written
             self.assertIn(b"HTTP/1.1 429 Too Many Requests", response_bytes)
             mock_search.assert_not_called()
