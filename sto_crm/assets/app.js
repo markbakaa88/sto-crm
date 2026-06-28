@@ -1018,12 +1018,12 @@ function render() {
     let bannersWrapper = content.querySelector(".banners-wrapper");
     let viewsWrapper = content.querySelector(".views-wrapper");
     if (!bannersWrapper || !viewsWrapper) {
-        content.innerHTML = `<div class="banners-wrapper"></div><div class="views-wrapper"></div>`;
+        setHTMLSafe(content, `<div class="banners-wrapper"></div><div class="views-wrapper"></div>`);
         bannersWrapper = content.querySelector(".banners-wrapper");
         viewsWrapper = content.querySelector(".views-wrapper");
     }
 
-    bannersWrapper.innerHTML = `${offlineBannerHtml()}${errorBannerHtml()}${contextStripHtml()}`;
+    setHTMLSafe(bannersWrapper, `${offlineBannerHtml()}${errorBannerHtml()}${contextStripHtml()}`);
 
     resetWorkspaceToolbarObserver();
     const renderers = {
@@ -1066,7 +1066,7 @@ function render() {
         viewHtml = noticeHtml("error", "Не удалось отрисовать раздел.", state.lastError, `<button class="btn primary" type="button" data-action="retry-load">Обновить данные</button>`);
     }
 
-    currentViewEl.innerHTML = viewHtml;
+    setHTMLSafe(currentViewEl, viewHtml);
     content.setAttribute("aria-busy", busy);
     bindViewActions(currentViewEl);
     if (state.route === "dashboard") {
