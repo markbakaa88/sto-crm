@@ -64,7 +64,7 @@ const REQUIRED_JS_PUBLIC_HOOKS = [
   "lastLoadedAt",
   "try {",
   "viewHtml = renderers[state.route]();",
-  "bannersWrapper.innerHTML = `${offlineBannerHtml()}${errorBannerHtml()}${contextStripHtml()}`;",
+  "setHTMLSafe(bannersWrapper, `${offlineBannerHtml()}${errorBannerHtml()}${contextStripHtml()}`);",
   'if (!force && !state.offlineMode) return "";',
   "offlineBannerHtml(true)",
   "Не удалось отрисовать раздел.",
