@@ -165,8 +165,9 @@ def handle_reports(
 
         try:
             quantity = require_non_negative_int(quantity_raw, "Количество")
-            if quantity <= 0:
-                raise ValueError("Количество должно быть положительным.")
+            from ..config import SQLITE_INTEGER_MAX
+            if quantity <= 0 or quantity > SQLITE_INTEGER_MAX:
+                raise ValueError("Количество должно быть положительным и в пределах допустимого диапазона.")
         except (ValueError, TypeError) as exc:
             handler.send_error_json(
                 400, f"Количество должно быть положительным целым числом: {exc}"
@@ -176,9 +177,11 @@ def handle_reports(
         try:
             price = require_non_negative_float(price_raw, "Цена")
             ensure_finite_money(price, "Цена")
+            if price <= 0.0:
+                raise ValueError("Цена должна быть положительным числом.")
         except (ValueError, TypeError) as exc:
             handler.send_error_json(
-                400, f"Цена должна быть неотрицательным числом: {exc}"
+                400, f"Цена должна быть положительным числом: {exc}"
             )
             return True
 

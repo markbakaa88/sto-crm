@@ -61,10 +61,11 @@ class PartsAggregator:
                     f"Пул потоков выбросил исключение для {supplier_name}: {e}"
                 )
 
-        # Log any timed out calls
+        # Log any timed out calls & cancel the future if running or pending.
         for future in not_done:
             supplier_name = futures[future]
             safe_log(f"Запрос к {supplier_name} отменен по таймауту агрегатора.")
+            future.cancel()
 
         return results
 
