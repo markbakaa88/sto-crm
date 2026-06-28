@@ -273,3 +273,124 @@ class TestHttpPartsRoutes(unittest.TestCase):
             mock_search.assert_not_called()
         finally:
             lock.release()
+
+    @patch("sto_crm.parts_service.search_supplier_parts")
+    def test_post_parts_search_route_force_concurrent_debounce(self, mock_search):
+        import threading
+
+        reached_event = threading.Event()
+        block_event = threading.Event()
+
+        call_count = 0
+
+        def patched_search(oem, brand, force_refresh):
+            nonlocal call_count
+            call_count += 1
+            reached_event.set()
+            block_event.wait(timeout=5.0)
+            return []
+
+        mock_search.side_effect = patched_search
+
+        t1_response = b""
+
+        def thread1_target():
+            nonlocal t1_response
+            body = b'{"q": "123", "brand": "CTR", "force": true}'
+            headers = {
+                "Host": "localhost:8080",
+                "X-CRM-Access-Token": "test_access_token",
+                "X-CSRF-Token": "test_csrf_token",
+                "Content-Type": "application/json",
+                "Content-Length": str(len(body)),
+            }
+            handler = self._make_handler(
+                "POST", "/api/parts/search", body=body, headers=headers
+            )
+            handler.handle_request("POST")
+            t1_response = handler.request.bytes_written
+
+        t1 = threading.Thread(target=thread1_target)
+        t1.start()
+
+        reached_event.wait(timeout=2.0)
+
+        t2_response = b""
+
+        def thread2_target():
+            nonlocal t2_response
+            body = b'{"q": "123", "brand": "CTR", "force": true}'
+            headers = {
+                "Host": "localhost:8080",
+                "X-CRM-Access-Token": "test_access_token",
+                "X-CSRF-Token": "test_csrf_token",
+                "Content-Type": "application/json",
+                "Content-Length": str(len(body)),
+            }
+            handler = self._make_handler(
+                "POST", "/api/parts/search", body=body, headers=headers
+            )
+            handler.handle_request("POST")
+            t2_response = handler.request.bytes_written
+
+        t2 = threading.Thread(target=thread2_target)
+        t2.start()
+        t2.join()
+
+        block_event.set()
+        t1.join()
+
+        self.assertIn(b"HTTP/1.1 200 OK", t1_response)
+        self.assertIn(b"HTTP/1.1 429 Too Many Requests", t2_response)
+        self.assertEqual(call_count, 1)
+
+    @patch("sto_crm.parts_service.search_supplier_parts")
+    def test_get_parts_search_route_force_alternate_spellings_rejected(
+        self, mock_search
+    ):
+        spellings = ["True", "1", "yes", "TRUE", "true"]
+        for sp in spellings:
+            mock_search.reset_mock()
+            headers = {
+                "Host": "localhost:8080",
+                "X-CRM-Access-Token": "test_access_token",
+            }
+            handler = self._make_handler(
+                "GET", f"/api/parts/search?q=123&brand=CTR&force={sp}", headers=headers
+            )
+            handler.handle_request("GET")
+            response_bytes = handler.request.bytes_written
+            self.assertIn(b"HTTP/1.1 400 Bad Request", response_bytes)
+            mock_search.assert_not_called()
+
+    @patch("sto_crm.parts_service.search_supplier_parts")
+    def test_post_parts_search_route_exception_releases_lock(self, mock_search):
+        mock_search.side_effect = RuntimeError("Mock exception")
+        from sto_crm.parts_service import get_lock_for_query
+
+        lock = get_lock_for_query("123", "CTR")
+        self.assertFalse(lock.locked())
+
+        body = b'{"q": "123", "brand": "CTR", "force": true}'
+        headers = {
+            "Host": "localhost:8080",
+            "X-CRM-Access-Token": "test_access_token",
+            "X-CSRF-Token": "test_csrf_token",
+            "Content-Type": "application/json",
+            "Content-Length": str(len(body)),
+        }
+        handler = self._make_handler(
+            "POST", "/api/parts/search", body=body, headers=headers
+        )
+        handler.handle_request("POST")
+        response_bytes = handler.request.bytes_written
+        self.assertIn(b"HTTP/1.1 500 Internal Server Error", response_bytes)
+        self.assertIn(
+            "Ошибка при проценке запчастей.".encode(),
+            response_bytes,
+        )
+
+        self.assertFalse(lock.locked())
+        lock_acquired = lock.acquire(blocking=False)
+        self.assertTrue(lock_acquired)
+        lock.release()

@@ -73,13 +73,11 @@ def handle_reports(
 
     if path.startswith("/api/parts/search"):
         if method == "GET":
-            # Check for force query parameter: unauthorized/unsecured force-refresh attempts are rejected!
-            force_vals = query.get("force", [])
-            force_refresh = force_vals[0] == "true" if force_vals else False
-            if force_refresh:
+            # Check for force query parameter: reject any presence of "force" regardless of spelling or value.
+            if any(k.lower() == "force" for k in query):
                 handler.send_error_json(
                     400,
-                    "Для выполнения принудительного обновления необходимо использовать POST-запрос с защитой CSRF."
+                    "Для принудительного обновления проценки необходимо выполнять POST-запрос с защитой CSRF.",
                 )
                 return True
 
@@ -99,11 +97,13 @@ def handle_reports(
             brand = brand_vals[0] if brand_vals else None
 
             from ..parts_service import search_supplier_parts
+
             try:
                 parts = search_supplier_parts(oem, brand, force_refresh=False)
                 handler.send_json({"ok": True, "parts": parts})
             except Exception as exc:
                 import logging
+
                 logging.getLogger("sto_crm").error(
                     f"Search parts exception: {redact_sensitive_query(str(exc))}",
                     exc_info=True,
@@ -141,7 +141,10 @@ def handle_reports(
             # If force_refresh is True, we acquire search lock for the (oem, brand) pair non-blocking:
             if force_refresh:
                 from ..parts_service import get_lock_for_query
-                lock = get_lock_for_query(oem.strip().upper(), brand.strip().upper() if brand else None)
+
+                lock = get_lock_for_query(
+                    oem.strip().upper(), brand.strip().upper() if brand else None
+                )
                 if not lock.acquire(blocking=False):
                     handler.send_error_json(
                         429, "Запрос проценки уже выполняется. Пожалуйста, подождите."
@@ -149,17 +152,28 @@ def handle_reports(
                     return True
                 try:
                     from ..parts_service import search_supplier_parts
+
                     parts = search_supplier_parts(oem, brand, force_refresh=True)
                     handler.send_json({"ok": True, "parts": parts})
+                except Exception as exc:
+                    import logging
+
+                    logging.getLogger("sto_crm").error(
+                        f"Search parts exception: {redact_sensitive_query(str(exc))}",
+                        exc_info=True,
+                    )
+                    handler.send_error_json(500, "Ошибка при проценке запчастей.")
                 finally:
                     lock.release()
             else:
                 from ..parts_service import search_supplier_parts
+
                 try:
                     parts = search_supplier_parts(oem, brand, force_refresh=False)
                     handler.send_json({"ok": True, "parts": parts})
                 except Exception as exc:
                     import logging
+
                     logging.getLogger("sto_crm").error(
                         f"Search parts exception: {redact_sensitive_query(str(exc))}",
                         exc_info=True,
@@ -207,8 +221,11 @@ def handle_reports(
         try:
             quantity = require_non_negative_int(quantity_raw, "Количество")
             from ..config import SQLITE_INTEGER_MAX
+
             if quantity <= 0 or quantity > SQLITE_INTEGER_MAX:
-                raise ValueError("Количество должно быть положительным и в пределах допустимого диапазона.")
+                raise ValueError(
+                    "Количество должно быть положительным и в пределах допустимого диапазона."
+                )
         except (ValueError, TypeError) as exc:
             handler.send_error_json(
                 400, f"Количество должно быть положительным целым числом: {exc}"
@@ -282,9 +299,7 @@ def handle_reports(
             "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
         )
         handler.send_header("Connection", "close")
-        handler.send_header(
-            "Content-Disposition", f'attachment; filename="{filename}"'
-        )
+        handler.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         handler.end_headers()
 
         try:
