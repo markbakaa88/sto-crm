@@ -146,6 +146,14 @@ class TestCoverageEdge(unittest.TestCase):
             }
             self.assertFalse(is_installable_update_asset(wrong_exe_asset))
 
+            wrong_help_exe_asset = {
+                "name": "not-sto-crm-helper.exe",
+                "size": 1000,
+                "download_url": "https://github.com/markbakaa88/sto-crm/releases/download/v99.0.0/not-sto-crm-helper.exe",
+                "sha256": "a" * 64,
+            }
+            self.assertFalse(is_installable_update_asset(wrong_help_exe_asset))
+
             # 2. .exe asset with missing, zero, negative, non-numeric, or oversized size is not installable
             # Missing size
             bad_asset_empty_size = {
@@ -228,6 +236,12 @@ class TestCoverageEdge(unittest.TestCase):
         finally:
             updater.latest_release_info = orig_latest
             updater.can_install_windows_update = orig_can
+            # Reset global installation states to prevent polluting other tests
+            import sto_crm.updater as upd_mod
+
+            with upd_mod._UPDATE_INSTALL_LOCK:
+                upd_mod._UPDATE_INSTALL_IN_PROGRESS = False
+                upd_mod._UPDATE_INSTALL_SCHEDULED = False
 
     def test_prune_backups_empty_or_symlink_dir(self):
         import tempfile

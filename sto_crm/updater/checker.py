@@ -49,7 +49,7 @@ def release_asset_score(asset: dict[str, Any]) -> int:
     name = str(asset.get("name") or "")
     lowered = name.lower()
     score = 0
-    if EXE_ASSET_RE.search(name):
+    if EXE_ASSET_RE.fullmatch(name):
         score += 100
     if lowered.endswith(".exe"):
         score += 40
@@ -149,7 +149,7 @@ def validate_manifest_asset_download_url(url: str, repository: str, tag: str) ->
             )
         from pathlib import Path
 
-        if not EXE_ASSET_RE.search(Path(urllib.parse.unquote(parsed.path)).name):
+        if not EXE_ASSET_RE.fullmatch(Path(urllib.parse.unquote(parsed.path)).name):
             raise RuntimeError(
                 "Manifest обновления должен указывать файл STO_CRM.exe из ожидаемого GitHub Release."
             )
