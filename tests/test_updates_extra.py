@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import sto_crm.updates  # noqa: F401
+
 
 class TestUpdatesWindowsMock(unittest.TestCase):
     @patch("sto_crm.updates.app_executable_path")

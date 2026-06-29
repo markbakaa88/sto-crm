@@ -92,16 +92,27 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     except ValueError as exc:
         parser.error(str(exc))
     if args.db is not None:
-        args.db = normalize_db_path(args.db)
+        try:
+            args.db = normalize_db_path(args.db)
+        except OSError as exc:
+            parser.error(str(exc))
     return args
 
 
 def normalize_db_path(path: str | Path) -> Path:
     raw = str(path)
-    resolved = Path(raw).expanduser().resolve()
+    import os
+
+    from .filesystem_safety import check_unsafe_path_or_parents
+
+    raw_path = Path(os.path.normpath(Path(raw).expanduser().absolute()))
+    check_unsafe_path_or_parents(raw_path)
+    resolved = raw_path.resolve()
     app_root = app_dir().resolve()
     if resolved == app_root or resolved.is_dir() or raw.endswith(("/", "\\")):
-        return resolved / "sto_crm.sqlite3"
+        target = raw_path / "sto_crm.sqlite3"
+        check_unsafe_path_or_parents(target)
+        return target.resolve()
     return resolved
 
 
