@@ -110,3 +110,84 @@ class TestRuntimeExtraMissing(unittest.TestCase):
             # Ensure no file was created
             self.assertFalse((real / "crm.sqlite3").exists())
             self.assertFalse(target.exists())
+
+    def test_windows_cloud_reparse_parent_not_allowed_for_db(self):
+        from sto_crm.filesystem_safety import check_unsafe_path_or_parents
+
+        mock_dir = Path("/tmp/mock_windows_onedrive")
+        mock_stat = MagicMock()
+        mock_stat.st_file_attributes = 0x400  # FILE_ATTRIBUTE_REPARSE_POINT
+        mock_stat.st_reparse_tag = 0x80000021  # OneDrive cloud tag
+
+        db_file = mock_dir / "crm.sqlite3"
+
+        def fake_lstat(path):
+            if str(path) == str(mock_dir):
+                return mock_stat
+            res = MagicMock()
+            res.st_file_attributes = 0
+            res.st_reparse_tag = 0
+            return res
+
+        with patch("os.name", "nt"), patch("os.lstat", side_effect=fake_lstat):
+            with self.assertRaises(OSError) as ctx:
+                check_unsafe_path_or_parents(db_file, allow_cloud_reparse=False)
+
+            self.assertTrue(
+                any(
+                    phrase in str(ctx.exception)
+                    for phrase in ["символической ссылкой", "reparse point"]
+                )
+            )
+
+    def test_windows_cloud_reparse_parent_allowed_with_flag(self):
+        from sto_crm.filesystem_safety import check_unsafe_path_or_parents
+
+        mock_dir = Path("/tmp/mock_windows_onedrive_allowed")
+        mock_stat = MagicMock()
+        mock_stat.st_file_attributes = 0x400  # FILE_ATTRIBUTE_REPARSE_POINT
+        mock_stat.st_reparse_tag = 0x80000021  # OneDrive cloud tag
+
+        db_file = mock_dir / "crm.sqlite3"
+
+        def fake_lstat(path):
+            if str(path) == str(mock_dir):
+                return mock_stat
+            res = MagicMock()
+            res.st_file_attributes = 0
+            res.st_reparse_tag = 0
+            return res
+
+        with patch("os.name", "nt"), patch("os.lstat", side_effect=fake_lstat):
+            check_unsafe_path_or_parents(db_file, allow_cloud_reparse=True)
+
+    def test_inspection_failures_on_existing_parent_raise_oserror(self):
+        from sto_crm.filesystem_safety import check_unsafe_path_or_parents
+
+        mock_dir = Path("/tmp/mock_permission_error_dir")
+        db_file = mock_dir / "crm.sqlite3"
+
+        def fake_lstat(path):
+            if str(path) == str(mock_dir):
+                raise PermissionError("Access denied")
+            res = MagicMock()
+            res.st_file_attributes = 0
+            res.st_reparse_tag = 0
+            return res
+
+        with patch("os.lstat", side_effect=fake_lstat):
+            with self.assertRaises(OSError) as ctx:
+                check_unsafe_path_or_parents(db_file)
+            self.assertIn("Failed to check path safety", str(ctx.exception))
+
+    def test_file_not_found_on_unsafe_check_passes(self):
+        from sto_crm.filesystem_safety import check_unsafe_path_or_parents
+
+        mock_dir = Path("/tmp/mock_nonexistent_dir")
+        db_file = mock_dir / "crm.sqlite3"
+
+        def fake_lstat(path):
+            raise FileNotFoundError("No such file or directory")
+
+        with patch("os.lstat", side_effect=fake_lstat):
+            check_unsafe_path_or_parents(db_file)
