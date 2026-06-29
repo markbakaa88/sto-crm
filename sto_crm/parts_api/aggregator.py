@@ -44,12 +44,10 @@ class PartsAggregator:
             _EXECUTOR.submit(query_one, adapter): adapter.supplier_name
             for adapter in self.adapters
         }
-        # Wait with a timeout (plus a safe margin of 2 seconds over standard HTTP timeout)
+        # Wait with a timeout
         from ..config import PARTS_API_TIMEOUT
 
-        done, not_done = concurrent.futures.wait(
-            futures, timeout=PARTS_API_TIMEOUT + 2
-        )
+        done, not_done = concurrent.futures.wait(futures, timeout=PARTS_API_TIMEOUT)
 
         for future in done:
             try:
@@ -57,9 +55,7 @@ class PartsAggregator:
                 results.extend(res)
             except Exception as e:
                 supplier_name = futures[future]
-                safe_log(
-                    f"Пул потоков выбросил исключение для {supplier_name}: {e}"
-                )
+                safe_log(f"Пул потоков выбросил исключение для {supplier_name}: {e}")
 
         # Log any timed out calls & cancel the future if running or pending.
         for future in not_done:
