@@ -113,3 +113,39 @@ class TestUpdatesFacadeMonkeypatch(unittest.TestCase):
 
         self.assertIs(_updater._safe_unlink, orig_updater_unlink)
         self.assertIs(_installer._safe_unlink, orig_installer_unlink)
+
+    def test_non_existent_attribute_fallback_to_facade(self):
+        # Setting a completely new attribute not present in submodules
+        self.assertFalse(hasattr(updates, "totally_new_attr_unused"))
+        updates.totally_new_attr_unused = "hello_world"
+        self.assertEqual(updates.totally_new_attr_unused, "hello_world")
+
+        # Ensure it didn't leak/patch onto submodules
+        self.assertFalse(hasattr(_backup, "totally_new_attr_unused"))
+        self.assertFalse(hasattr(_updater, "totally_new_attr_unused"))
+
+        # Deleting it must restore it to non-existent state
+        del updates.totally_new_attr_unused
+        self.assertFalse(hasattr(updates, "totally_new_attr_unused"))
+
+    def test_mocked_submodule_preserves_monkeypatch_flow(self):
+        # Replace _updater temporarily with a MagicMock (non-ModuleType)
+        import sto_crm.updates as updates_mod
+        orig_updater_ref = updates_mod._updater
+        mock_updater = MagicMock(spec=["mocked_attr_on_updater"])
+        mock_updater.mocked_attr_on_updater = "original_mock_val"
+
+        # Inject mock_updater into updates facade namespace
+        updates_mod._updater = mock_updater
+        try:
+            # Patch mocked_attr_on_updater via facade
+            updates.mocked_attr_on_updater = "patched_mock_val"
+            self.assertEqual(mock_updater.mocked_attr_on_updater, "patched_mock_val")
+            self.assertEqual(updates.mocked_attr_on_updater, "patched_mock_val")
+
+            # Restore via delattr
+            del updates.mocked_attr_on_updater
+            self.assertEqual(mock_updater.mocked_attr_on_updater, "original_mock_val")
+        finally:
+            updates_mod._updater = orig_updater_ref
+
