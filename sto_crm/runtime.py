@@ -74,6 +74,9 @@ def ensure_private_file(path: Path) -> None:
 
 def ensure_private_file_created(path: Path) -> None:
     """Create a sensitive local file with restrictive permissions from the first open."""
+    from .filesystem_safety import check_unsafe_path_or_parents
+
+    check_unsafe_path_or_parents(path)
     ensure_private_dir(path.parent)
     is_link = False
     try:

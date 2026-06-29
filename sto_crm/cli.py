@@ -98,10 +98,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def normalize_db_path(path: str | Path) -> Path:
     raw = str(path)
-    resolved = Path(raw).expanduser().resolve()
+    from .filesystem_safety import check_unsafe_path_or_parents
+
+    raw_path = Path(raw).expanduser()
+    check_unsafe_path_or_parents(raw_path)
+    resolved = raw_path.resolve()
     app_root = app_dir().resolve()
     if resolved == app_root or resolved.is_dir() or raw.endswith(("/", "\\")):
-        return resolved / "sto_crm.sqlite3"
+        target = resolved / "sto_crm.sqlite3"
+        check_unsafe_path_or_parents(target)
+        return target
     return resolved
 
 
